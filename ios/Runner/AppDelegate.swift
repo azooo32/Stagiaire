@@ -40,7 +40,7 @@ import UIKit
         queue: OperationQueue.main
       ) { _ in
         let isCaptured = UIScreen.main.isCaptured
-        securityChannel.invokeMethod("onScreenCaptureChanged", isCaptured)
+        securityChannel.invokeMethod("onScreenCaptureChanged", arguments: isCaptured)
       }
     }
 
