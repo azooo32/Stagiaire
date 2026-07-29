@@ -55,5 +55,13 @@
 		<string>يطلب التطبيق الوصول إلى مكتبة الصور لحفظ الصور المعدلة.</string>
 		<key>NSMicrophoneUsageDescription</key>
 		<string>يطلب التطبيق الوصول إلى الميكروفون لتسجيل الشروحات الصوتية للأسئلة.</string>
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>tg</string>
+			<string>https</string>
+			<string>http</string>
+		</array>
 	</dict>
 </plist>
