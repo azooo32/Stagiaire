@@ -1,0 +1,158 @@
+إليك برومبت واحد يجمع جميع التعديلات بشكل منظم وواضح:
+Please implement the following improvements to the Slide Workspace and Slide Editor. These are production-level UX and architecture improvements.
+
+═══════════════════════════════════════
+1. PINCH ZOOM BEHAVIOR
+═══════════════════════════════════════
+
+The current zoom behavior is still incorrect.
+
+Current behavior:
+- Zooming always occurs toward the center of the workspace.
+
+Desired behavior:
+
+• During a two-finger pinch gesture, zoom should occur around the gesture focal point.
+• If I place my fingers over a specific slide or object, that exact area should remain under my fingers while zooming.
+• The workspace should expand naturally around the pinch focal point.
+• Zooming out should still keep the workspace visually balanced and centered whenever possible.
+• The interaction should feel similar to Canva, Figma, GoodNotes, and Apple Freeform.
+
+═══════════════════════════════════════
+2. SUBTITLE HEADERS
+═══════════════════════════════════════
+
+Slides are grouped by Subtitle.
+
+Whenever the first slide of a new Subtitle appears:
+
+• Display a horizontal subtitle header above it.
+• Display the same header inside the thumbnail panel.
+
+The header should:
+
+- Span almost the full width.
+- Have a clean rounded rectangle design.
+- Display only the Subtitle name.
+- Clearly separate one subtitle section from the next while scrolling.
+
+This should appear both:
+
+• In the Workspace.
+• In the Slide Thumbnail panel.
+
+═══════════════════════════════════════
+3. MOBILE DRAWING MODE
+═══════════════════════════════════════
+
+Small screens (phones) should behave differently from tablets.
+
+When the Pen tool is enabled:
+
+• Finger input should draw.
+• Disable scrolling.
+• Disable panning.
+• Disable pinch zoom.
+• Allow uninterrupted finger drawing.
+
+When the Pen tool is disabled:
+
+• Finger input should navigate normally.
+• Enable scrolling.
+• Enable pinch zoom.
+• Enable panning.
+
+This behavior is ONLY for small-screen devices.
+
+═══════════════════════════════════════
+4. TABLET APPLE PENCIL STABILITY
+═══════════════════════════════════════
+
+On iPad and large-screen devices there is still an issue.
+
+While writing vertically using Apple Pencil, the workspace slightly moves up and down.
+
+Requirements:
+
+• Apple Pencil should only draw.
+• Apple Pencil must never trigger scrolling.
+• Apple Pencil must never trigger panning.
+• The workspace must remain completely stable while writing.
+• Finger gestures remain responsible for navigation.
+
+═══════════════════════════════════════
+5. SUBTITLE CHANGES
+═══════════════════════════════════════
+
+Each slide already stores:
+
+• subtitle_order
+• slide_order
+
+When editing a slide:
+
+If the Subtitle changes:
+
+Treat it as moving to a different subtitle group.
+
+Automatically:
+
+• Update subtitle_order.
+• Recalculate slide_order.
+• Trigger the ordering logic.
+• Place the slide correctly inside the new subtitle.
+• Renumber affected slides if necessary.
+
+The database should always remain consistent.
+
+═══════════════════════════════════════
+6. QUESTION & ANSWER TYPOGRAPHY
+═══════════════════════════════════════
+
+Improve readability.
+
+Question:
+
+• Increase font size by approximately +6.
+• Use Bold.
+• Improve spacing.
+
+Answer:
+
+• Increase font size by approximately +6.
+• Improve readability.
+
+═══════════════════════════════════════
+7. FLEXIBLE LAYOUT
+═══════════════════════════════════════
+
+The divider between the slide image and the Question/Answer panel should NOT be fixed.
+
+Instead, use a flexible layout.
+
+Examples:
+
+Portrait images:
+
+• Image occupies approximately one-third.
+• Question/Answer occupies approximately two-thirds.
+
+Landscape images:
+
+• Image expands naturally.
+• Question/Answer panel adjusts automatically.
+• Avoid unnecessary empty space.
+
+The divider should dynamically adapt according to the image aspect ratio.
+
+═══════════════════════════════════════
+8. OFFLINE IMAGE CACHE
+═══════════════════════════════════════
+
+Offline slide images sometimes do not appear.
+
+Investigate the image loading pipeline.
+
+Requirements:
+
+• Ensure images are cached correctly.
