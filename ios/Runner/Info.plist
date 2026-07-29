@@ -63,7 +63,5 @@
 			<string>https</string>
 			<string>http</string>
 		</array>
-		<key>NSLocationWhenInUseUsageDescription</key>
-		<string>يطلب التطبيق الوصول إلى موقعك عند الاستخدام لتحديد وتخصيص محتوى الأسئلة والتدريبات المناسبة لمنطقتك الجغرافية.</string>
 	</dict>
 </plist>
