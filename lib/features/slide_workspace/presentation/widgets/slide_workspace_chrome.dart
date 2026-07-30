@@ -182,3 +182,40 @@ class ColorDot extends StatelessWidget {
     );
   }
 }
+
+class ToolbarCapsule extends StatelessWidget {
+  final Widget child;
+  final bool isDark;
+  final EdgeInsetsGeometry padding;
+
+  const ToolbarCapsule({
+    super.key,
+    required this.child,
+    required this.isDark,
+    this.padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xEE191528) : const Color(0xF8FFFFFF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? const Color(0xFF332C4A) : const Color(0xFFE6E1F3),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.22 : 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: padding,
+        child: child,
+      ),
+    );
+  }
+}
