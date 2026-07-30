@@ -1472,12 +1472,40 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
   GlobalKey _slideKeyFor(int index) =>
       _slideKeys.putIfAbsent(index, GlobalKey.new);
 
+  bool _initialScrollAligned = false;
+
   @override
   void initState() {
     super.initState();
     widget.transformationController.addListener(_onTransformChanged);
     _flingAnimationController = AnimationController.unbounded(vsync: this);
     _flingAnimationController.addListener(_onFlingTick);
+
+    // Align to the current slide on startup / initialization
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _alignToCurrentSlide();
+      }
+    });
+  }
+
+  void _alignToCurrentSlide() {
+    _animateToSlide(
+      transformationController: widget.transformationController,
+      index: widget.controller.currentIndex,
+      compact: widget.compact,
+      fillWidth: widget.fillWidth,
+      canManageSlides: widget.canManageSlides,
+      slides: widget.controller.slides,
+      context: context,
+    );
+    Future.microtask(() {
+      if (mounted) {
+        setState(() {
+          _initialScrollAligned = true;
+        });
+      }
+    });
   }
 
   @override
@@ -1505,7 +1533,7 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
     }
 
     // Automatically update the active slide index to the one closest to the vertical center of the screen
-    if (_lastViewportHeight > 0 && _lastPageWidth > 0 && widget.controller.hasSlides) {
+    if (_initialScrollAligned && _lastViewportHeight > 0 && _lastPageWidth > 0 && widget.controller.hasSlides) {
       final translation = matrix.getTranslation();
       final centerY = (-translation.y + _lastViewportHeight / 2) / scale;
 
@@ -1608,8 +1636,22 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
           
           final pageWidth = (constraints.maxWidth - (sidePad * 2)).clamp(280.0, double.infinity);
 
+          final oldHeight = _lastViewportHeight;
+          final oldWidth = _lastPageWidth;
+
           _lastViewportHeight = constraints.maxHeight;
           _lastPageWidth = pageWidth;
+
+          // If the layout size changed (e.g., orientation change),
+          // we should re-align the scroll to the current slide.
+          if (oldHeight > 0 && oldWidth > 0 && (oldHeight != constraints.maxHeight || oldWidth != pageWidth)) {
+            _initialScrollAligned = false;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _alignToCurrentSlide();
+              }
+            });
+          }
 
           final gestures = <Type, GestureRecognizerFactory>{};
           if (_customPanEnabled) {
@@ -3196,7 +3238,7 @@ class _AdaptiveSlideContentState extends State<_AdaptiveSlideContent> {
       _imageStream!.removeListener(_imageListener!);
     }
     final url = widget.slide.imageAsset.trim();
-    if (url.isEmpty || !url.startsWith('http')) return;
+    if (url.isEmpty) return;
 
     if (_aspectRatioCache.containsKey(url)) {
       final cachedAspect = _aspectRatioCache[url];
@@ -3208,7 +3250,23 @@ class _AdaptiveSlideContentState extends State<_AdaptiveSlideContent> {
       }
     }
 
-    _imageStream = NetworkImage(url).resolve(const ImageConfiguration());
+    ImageProvider provider;
+    if (url.startsWith('http')) {
+      final localPath = ImageCacheService().getCachedPathSync(url);
+      if (localPath != null && localPath.isNotEmpty && !kIsWeb) {
+        provider = FileImage(File(localPath));
+      } else {
+        provider = NetworkImage(url);
+      }
+    } else {
+      if (kIsWeb) {
+        provider = NetworkImage(url);
+      } else {
+        provider = FileImage(File(url));
+      }
+    }
+
+    _imageStream = provider.resolve(const ImageConfiguration());
     _imageListener = ImageStreamListener(
       (image, _) {
         final aspect = image.image.width / image.image.height;
