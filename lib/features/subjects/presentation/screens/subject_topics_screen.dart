@@ -423,6 +423,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
   Widget build(BuildContext context) {
     final provider = Provider.of<AppProvider>(context);
     final isTablet = MediaQuery.of(context).size.width > 600;
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
 
     final isLocked = !provider.isSubjectUnlockedByName(widget.subjectName);
     if (isLocked) {
@@ -669,21 +670,22 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                       onTap: () =>
                           _showResetProgressDialog(topicsGroup, provider),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 5),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: isTablet ? 14 : 8,
+                            vertical: isTablet ? 8 : 5),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(isTablet ? 14 : 12),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(Icons.refresh, color: Colors.white, size: 16),
-                            SizedBox(width: 6),
+                            Icon(Icons.refresh, color: Colors.white, size: isTablet ? 20 : 16),
+                            SizedBox(width: isTablet ? 8 : 6),
                             Text(
                               'إعادة التعيين',
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
+                                fontSize: isTablet ? 14 : 11,
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo',
                               ),
@@ -693,32 +695,33 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                       ),
                     ),
                     if (provider.isAdminOrOwner) ...[
-                      const SizedBox(width: 8),
+                      SizedBox(width: isTablet ? 12 : 8),
                       GestureDetector(
                         onTap: () =>
                             _showReorderDialog(topicsGroup, provider),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 5),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: isTablet ? 14 : 8,
+                              vertical: isTablet ? 8 : 5),
                           decoration: BoxDecoration(
                             color: const Color(0xFFA78BFA)
                                 .withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(isTablet ? 14 : 12),
                             border: Border.all(
                               color: const Color(0xFFA78BFA)
                                   .withValues(alpha: 0.6),
                             ),
                           ),
-                          child: const Row(
+                          child: Row(
                             children: [
                               Icon(Icons.swap_vert_rounded,
-                                  color: Colors.white, size: 16),
-                              SizedBox(width: 5),
+                                  color: Colors.white, size: isTablet ? 20 : 16),
+                              SizedBox(width: isTablet ? 8 : 5),
                               Text(
                                 'ترتيب العناوين',
                                 style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 11,
+                                  fontSize: isTablet ? 14 : 11,
                                   fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo',
                                 ),
@@ -739,13 +742,14 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                       },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 9, vertical: 6),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: isTablet ? 14 : 9,
+                            vertical: isTablet ? 8 : 6),
                         decoration: BoxDecoration(
                           color: provider.isAnswersRevealed
                               ? Colors.white.withValues(alpha: 0.24)
                               : Colors.white.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(isTablet ? 14 : 12),
                           border: Border.all(
                             color: provider.isAnswersRevealed
                                 ? const Color(0xFFA78BFA)
@@ -760,14 +764,14 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                   ? Icons.visibility_rounded
                                   : Icons.visibility_off_outlined,
                               color: Colors.white,
-                              size: 15,
+                              size: isTablet ? 19 : 15,
                             ),
-                            const SizedBox(width: 5),
-                            const Text(
+                            SizedBox(width: isTablet ? 8 : 5),
+                            Text(
                               'الحلول',
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
+                                fontSize: isTablet ? 14 : 11,
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo',
                               ),
@@ -776,7 +780,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    SizedBox(width: isTablet ? 14 : 10),
 
                     PopupMenuButton<String>(
                       initialValue: provider.viewMode,
@@ -806,7 +810,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                 provider.viewMode == 'chapter'
                                     ? Icons.check_rounded
                                     : Icons.folder_rounded,
-                                size: 17,
+                                size: isTablet ? 22 : 17,
                                 color: provider.viewMode == 'chapter'
                                     ? const Color(0xFFA78BFA)
                                     : (provider.isDarkTheme
@@ -818,7 +822,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                 'حسب الجابتر',
                                 style: TextStyle(
                                   fontFamily: 'Cairo',
-                                  fontSize: 12,
+                                  fontSize: isTablet ? 14 : 12,
                                   fontWeight: FontWeight.bold,
                                   color: provider.isDarkTheme
                                       ? AppColors.text
@@ -837,7 +841,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                 provider.viewMode == 'topic'
                                     ? Icons.check_rounded
                                     : Icons.layers_rounded,
-                                size: 17,
+                                size: isTablet ? 22 : 17,
                                 color: provider.viewMode == 'topic'
                                     ? const Color(0xFFA78BFA)
                                     : (provider.isDarkTheme
@@ -849,7 +853,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                 'حسب الموضوع',
                                 style: TextStyle(
                                   fontFamily: 'Cairo',
-                                  fontSize: 12,
+                                  fontSize: isTablet ? 14 : 12,
                                   fontWeight: FontWeight.bold,
                                   color: provider.isDarkTheme
                                       ? AppColors.text
@@ -861,11 +865,12 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                         ),
                       ],
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 9, vertical: 6),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: isTablet ? 14 : 9,
+                            vertical: isTablet ? 8 : 6),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(isTablet ? 14 : 12),
                           border: Border.all(
                               color: Colors.white.withValues(alpha: 0.18)),
                         ),
@@ -876,23 +881,23 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                   ? Icons.folder_rounded
                                   : Icons.layers_rounded,
                               color: Colors.white,
-                              size: 14,
+                              size: isTablet ? 18 : 14,
                             ),
-                            const SizedBox(width: 5),
+                            SizedBox(width: isTablet ? 8 : 5),
                             Text(
                               provider.viewMode == 'chapter'
                                   ? 'الجابتر'
                                   : 'الموضوع',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
+                                fontSize: isTablet ? 14 : 11,
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo',
                               ),
                             ),
-                            const SizedBox(width: 4),
-                            const Icon(Icons.keyboard_arrow_down_rounded,
-                                color: Colors.white, size: 15),
+                            SizedBox(width: isTablet ? 6 : 4),
+                            Icon(Icons.keyboard_arrow_down_rounded,
+                                color: Colors.white, size: isTablet ? 19 : 15),
                           ],
                         ),
                       ),
@@ -932,7 +937,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                   ],
                 ),
                 child: Container(
-                  constraints: const BoxConstraints(maxWidth: 800),
+                  constraints: BoxConstraints(maxWidth: (isTablet && !isLandscape) ? 800 : double.infinity),
                   child: provider.isQuestionsLoading
                       ? const Center(child: LogoSpinner(size: 85, logoSize: 50))
                       : Column(
@@ -952,7 +957,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                     color: provider.isDarkTheme
                                         ? AppColors.text
                                         : const Color(0xFF1E1E50),
-                                    fontSize: 15,
+                                    fontSize: isTablet ? 18 : 15,
                                     fontWeight: FontWeight.w800,
                                     fontFamily: 'Cairo',
                                   ),
@@ -963,7 +968,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
 
                             // ─── Available Sources Scroll ───
                             SizedBox(
-                              height: 80,
+                              height: isTablet ? 110 : 80,
                               child: ListView.builder(
                                 scrollDirection: Axis.horizontal,
                                 physics: const BouncingScrollPhysics(),
@@ -996,11 +1001,14 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                     onTap: () => _filterBySource(
                                         val, allPossibleSources, provider),
                                     child: Container(
-                                      width: 100,
+                                      width: isTablet ? 140 : 100,
                                       margin: const EdgeInsets.symmetric(
                                           horizontal: 4),
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 6, horizontal: 6),
+                                      padding: isTablet
+                                          ? const EdgeInsets.symmetric(
+                                              vertical: 10, horizontal: 10)
+                                          : const EdgeInsets.symmetric(
+                                              vertical: 6, horizontal: 6),
                                       decoration: BoxDecoration(
                                         color: active
                                             ? (provider.isDarkTheme
@@ -1048,7 +1056,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                               color: provider.isDarkTheme
                                                   ? AppColors.text
                                                   : const Color(0xFF1E1E50),
-                                              fontSize: 12,
+                                              fontSize: isTablet ? 14 : 12,
                                               fontWeight: FontWeight.bold,
                                             ),
                                           ),
@@ -1059,9 +1067,9 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                             children: [
                                               Text(
                                                 '$answered/$total',
-                                                style: const TextStyle(
-                                                    color: Color(0xFF9E9EBF),
-                                                    fontSize: 9,
+                                                style: TextStyle(
+                                                    color: const Color(0xFF9E9EBF),
+                                                    fontSize: isTablet ? 11 : 9,
                                                     fontWeight: FontWeight.bold,
                                                     fontFamily: 'Cairo'),
                                               ),
@@ -1073,7 +1081,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                             0xFF6047D6)
                                                         : const Color(
                                                             0xFF4F46E5),
-                                                    size: 10),
+                                                    size: isTablet ? 14 : 10),
                                               ],
                                             ],
                                           ),
@@ -1082,7 +1090,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                             borderRadius:
                                                 BorderRadius.circular(2),
                                             child: SizedBox(
-                                              width: 50,
+                                              width: isTablet ? 80 : 50,
                                               height: 4,
                                               child: LinearProgressIndicator(
                                                 value: pct / 100,

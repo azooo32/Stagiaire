@@ -42,6 +42,8 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final provider = Provider.of<AppProvider>(context);
     final userDetails = provider.userDetails;
+    final isTablet = MediaQuery.of(context).size.width > 600;
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
 
     // Retrieve metadata directly from currentUser auth as fallback
     final user = provider.currentUser;
@@ -79,16 +81,16 @@ class ProfileScreen extends StatelessWidget {
                   width: double.infinity,
                   color: _ProfilePalette.bg(provider.isDarkTheme),
                   padding: EdgeInsets.fromLTRB(
-                    4,
-                    MediaQuery.of(context).padding.top + 4,
-                    16,
-                    8,
+                    isTablet ? 12 : 4,
+                    MediaQuery.of(context).padding.top + (isTablet ? 16 : 4),
+                    isTablet ? 24 : 16,
+                    isTablet ? 20 : 8,
                   ),
                   child: Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.arrow_back_rounded,
-                            color: Colors.white, size: 24),
+                        icon: Icon(Icons.arrow_back_rounded,
+                            color: Colors.white, size: isTablet ? 36 : 24),
                         onPressed: () {
                           if (Navigator.canPop(context)) {
                             Navigator.pop(context);
@@ -97,19 +99,19 @@ class ProfileScreen extends StatelessWidget {
                           }
                         },
                       ),
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'Profile',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 18,
+                            fontSize: isTablet ? 28 : 18,
                             fontWeight: FontWeight.w900,
                             fontFamily: 'Cairo',
                           ),
                         ),
                       ),
-                      const SizedBox(width: 48),
+                      SizedBox(width: isTablet ? 72 : 48),
                     ],
                   ),
                 ),
@@ -120,7 +122,7 @@ class ProfileScreen extends StatelessWidget {
                     children: [
                       // White container sheet for main content
                       Positioned.fill(
-                        top: 0,
+                        top: isTablet ? 60.0 : 40.0,
                         child: Container(
                           decoration: BoxDecoration(
                             color: _ProfilePalette.sheet(provider.isDarkTheme),
@@ -129,99 +131,105 @@ class ProfileScreen extends StatelessWidget {
                               topRight: Radius.circular(32),
                             ),
                           ),
-                          child: SingleChildScrollView(
-                            physics: const BouncingScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(20, 60, 20,
-                                90), // 60 top padding for avatar spacing
-                            child: Column(
-                              children: [
-                                // Full Name
-                                Text(
-                                  fullName,
-                                  style: TextStyle(
-                                    color: _ProfilePalette.text(
-                                        provider.isDarkTheme),
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w900,
-                                    fontFamily: 'Cairo',
+                          alignment: Alignment.topCenter,
+                          child: Container(
+                            constraints: BoxConstraints(maxWidth: (isTablet && !isLandscape) ? 650 : double.infinity),
+                            child: SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              padding: EdgeInsets.fromLTRB(20, isTablet ? 80 : 60, 20, 90), // top padding for avatar spacing
+                              child: Column(
+                                children: [
+                                  // Full Name
+                                  Text(
+                                    fullName,
+                                    style: TextStyle(
+                                      color: _ProfilePalette.text(
+                                          provider.isDarkTheme),
+                                      fontSize: isTablet ? 28 : 20,
+                                      fontWeight: FontWeight.w900,
+                                      fontFamily: 'Cairo',
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                // Subtitle points
-                                Text(
-                                  '$solvedCount Solved Questions',
-                                  style: TextStyle(
-                                    color: _ProfilePalette.muted(
-                                        provider.isDarkTheme),
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Cairo',
+                                  const SizedBox(height: 4),
+                                  // Subtitle points
+                                  Text(
+                                    '$solvedCount Solved Questions',
+                                    style: TextStyle(
+                                      color: _ProfilePalette.muted(
+                                          provider.isDarkTheme),
+                                      fontSize: isTablet ? 16 : 12,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 20),
+                                  const SizedBox(height: 20),
 
-                                // ─── Premium Stats Card (Horizontal Row) ───
-                                _buildPremiumStatsRow(solvedCount, university,
-                                    stage, provider.isDarkTheme),
-                                const SizedBox(height: 24),
+                                  // ─── Premium Stats Card (Horizontal Row) ───
+                                  _buildPremiumStatsRow(solvedCount, university,
+                                      stage, provider.isDarkTheme, isTablet),
+                                  const SizedBox(height: 24),
 
-                                // ─── Settings Options List ───
-                                if (provider.isAdminOrOwner) ...[
+                                  // ─── Settings Options List ───
+                                  if (provider.isAdminOrOwner) ...[
+                                    _buildOptionTile(
+                                      icon: Icons.admin_panel_settings_outlined,
+                                      title: 'إدارة الاشتراكات والمستفيدين',
+                                      isDark: provider.isDarkTheme,
+                                      isTablet: isTablet,
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => const SubscriptionsManagementScreen(),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
                                   _buildOptionTile(
-                                    icon: Icons.admin_panel_settings_outlined,
-                                    title: 'إدارة الاشتراكات والمستفيدين',
+                                    icon: Icons.dark_mode_outlined,
+                                    title: 'Dark Mode',
                                     isDark: provider.isDarkTheme,
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => const SubscriptionsManagementScreen(),
-                                        ),
-                                      );
+                                    isTablet: isTablet,
+                                    trailing: Switch(
+                                      value: provider.isDarkTheme,
+                                      onChanged: (val) => provider.toggleTheme(),
+                                      activeColor: _ProfilePalette.accent(
+                                          provider.isDarkTheme),
+                                    ),
+                                  ),
+                                  _buildOptionTile(
+                                    icon: Icons.help_outline_rounded,
+                                    title: 'Help Center',
+                                    isDark: provider.isDarkTheme,
+                                    isTablet: isTablet,
+                                    onTap: () async {
+                                      final Uri url =
+                                          Uri.parse('https://t.me/Subscribemoh');
+                                      try {
+                                        if (await canLaunchUrl(url)) {
+                                          await launchUrl(url,
+                                              mode: LaunchMode.externalApplication);
+                                        } else {
+                                          await launchUrl(url);
+                                        }
+                                      } catch (e) {
+                                        print('Could not launch Telegram URL: $e');
+                                      }
                                     },
                                   ),
+                                  const SizedBox(height: 24),
+
+                                  // Log Out Button
+                                  _buildLogoutButton(provider, context, isTablet),
                                   const SizedBox(height: 12),
+
+                                  // Delete Account Button
+                                  _buildDeleteAccountButton(provider, context, isTablet),
+                                  const SizedBox(height: 40),
                                 ],
-                                _buildOptionTile(
-                                  icon: Icons.dark_mode_outlined,
-                                  title: 'Dark Mode',
-                                  isDark: provider.isDarkTheme,
-                                  trailing: Switch(
-                                    value: provider.isDarkTheme,
-                                    onChanged: (val) => provider.toggleTheme(),
-                                    activeColor: _ProfilePalette.accent(
-                                        provider.isDarkTheme),
-                                  ),
-                                ),
-                                _buildOptionTile(
-                                  icon: Icons.help_outline_rounded,
-                                  title: 'Help Center',
-                                  isDark: provider.isDarkTheme,
-                                  onTap: () async {
-                                    final Uri url =
-                                        Uri.parse('https://t.me/Subscribemoh');
-                                    try {
-                                      if (await canLaunchUrl(url)) {
-                                        await launchUrl(url,
-                                            mode: LaunchMode.externalApplication);
-                                      } else {
-                                        await launchUrl(url);
-                                      }
-                                    } catch (e) {
-                                      print('Could not launch Telegram URL: $e');
-                                    }
-                                  },
-                                ),
-                                const SizedBox(height: 24),
-
-                                // Log Out Button
-                                _buildLogoutButton(provider, context),
-                                const SizedBox(height: 12),
-
-                                // Delete Account Button
-                                _buildDeleteAccountButton(provider, context),
-                                const SizedBox(height: 40),
-                              ],
+                              ),
                             ),
                           ),
                         ),
@@ -229,13 +237,13 @@ class ProfileScreen extends StatelessWidget {
 
                       // Circular initials avatar badge overlapping the curved edge
                       Positioned(
-                        top: -10, // Center on the curved boundary
+                        top: 0, // Center on the curved boundary
                         left: 0,
                         right: 0,
                         child: Center(
                           child: Container(
-                            width: 80,
-                            height: 80,
+                            width: isTablet ? 120 : 80,
+                            height: isTablet ? 120 : 80,
                             decoration: BoxDecoration(
                               color: provider.isDarkTheme
                                   ? _ProfilePalette.darkTile2
@@ -245,7 +253,7 @@ class ProfileScreen extends StatelessWidget {
                                 color: provider.isDarkTheme
                                     ? _ProfilePalette.darkBorder
                                     : Colors.white,
-                                width: 3,
+                                width: isTablet ? 4.5 : 3,
                               ),
                               boxShadow: [
                                 BoxShadow(
@@ -258,9 +266,9 @@ class ProfileScreen extends StatelessWidget {
                             alignment: Alignment.center,
                             child: Text(
                               initials.toUpperCase(),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 26,
+                                fontSize: isTablet ? 40 : 26,
                                 fontWeight: FontWeight.w900,
                                 fontFamily: 'Cairo',
                               ),
@@ -277,10 +285,10 @@ class ProfileScreen extends StatelessWidget {
   }
 
   Widget _buildPremiumStatsRow(
-      int solvedCount, String university, String stage, bool isDark) {
+      int solvedCount, String university, String stage, bool isDark, bool isTablet) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+      padding: EdgeInsets.symmetric(vertical: isTablet ? 20 : 14, horizontal: 8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isDark
@@ -292,7 +300,7 @@ class ProfileScreen extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(isTablet ? 26 : 20),
         boxShadow: [
           BoxShadow(
             color: (isDark
@@ -312,24 +320,27 @@ class ProfileScreen extends StatelessWidget {
               icon: Icons.star_outline_rounded,
               label: 'Stage',
               value: stage,
+              isTablet: isTablet,
             ),
           ),
-          _buildVerticalDivider(),
+          _buildVerticalDivider(isTablet),
           // University
           Expanded(
             child: _buildPremiumStatColumn(
               icon: Icons.school_outlined,
               label: 'University',
               value: university,
+              isTablet: isTablet,
             ),
           ),
-          _buildVerticalDivider(),
+          _buildVerticalDivider(isTablet),
           // Solved count
           Expanded(
             child: _buildPremiumStatColumn(
               icon: Icons.playlist_add_check_rounded,
               label: 'Solved',
               value: '$solvedCount',
+              isTablet: isTablet,
             ),
           ),
         ],
@@ -337,9 +348,9 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildVerticalDivider() {
+  Widget _buildVerticalDivider(bool isTablet) {
     return Container(
-      height: 36,
+      height: isTablet ? 54 : 36,
       width: 1,
       color: Colors.white.withValues(alpha: 0.2),
     );
@@ -349,17 +360,18 @@ class ProfileScreen extends StatelessWidget {
     required IconData icon,
     required String label,
     required String value,
+    required bool isTablet,
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.white, size: 20),
+        Icon(icon, color: Colors.white, size: isTablet ? 28 : 20),
         const SizedBox(height: 4),
         Text(
           label,
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.7),
-            fontSize: 10,
+            fontSize: isTablet ? 13 : 10,
             fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
           ),
@@ -367,9 +379,9 @@ class ProfileScreen extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             color: Colors.white,
-            fontSize: 12,
+            fontSize: isTablet ? 16 : 12,
             fontWeight: FontWeight.w800,
             fontFamily: 'Cairo',
           ),
@@ -385,44 +397,45 @@ class ProfileScreen extends StatelessWidget {
     required IconData icon,
     required String title,
     required bool isDark,
+    required bool isTablet,
     Widget? trailing,
     VoidCallback? onTap,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: EdgeInsets.only(bottom: isTablet ? 16 : 12),
       decoration: BoxDecoration(
         color: _ProfilePalette.tile(isDark),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(isTablet ? 20 : 16),
       ),
       child: ListTile(
         onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        contentPadding: EdgeInsets.symmetric(horizontal: isTablet ? 24 : 16, vertical: isTablet ? 8 : 2),
         leading: Container(
-          padding: const EdgeInsets.all(8),
+          padding: EdgeInsets.all(isTablet ? 12 : 8),
           decoration: BoxDecoration(
             color: _ProfilePalette.accent(isDark)
                 .withValues(alpha: isDark ? 0.16 : 0.10),
             shape: BoxShape.circle,
           ),
-          child: Icon(icon, color: _ProfilePalette.accent(isDark), size: 18),
+          child: Icon(icon, color: _ProfilePalette.accent(isDark), size: isTablet ? 24 : 18),
         ),
         title: Text(
           title,
           style: TextStyle(
             color: _ProfilePalette.text(isDark),
-            fontSize: 13,
+            fontSize: isTablet ? 18 : 13,
             fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
           ),
         ),
         trailing: trailing ??
             Icon(Icons.chevron_right_rounded,
-                color: _ProfilePalette.muted(isDark)),
+                color: _ProfilePalette.muted(isDark), size: isTablet ? 26 : 20),
       ),
     );
   }
 
-  Widget _buildLogoutButton(AppProvider provider, BuildContext context) {
+  Widget _buildLogoutButton(AppProvider provider, BuildContext context, bool isTablet) {
     final isDark = provider.isDarkTheme;
     return GestureDetector(
       onTap: () async {
@@ -434,26 +447,26 @@ class ProfileScreen extends StatelessWidget {
       },
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: EdgeInsets.symmetric(vertical: isTablet ? 20 : 14),
         decoration: BoxDecoration(
           color: isDark ? _ProfilePalette.darkTile : Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(isTablet ? 20 : 16),
           border: Border.all(
               color: Colors.red.withValues(alpha: isDark ? 0.6 : 0.3)),
         ),
         alignment: Alignment.center,
-        child: const Row(
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.logout_rounded, color: Colors.red, size: 18),
-            SizedBox(width: 8),
+            Icon(Icons.logout_rounded, color: Colors.red, size: isTablet ? 24 : 18),
+            SizedBox(width: isTablet ? 12 : 8),
             Text(
               'Sign Out',
               style: TextStyle(
                 color: Colors.red,
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.bold,
-                fontSize: 14,
+                fontSize: isTablet ? 18 : 14,
               ),
             ),
           ],
@@ -462,32 +475,32 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDeleteAccountButton(AppProvider provider, BuildContext context) {
+  Widget _buildDeleteAccountButton(AppProvider provider, BuildContext context, bool isTablet) {
     final isDark = provider.isDarkTheme;
     return GestureDetector(
       onTap: () => _showDeleteAccountDialog(context, provider),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: EdgeInsets.symmetric(vertical: isTablet ? 20 : 14),
         decoration: BoxDecoration(
           color: isDark ? _ProfilePalette.darkTile : Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(isTablet ? 20 : 16),
           border: Border.all(
               color: Colors.red.withValues(alpha: isDark ? 0.6 : 0.3)),
         ),
         alignment: Alignment.center,
-        child: const Row(
+        child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.delete_forever_rounded, color: Colors.red, size: 18),
-            SizedBox(width: 8),
+            Icon(Icons.delete_forever_rounded, color: Colors.red, size: isTablet ? 24 : 18),
+            SizedBox(width: isTablet ? 12 : 8),
             Text(
               'حذف الحساب',
               style: TextStyle(
                 color: Colors.red,
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.bold,
-                fontSize: 14,
+                fontSize: isTablet ? 18 : 14,
               ),
             ),
           ],

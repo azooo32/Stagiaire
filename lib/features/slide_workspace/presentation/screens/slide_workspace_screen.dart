@@ -1122,38 +1122,63 @@ void _animateToSlide({
   WidgetsBinding.instance.addPostFrameCallback((_) {
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null || !renderBox.hasSize) return;
-    final viewportHeight = renderBox.size.height;
     
+    final viewportHeight = renderBox.size.height;
     final totalWidth = renderBox.size.width;
     final pageWidth = ((sidebarOpen ? (totalWidth - 216.0) : totalWidth) - 20.0).clamp(280.0, double.infinity);
     final pageHeight = pageWidth * _slideCanvasHeight / _slideCanvasWidth;
     final controlsHeight = canManageSlides ? 33.0 : 0.0;
     final pageExtent = pageHeight + controlsHeight;
     final spacing = compact ? 2.0 : 3.0;
-    const topPadding = 10.0;
-    final headersBefore = [
-      for (var i = 0; i <= index && i < slides.length; i++)
-        if (i == 0 ||
-            _subtitleKey(slides[i].subtitle) !=
-                _subtitleKey(slides[i - 1].subtitle))
-          i,
-    ].length;
-    final headerExtent = headersBefore * (compact ? 50.0 : 64.0);
-    final top = topPadding + headerExtent + index * (pageExtent + spacing);
-    
+
+    // 1. Build entries list to match exactly how they are rendered
+    final entries = <_WorkspaceListEntry>[];
+    String? previousKey;
+    for (var i = 0; i < slides.length; i++) {
+      final subtitle = _subtitleLabel(slides[i].subtitle);
+      final key = _subtitleKey(subtitle);
+      if (key != previousKey) {
+        entries.add(_WorkspaceListEntry.header(subtitle));
+        previousKey = key;
+      }
+      entries.add(_WorkspaceListEntry.slide(subtitle, i));
+    }
+
+    // 2. Compute exact positions for all slides
+    double currentY = 10.0; // topPad
+    final Map<int, double> slideTops = {};
+    final Map<int, double> slideHeights = {};
+
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      final entry = entries[entryIndex];
+      if (entry.isHeader) {
+        final isFirst = entryIndex == 0;
+        final topMargin = isFirst ? 0.0 : (compact ? 10.0 : 14.0);
+        final bottomMargin = compact ? 6.0 : 8.0;
+        final containerPadding = compact ? 20.0 : 32.0;
+        final textHeight = compact ? 22.0 : 29.0;
+        final headerHeight = topMargin + bottomMargin + containerPadding + textHeight;
+        currentY += headerHeight;
+      } else {
+        final slideIdx = entry.slideIndex!;
+        slideTops[slideIdx] = currentY;
+        slideHeights[slideIdx] = pageExtent;
+        
+        final bottomMargin = entryIndex == entries.length - 1 ? 0.0 : spacing;
+        currentY += pageExtent + bottomMargin;
+      }
+    }
+
+    final top = slideTops[index] ?? 10.0;
+    final targetPageExtent = slideHeights[index] ?? pageExtent;
+    final totalContentHeight = currentY + 80.0; // bottomPad
+
     final currentScale = transformationController.value.getMaxScaleOnAxis();
-    final targetY = -(top * currentScale) + (viewportHeight - (pageExtent * currentScale)) / 2;
-    
-    // We can't easily animate Matrix4 without an AnimationController passed in,
-    // so we just jump for now to avoid boilerplate, or we can use a Tween locally.
-    // For simplicity, we just jump to the new translation.
+    final targetY = -(top * currentScale) + (viewportHeight - (targetPageExtent * currentScale)) / 2;
+    final maxScrollY = (totalContentHeight * currentScale - viewportHeight).clamp(0.0, double.infinity);
+
     final matrix = transformationController.value.clone();
-    
-    // Center horizontally: when zoomed in the scaled content is wider than
-    // the viewport, so we compute the correct offset.  We must NOT clamp to
-    // negative-only values – that would prevent reaching the left side of the
-    // canvas when the content is centred and overflows to the left.
-    matrix.setTranslationRaw(0.0, targetY.clamp(-double.infinity, 0.0), 0);
+    matrix.setTranslationRaw(0.0, targetY.clamp(-maxScrollY, 0.0), 0);
     transformationController.value = matrix;
   });
 }
