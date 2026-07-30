@@ -28,6 +28,14 @@ import '../../../practice/presentation/widgets/audio_explanation_player.dart';
 const _slideCanvasWidth = 1100.0;
 const _slideCanvasHeight = 608.0;
 
+// Shared header heights — must match _SubtitleHeader's actual rendered size.
+// padding vertical: compact=10, desktop=16 → *2 → 20/32
+// text height approx: compact=22, desktop=29
+// total: compact≈52 → rounded 52, desktop≈61 → rounded 64
+// (matches the values already used in _onTransformChanged)
+const _kHeaderCompactHeight = 52.0;
+const _kHeaderDesktopHeight = 64.0;
+
 class _WorkspaceOutsideStateProvider extends InheritedWidget {
   final String? activeRecordingSlideId;
   final bool isOutsideRecording;
@@ -1144,7 +1152,9 @@ void _animateToSlide({
       entries.add(_WorkspaceListEntry.slide(subtitle, i));
     }
 
-    // 2. Compute exact positions for all slides
+    // 2. Compute exact positions for all slides.
+    //    Header heights use _kHeaderCompactHeight/_kHeaderDesktopHeight which
+    //    match the values in _onTransformChanged — keeping the two in sync.
     double currentY = 10.0; // topPad
     final Map<int, double> slideTops = {};
     final Map<int, double> slideHeights = {};
@@ -1153,17 +1163,19 @@ void _animateToSlide({
       final entry = entries[entryIndex];
       if (entry.isHeader) {
         final isFirst = entryIndex == 0;
+        // Add inter-group spacing only between groups (not before the very first)
         final topMargin = isFirst ? 0.0 : (compact ? 10.0 : 14.0);
+        final headerBodyHeight =
+            compact ? _kHeaderCompactHeight : _kHeaderDesktopHeight;
+        // bottomMargin (6/8) is already included in the constant padding calc;
+        // the Padding widget in _buildEntry adds it as EdgeInsets.only(bottom).
         final bottomMargin = compact ? 6.0 : 8.0;
-        final containerPadding = compact ? 20.0 : 32.0;
-        final textHeight = compact ? 22.0 : 29.0;
-        final headerHeight = topMargin + bottomMargin + containerPadding + textHeight;
-        currentY += headerHeight;
+        currentY += topMargin + headerBodyHeight + bottomMargin;
       } else {
         final slideIdx = entry.slideIndex!;
         slideTops[slideIdx] = currentY;
         slideHeights[slideIdx] = pageExtent;
-        
+
         final bottomMargin = entryIndex == entries.length - 1 ? 0.0 : spacing;
         currentY += pageExtent + bottomMargin;
       }
@@ -1507,7 +1519,13 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
         final entry = entries[entryIndex];
         double entryHeight = 0.0;
         if (entry.isHeader) {
-          entryHeight = widget.compact ? 50.0 : 64.0;
+          // Must match _animateToSlide: topMargin + headerBody + bottomMargin
+          // For the first header topMargin is 0, so use an average safe value.
+          // This is only used for active-slide tracking (center of screen),
+          // a small approximation here is acceptable.
+          entryHeight = widget.compact
+              ? (10.0 + _kHeaderCompactHeight + 6.0)
+              : (14.0 + _kHeaderDesktopHeight + 8.0);
         } else {
           entryHeight = _lastPageWidth * _slideCanvasHeight / _slideCanvasWidth +
               (widget.canManageSlides ? 33.0 : 0.0) +
@@ -1773,17 +1791,19 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
       padding: EdgeInsets.only(bottom: isLast ? 0 : (widget.compact ? 2 : 3)),
       child: SizedBox(
         height: baseHeight,
-        child: _MobileSlidePage(
-          key: _slideKeyFor(index),
-          controller: widget.controller,
-          index: index,
-          compact: widget.compact,
-          canManageSlides: widget.canManageSlides,
-          isDark: widget.isDark,
-          zoomScale: 1.0, 
-          onEdit: () => widget.onEditSlide(index),
-          onDelete: () => widget.onDeleteSlide(index),
-          onSlideTap: widget.onSlideTap,
+        child: RepaintBoundary(
+          child: _MobileSlidePage(
+            key: _slideKeyFor(index),
+            controller: widget.controller,
+            index: index,
+            compact: widget.compact,
+            canManageSlides: widget.canManageSlides,
+            isDark: widget.isDark,
+            zoomScale: 1.0,
+            onEdit: () => widget.onEditSlide(index),
+            onDelete: () => widget.onDeleteSlide(index),
+            onSlideTap: widget.onSlideTap,
+          ),
         ),
       ),
     );
@@ -3046,24 +3066,22 @@ class _SlidePaper extends StatelessWidget {
           width: 1.5,
         ),
         boxShadow: [
-          if (isCurrent) ...
-            [
-              BoxShadow(
-                color: workspacePurple.withValues(alpha: 0.45),
-                blurRadius: 28,
-                spreadRadius: 4,
-              ),
-              BoxShadow(
-                color: workspacePurple.withValues(alpha: 0.18),
-                blurRadius: 56,
-                spreadRadius: 10,
-              ),
-            ]
-          else
+          if (isCurrent) ...[
             BoxShadow(
-              color: workspacePurple.withValues(alpha: .05),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
+              color: workspacePurple.withValues(alpha: 0.45),
+              blurRadius: 28,
+              spreadRadius: 4,
+            ),
+            BoxShadow(
+              color: workspacePurple.withValues(alpha: 0.18),
+              blurRadius: 56,
+              spreadRadius: 10,
+            ),
+          ] else
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
             ),
         ],
       ),
@@ -3391,6 +3409,8 @@ class _SlideImagePanelState extends State<_SlideImagePanel> {
         child: Image.file(
           File(_syncPath!),
           fit: BoxFit.contain,
+          cacheWidth: _slideCanvasWidth.toInt(),
+          filterQuality: FilterQuality.medium,
           errorBuilder: (_, __, ___) => _brokenImage(),
         ),
       );
@@ -3404,11 +3424,14 @@ class _SlideImagePanelState extends State<_SlideImagePanel> {
             ? Image.file(
                 File(path),
                 fit: BoxFit.contain,
+                cacheWidth: _slideCanvasWidth.toInt(),
+                filterQuality: FilterQuality.medium,
                 errorBuilder: (_, __, ___) => _brokenImage(),
               )
             : Image.network(
                 imageUrl,
                 fit: BoxFit.contain,
+                cacheWidth: _slideCanvasWidth.toInt(),
                 errorBuilder: (_, __, ___) => _brokenImage(),
               );
         return ClipRRect(

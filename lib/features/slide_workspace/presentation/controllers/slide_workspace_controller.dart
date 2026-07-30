@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/slide_workspace_repository.dart';
 import '../../domain/entities/slide_workspace_models.dart';
+import '../../../../core/services/image_cache_service.dart';
 
 abstract class WorkspaceCommand {
   FutureOr<void> execute();
@@ -406,6 +407,7 @@ class SlideWorkspaceController extends ChangeNotifier {
       currentIndex = min(currentIndex, slides.length - 1);
       isLoading = false;
       notifyListeners();
+      _warmupImageCache();
       unawaited(_refreshSlidesInBackground());
       _processPendingUploadTasks();
       return;
@@ -415,7 +417,19 @@ class SlideWorkspaceController extends ChangeNotifier {
     currentIndex = slides.isEmpty ? 0 : min(currentIndex, slides.length - 1);
     isLoading = false;
     notifyListeners();
+    _warmupImageCache();
     _processPendingUploadTasks();
+  }
+
+  void _warmupImageCache() {
+    if (kIsWeb) return;
+    final urls = slides
+        .map((s) => s.imageAsset.trim())
+        .where((url) => url.startsWith('http'))
+        .toList();
+    if (urls.isNotEmpty) {
+      ImageCacheService().warmupCacheForUrls(urls);
+    }
   }
 
   Future<void> _refreshSlidesInBackground() async {

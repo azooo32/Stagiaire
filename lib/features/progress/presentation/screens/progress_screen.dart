@@ -258,11 +258,6 @@ class _SectionTitle extends StatelessWidget {
                     color: palette.text,
                     fontSize: 16,
                     fontWeight: FontWeight.w900))),
-        Text('See all',
-            style: TextStyle(
-                color: palette.accent,
-                fontSize: 12,
-                fontWeight: FontWeight.w800)),
       ]);
 }
 

@@ -16,6 +16,20 @@ class ImageCacheService {
     return _memoryCache[trimmed];
   }
 
+  /// Fire-and-forget: populates _memoryCache for every URL that is already
+  /// cached on disk. Called right after slides are loaded so that
+  /// _SlideImagePanel can find the local file path synchronously and skip
+  /// the network entirely.
+  void warmupCacheForUrls(List<String> urls) {
+    for (final url in urls) {
+      final trimmed = url.trim();
+      if (trimmed.isEmpty || _memoryCache.containsKey(trimmed)) continue;
+      cachedPathForUrl(trimmed).then((path) {
+        if (path != null) _memoryCache[trimmed] = path;
+      });
+    }
+  }
+
   Future<Directory> _cacheDirectory() async {
     final baseDir = await getApplicationSupportDirectory();
     final dir = Directory(
