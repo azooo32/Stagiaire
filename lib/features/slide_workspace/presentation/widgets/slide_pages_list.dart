@@ -236,7 +236,6 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
   }
 
   bool get _customPanEnabled =>
-      !_wasZoomed &&
       !_phoneDrawingMode &&
       !(_isDrawingTool && _activeStylusPointers.isNotEmpty);
 
@@ -444,21 +443,28 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
                   ..onStart = () {
                     _flingAnimationController.stop();
                   }
-                  ..onUpdate = (deltaY) {
+                  ..onUpdate = (delta) {
                     final currentMatrix = widget.transformationController.value;
                     final translation = currentMatrix.getTranslation();
                     final scale = currentMatrix.getMaxScaleOnAxis();
 
+                    final double viewportWidth = constraints.maxWidth;
+                    final double viewportHeight = constraints.maxHeight;
+
+                    final double totalContentWidth = pageWidth + sidePad * 2;
                     final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
                     final double contentHeight = box?.hasSize == true 
                         ? box!.size.height 
                         : _calculateFallbackHeight(pageWidth);
 
-                    final double maxScrollY = (contentHeight * scale - constraints.maxHeight).clamp(0.0, double.infinity);
-                    final double newY = (translation.y + deltaY).clamp(-maxScrollY, 0.0);
+                    final double maxScrollY = (contentHeight * scale - viewportHeight).clamp(0.0, double.infinity);
+                    final double maxScrollX = (totalContentWidth * scale - viewportWidth).clamp(0.0, double.infinity);
+
+                    final double newY = (translation.y + delta.dy).clamp(-maxScrollY, 0.0);
+                    final double newX = (translation.x + delta.dx).clamp(-maxScrollX, 0.0);
 
                     final newMatrix = Matrix4.copy(currentMatrix)
-                      ..setTranslationRaw(0.0, newY, translation.z);
+                      ..setTranslationRaw(newX, newY, translation.z);
 
                     widget.transformationController.value = newMatrix;
                   }
@@ -541,7 +547,7 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
               },
               child: InteractiveViewer(
                 transformationController: widget.transformationController,
-                panEnabled: _wasZoomed && !_phoneDrawingMode && !(_isDrawingTool && _activeStylusPointers.isNotEmpty),
+                panEnabled: false,
                 scaleEnabled: !_phoneDrawingMode && !(_isDrawingTool && _activeStylusPointers.isNotEmpty),
                 boundaryMargin: EdgeInsets.zero,
                 minScale: 1.0,
@@ -624,7 +630,7 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
   });
 
   VoidCallback? onStart;
-  ValueChanged<double>? onUpdate;
+  ValueChanged<Offset>? onUpdate;
   ValueChanged<Velocity>? onEnd;
   VoidCallback? onStylusDetected;
 
@@ -632,7 +638,7 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
   final Set<int> _touchPointers = {};
   bool _hasStarted = false;
   bool _isRejected = false;
-  double? _lastY;
+  Offset? _lastPosition;
 
   @override
   void addPointer(PointerDownEvent event) {
@@ -661,16 +667,16 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
     }
 
     if (event is PointerMoveEvent && _touchPointers.length == 1) {
-      final double currentY = event.position.dy;
-      if (_lastY != null) {
-        final double deltaY = currentY - _lastY!;
+      final Offset currentPos = event.position;
+      if (_lastPosition != null) {
+        final Offset delta = currentPos - _lastPosition!;
         if (!_hasStarted) {
           _hasStarted = true;
           onStart?.call();
         }
-        onUpdate?.call(deltaY);
+        onUpdate?.call(delta);
       }
-      _lastY = currentY;
+      _lastPosition = currentPos;
     }
 
     if (event is PointerUpEvent || event is PointerCancelEvent) {
@@ -691,7 +697,7 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
   void _reset() {
     _hasStarted = false;
     _isRejected = false;
-    _lastY = null;
+    _lastPosition = null;
     _touchPointers.clear();
     _velocityTrackers.clear();
   }
