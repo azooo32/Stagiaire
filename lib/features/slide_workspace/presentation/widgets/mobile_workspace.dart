@@ -102,6 +102,16 @@ class _CollapsibleSlideWorkspaceState
     super.dispose();
   }
 
+  void _selectSlideWithoutScroll(int index) {
+    final stateProvider = WorkspaceOutsideStateProvider.of(context);
+    if (stateProvider != null && stateProvider.editingSlideIndex != null && stateProvider.editingSlideIndex != index) {
+      stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
+    }
+    if (index != widget.controller.currentIndex) {
+      widget.controller.goToSlide(index);
+    }
+  }
+
   void _goToSlide(int index) {
     final stateProvider = WorkspaceOutsideStateProvider.of(context);
     if (stateProvider != null && stateProvider.editingSlideIndex != null && stateProvider.editingSlideIndex != index) {
@@ -131,7 +141,7 @@ class _CollapsibleSlideWorkspaceState
           transformationController: _transformationController,
           onEditSlide: widget.onEditSlide,
           onDeleteSlide: widget.onDeleteSlide,
-          onSlideTap: _goToSlide,
+          onSlideTap: _selectSlideWithoutScroll,
         ),
         Positioned(
           left: 0,
