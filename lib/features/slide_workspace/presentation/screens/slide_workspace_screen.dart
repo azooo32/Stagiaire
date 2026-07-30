@@ -1445,6 +1445,7 @@ class _SlidePagesList extends StatefulWidget {
 class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProviderStateMixin {
   final Map<int, GlobalKey> _slideKeys = {};
   final Set<int> _activeStylusPointers = {};
+  final GlobalKey _contentKey = GlobalKey();
 
   late final AnimationController _flingAnimationController;
   bool _wasZoomed = false;
@@ -1582,25 +1583,42 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
     }
   }
 
+  double _calculateFallbackHeight(double pageWidth) {
+    const topPad = 10.0;
+    const bottomPad = 10.0;
+    final entries = _workspaceEntries(widget.controller.slides);
+    
+    double totalContentHeight = topPad + bottomPad;
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      final entry = entries[entryIndex];
+      if (entry.isHeader) {
+        final isFirst = entryIndex == 0;
+        final topMargin = isFirst ? 0.0 : (widget.compact ? 10.0 : 14.0);
+        final headerBodyHeight = widget.compact ? _kHeaderCompactHeight : _kHeaderDesktopHeight;
+        final bottomMargin = widget.compact ? 6.0 : 8.0;
+        totalContentHeight += topMargin + headerBodyHeight + bottomMargin;
+      } else {
+        final pageExtent = pageWidth * _slideCanvasHeight / _slideCanvasWidth +
+            (widget.canManageSlides ? 33.0 : 0.0);
+        final spacing = widget.compact ? 2.0 : 3.0;
+        final bottomMargin = entryIndex == entries.length - 1 ? 0.0 : spacing;
+        totalContentHeight += pageExtent + bottomMargin;
+      }
+    }
+    return totalContentHeight;
+  }
+
   void _onFlingTick() {
     if (!_flingAnimationController.isAnimating) return;
     final currentMatrix = widget.transformationController.value;
     final scale = currentMatrix.getMaxScaleOnAxis();
 
-    double totalContentHeight = 10.0 + 10.0;
-    final entries = _workspaceEntries(widget.controller.slides);
-    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-      final entry = entries[entryIndex];
-      if (entry.isHeader) {
-        totalContentHeight += widget.compact ? 50.0 : 64.0;
-      } else {
-        totalContentHeight += _lastPageWidth * _slideCanvasHeight / _slideCanvasWidth +
-            (widget.canManageSlides ? 33.0 : 0.0) +
-            (widget.compact ? 2.0 : 3.0);
-      }
-    }
+    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+    final double contentHeight = box?.hasSize == true 
+        ? box!.size.height 
+        : _calculateFallbackHeight(_lastPageWidth);
 
-    final double maxScrollY = (totalContentHeight * scale - _lastViewportHeight).clamp(0.0, double.infinity);
+    final double maxScrollY = (contentHeight * scale - _lastViewportHeight).clamp(0.0, double.infinity);
     final double newY = _flingAnimationController.value.clamp(-maxScrollY, 0.0);
 
     final newMatrix = Matrix4.copy(currentMatrix)
@@ -1642,9 +1660,11 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
           _lastViewportHeight = constraints.maxHeight;
           _lastPageWidth = pageWidth;
 
-          // If the layout size changed (e.g., orientation change),
-          // we should re-align the scroll to the current slide.
-          if (oldHeight > 0 && oldWidth > 0 && (oldHeight != constraints.maxHeight || oldWidth != pageWidth)) {
+          // If the layout size changed significantly (e.g., orientation change),
+          // we should re-align the scroll to the current slide. Ignore tiny layout subpixel changes (< 2px).
+          final double deltaH = (oldHeight - constraints.maxHeight).abs();
+          final double deltaW = (oldWidth - pageWidth).abs();
+          if (oldHeight > 0 && oldWidth > 0 && (deltaH > 2.0 || deltaW > 2.0)) {
             _initialScrollAligned = false;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
@@ -1667,19 +1687,12 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
                     final translation = currentMatrix.getTranslation();
                     final scale = currentMatrix.getMaxScaleOnAxis();
 
-                    double totalContentHeight = topPad + bottomPad;
-                    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-                      final entry = entries[entryIndex];
-                      if (entry.isHeader) {
-                        totalContentHeight += widget.compact ? 50.0 : 64.0;
-                      } else {
-                        totalContentHeight += pageWidth * _slideCanvasHeight / _slideCanvasWidth +
-                            (widget.canManageSlides ? 33.0 : 0.0) +
-                            (widget.compact ? 2.0 : 3.0);
-                      }
-                    }
+                    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+                    final double contentHeight = box?.hasSize == true 
+                        ? box!.size.height 
+                        : _calculateFallbackHeight(pageWidth);
 
-                    final double maxScrollY = (totalContentHeight * scale - constraints.maxHeight).clamp(0.0, double.infinity);
+                    final double maxScrollY = (contentHeight * scale - constraints.maxHeight).clamp(0.0, double.infinity);
                     final double newY = (translation.y + deltaY).clamp(-maxScrollY, 0.0);
 
                     final newMatrix = Matrix4.copy(currentMatrix)
@@ -1747,19 +1760,12 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
 
                         // Calculate content dimensions
                         final double totalContentWidth = pageWidth + sidePad * 2;
-                        double totalContentHeight = topPad + bottomPad;
-                        for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-                          final entry = entries[entryIndex];
-                          if (entry.isHeader) {
-                            totalContentHeight += widget.compact ? 50.0 : 64.0;
-                          } else {
-                            totalContentHeight += pageWidth * _slideCanvasHeight / _slideCanvasWidth +
-                                (widget.canManageSlides ? 33.0 : 0.0) +
-                                (widget.compact ? 2.0 : 3.0);
-                          }
-                        }
+                        final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+                        final double contentHeight = box?.hasSize == true 
+                            ? box!.size.height 
+                            : _calculateFallbackHeight(pageWidth);
 
-                        final double maxScrollY = (totalContentHeight * scale - viewportHeight).clamp(0.0, double.infinity);
+                        final double maxScrollY = (contentHeight * scale - viewportHeight).clamp(0.0, double.infinity);
                         final double maxScrollX = (totalContentWidth * scale - viewportWidth).clamp(0.0, double.infinity);
 
                         final double newY = (translation.y - scrollDeltaY).clamp(-maxScrollY, 0.0);
@@ -1778,13 +1784,13 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
                 transformationController: widget.transformationController,
                 panEnabled: _wasZoomed && !_phoneDrawingMode && !(_isDrawingTool && _activeStylusPointers.isNotEmpty),
                 scaleEnabled: !_phoneDrawingMode && !(_isDrawingTool && _activeStylusPointers.isNotEmpty),
-                // Boundary margin stops panning exactly at the subtle 10px (~3mm) outer edge.
                 boundaryMargin: EdgeInsets.zero,
                 minScale: 1.0,
                 maxScale: 5.0,
                 alignment: Alignment.topLeft,
                 constrained: false, 
                 child: Padding(
+                  key: _contentKey,
                   padding: const EdgeInsets.fromLTRB(sidePad, topPad, sidePad, bottomPad),
                   child: SizedBox(
                     width: pageWidth, 
@@ -1833,19 +1839,17 @@ class _SlidePagesListState extends State<_SlidePagesList> with SingleTickerProvi
       padding: EdgeInsets.only(bottom: isLast ? 0 : (widget.compact ? 2 : 3)),
       child: SizedBox(
         height: baseHeight,
-        child: RepaintBoundary(
-          child: _MobileSlidePage(
-            key: _slideKeyFor(index),
-            controller: widget.controller,
-            index: index,
-            compact: widget.compact,
-            canManageSlides: widget.canManageSlides,
-            isDark: widget.isDark,
-            zoomScale: 1.0,
-            onEdit: () => widget.onEditSlide(index),
-            onDelete: () => widget.onDeleteSlide(index),
-            onSlideTap: widget.onSlideTap,
-          ),
+        child: _MobileSlidePage(
+          key: _slideKeyFor(index),
+          controller: widget.controller,
+          index: index,
+          compact: widget.compact,
+          canManageSlides: widget.canManageSlides,
+          isDark: widget.isDark,
+          zoomScale: 1.0,
+          onEdit: () => widget.onEditSlide(index),
+          onDelete: () => widget.onDeleteSlide(index),
+          onSlideTap: widget.onSlideTap,
         ),
       ),
     );
