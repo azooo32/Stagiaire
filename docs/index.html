@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Stagiaire</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #6B4EFF;
+            --primary-glow: rgba(107, 78, 255, 0.15);
+            --bg: #F8F9FE;
+            --surface: #FFFFFF;
+            --text: #1E1E50;
+            --text-muted: #5C5C8A;
+            --border: #E2E2EC;
+            --accent: #10B981;
+            --radius-lg: 16px;
+            --radius-md: 12px;
+            --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #120F22;
+                --surface: #1B1730;
+                --text: #F1F1F6;
+                --text-muted: #A3A3C2;
+                --border: #2C2844;
+                --primary-glow: rgba(107, 78, 255, 0.25);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            transition: var(--transition);
+        }
+
+        .header {
+            background-color: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 2.5rem 1rem;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, var(--primary-glow) 0%, rgba(255,255,255,0) 70%);
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 2;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .logo-placeholder {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, var(--primary) 0%, #4930B6 100%);
+            border-radius: var(--radius-lg);
+            margin: 0 auto 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 16px var(--primary-glow);
+        }
+
+        .logo-placeholder svg {
+            width: 32px;
+            height: 32px;
+            fill: white;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .last-updated {
+            font-size: 0.9rem;
+            color: var(--primary);
+            font-weight: 600;
+            margin-top: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 3rem auto;
+            padding: 0 1.5rem;
+        }
+
+        .card {
+            background-color: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 3rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+        }
+
+        @media (max-width: 768px) {
+            .card {
+                padding: 1.5rem;
+            }
+            h1 {
+                font-size: 2rem;
+            }
+        }
+
+        section {
+            margin-bottom: 2.5rem;
+        }
+
+        section:last-child {
+            margin-bottom: 0;
+        }
+
+        h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            letter-spacing: -0.01em;
+        }
+
+        h2::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 24px;
+            background-color: var(--primary);
+            border-radius: 2px;
+        }
+
+        p {
+            color: var(--text-muted);
+            margin-bottom: 1.25rem;
+            font-size: 1.05rem;
+        }
+
+        ul {
+            list-style-type: none;
+            margin-bottom: 1.5rem;
+            padding-left: 0.5rem;
+        }
+
+        li {
+            color: var(--text-muted);
+            position: relative;
+            padding-left: 1.5rem;
+            margin-bottom: 0.75rem;
+            font-size: 1.05rem;
+        }
+
+        li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        .highlight-box {
+            background-color: var(--primary-glow);
+            border-left: 4px solid var(--primary);
+            padding: 1.25rem;
+            border-radius: 0 var(--radius-md) var(--radius-md) 0;
+            margin-bottom: 1.5rem;
+        }
+
+        .highlight-box p {
+            color: var(--text);
+            font-weight: 500;
+            margin-bottom: 0;
+        }
+
+        .contact-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        .contact-item svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 3rem 1rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="header">
+        <div class="header-content">
+            <div class="logo-placeholder">
+                <!-- Stagiaire Graduation Cap & Quiz Icon Svg -->
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 3L1 9L12 15L21 10.09V17H23V9M5 13.18V17.18L12 21L19 17.18V13.18L12 17L5 13.18Z"/>
+                </svg>
+            </div>
+            <h1>Stagiaire</h1>
+            <p class="subtitle">Educational Platform for Medical Students</p>
+            <div class="last-updated">Last Updated: July 30, 2026</div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="card">
+            <section>
+                <h2>Introduction</h2>
+                <p>Welcome to <strong>Stagiaire</strong> ("we", "our", or "us"). Stagiaire is a dedicated educational mobile application built specifically for medical students. It provides comprehensive quiz banks, practice testing engines, interactive clinical slide workspaces, and video lectures to aid in medical training and curriculum preparation.</p>
+                <p>We respect your privacy and are committed to protecting the personal data of our users. This Privacy Policy details the types of information we collect, how we use it, and the security measures we enforce to keep your data safe.</p>
+            </section>
+
+            <section>
+                <h2>Information We Collect</h2>
+                <p>To provide you with our educational platform and sync your progress, we collect the following types of information when you use the Stagiaire app:</p>
+                <ul>
+                    <li><strong>Account Information:</strong> When you register and create an account, we collect your full name, email address, university name, and academic stage/year.</li>
+                    <li><strong>Learning Progress & Activity Data:</strong> We store your learning activity, including quizzes attempted, answers provided, test scores, progress states, favorites, bookmarks, and any customized clinical notes you save on slides.</li>
+                    <li><strong>Media Uploads (Optional):</strong> If you use in-app features to upload audio explanations or photos for question items, these files are securely stored in our cloud backend associated with your account.</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Location Services</h2>
+                <div class="highlight-box">
+                    <p><strong>Stagiaire does NOT track, collect, or use your physical location.</strong></p>
+                </div>
+                <p>The application has no location-based features. While some underlying standard iOS system frameworks (such as image picker libraries) may contain native location symbols to process camera metadata on your device locally, our application does not request, track, or store any of your location coordinates or geographical data.</p>
+            </section>
+
+            <section>
+                <h2>In-App Purchases</h2>
+                <p>Stagiaire is an educational tool provided for medical student training. <strong>The app does NOT contain any in-app purchases, microtransactions, or hidden fees.</strong> Access to the educational materials is managed strictly through your student credentials.</p>
+            </section>
+
+            <section>
+                <h2>Data Sharing and Selling</h2>
+                <div class="highlight-box" style="border-left-color: var(--accent); background-color: rgba(16, 185, 129, 0.08);">
+                    <p style="color: var(--text);"><strong>We do NOT sell user data under any circumstances.</strong></p>
+                </div>
+                <p>Stagiaire values your privacy. We do not sell, rent, lease, or trade your personal information, email addresses, or academic progress data to third parties for advertising or commercial purposes. All data collected is strictly used to power the app's internal functions, keep your progress synced across devices, and enhance your learning experience.</p>
+            </section>
+
+            <section>
+                <h2>How We Use Your Information</h2>
+                <p>We utilize the gathered data to:</p>
+                <ul>
+                    <li>Create and manage your student account.</li>
+                    <li>Synchronize and track your learning progress and quiz scores across multiple devices.</li>
+                    <li>Allow you to bookmark slides, save custom notes, and review your history.</li>
+                    <li>Maintain app performance, troubleshoot bugs, and improve overall features.</li>
+                </ul>
+            </section>
+
+            <section>
+                <h2>Data Security</h2>
+                <p>We implement a variety of security measures, including modern encryption, secure database queries, and token-based authentication (via Supabase), to maintain the safety of your personal information. Your account is password-protected, and all data transmissions are encrypted using standard Secure Socket Layer (SSL/TLS) technology.</p>
+            </section>
+
+            <section>
+                <h2>Children's Privacy</h2>
+                <p>Stagiaire is designed for medical students and individuals undergoing professional higher education. It is not intended for use by children under the age of 13. We do not knowingly collect personal information from children under 13.</p>
+            </section>
+
+            <section>
+                <h2>Changes to This Policy</h2>
+                <p>We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last Updated" date at the top. You are advised to review this page periodically for any changes.</p>
+            </section>
+
+            <section>
+                <h2>Contact Us</h2>
+                <p>If you have any questions or feedback regarding this Privacy Policy, please feel free to reach out to us:</p>
+                <div class="contact-info">
+                    <a href="mailto:support@stagiaire.site" class="contact-item">
+                        <svg viewBox="0 0 24 24">
+                            <path d="M20,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V6C22,4.89 21.1,4 20,4M17,17H7V15H17M17,13H7V11H17M20,8L12,13L4,8V6L12,11L20,6"/>
+                        </svg>
+                        support@stagiaire.site
+                    </a>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <p>&copy; 2026 Stagiaire. All rights reserved.</p>
+    </footer>
+
+</body>
+</html>
