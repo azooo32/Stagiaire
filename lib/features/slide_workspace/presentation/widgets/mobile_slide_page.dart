@@ -72,6 +72,10 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
                     widget.onSlideTap?.call(widget.index);
                     controller.selectObject(null);
                   },
+                  onLongPress: () {
+                    widget.onSlideTap?.call(widget.index);
+                    controller.selectObject(null);
+                  },
                   onDoubleTap: () {
                     final stateProvider = WorkspaceOutsideStateProvider.of(context);
                     if (stateProvider != null && widget.canManageSlides) {
