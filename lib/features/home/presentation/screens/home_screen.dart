@@ -235,7 +235,9 @@ class HomeScreen extends StatelessWidget {
       alignment: Alignment.bottomCenter,
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
+        padding: isTablet
+            ? const EdgeInsets.fromLTRB(20, 12, 20, 14)
+            : const EdgeInsets.fromLTRB(12, 8, 12, 10),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.03),
           border: Border.all(
@@ -254,17 +256,17 @@ class HomeScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  width: 21,
-                  height: 21,
+                  width: isTablet ? 30 : 21,
+                  height: isTablet ? 30 : 21,
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(7),
+                    borderRadius: BorderRadius.circular(isTablet ? 9 : 7),
                   ),
-                  child: const Icon(Icons.insights_rounded,
-                      color: Colors.white, size: 13),
+                  child: Icon(Icons.insights_rounded,
+                      color: Colors.white, size: isTablet ? 18 : 13),
                 ),
-                const SizedBox(width: 6),
-                const Column(
+                SizedBox(width: isTablet ? 10 : 6),
+                Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -272,7 +274,7 @@ class HomeScreen extends StatelessWidget {
                       'Your',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 10,
+                        fontSize: isTablet ? 14 : 10,
                         height: 0.95,
                         fontWeight: FontWeight.w900,
                         fontFamily: 'Cairo',
@@ -282,7 +284,7 @@ class HomeScreen extends StatelessWidget {
                       'overview',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 10.5,
+                        fontSize: isTablet ? 14.5 : 10.5,
                         height: 0.95,
                         fontWeight: FontWeight.w900,
                         fontFamily: 'Cairo',
@@ -292,7 +294,7 @@ class HomeScreen extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(width: 10),
+            SizedBox(width: isTablet ? 20 : 10),
             Expanded(
               child: Row(
                 children: [
@@ -300,23 +302,29 @@ class HomeScreen extends StatelessWidget {
                       child: _buildOverviewMetrio(
                           value: totalAnswered.toString(),
                           label: 'Quizzes',
-                          isDark: isDark)),
-                  _buildOverviewDivider(),
+                          isDark: isDark,
+                          isTablet: isTablet)),
+                  _buildOverviewDivider(isTablet),
                   Expanded(
                       child: _buildOverviewMetrio(
                           value: totalCorrect.toString(),
                           label: 'Correct',
-                          isDark: isDark)),
-                  _buildOverviewDivider(),
+                          isDark: isDark,
+                          isTablet: isTablet)),
+                  _buildOverviewDivider(isTablet),
                   Expanded(
                       child: _buildOverviewMetrio(
                           value: incorrect.toString(),
                           label: 'Incorrect',
-                          isDark: isDark)),
-                  _buildOverviewDivider(),
+                          isDark: isDark,
+                          isTablet: isTablet)),
+                  _buildOverviewDivider(isTablet),
                   Expanded(
                       child: _buildOverviewMetrio(
-                          value: accuracy, label: 'Accuracy', isDark: isDark)),
+                          value: accuracy,
+                          label: 'Accuracy',
+                          isDark: isDark,
+                          isTablet: isTablet)),
                 ],
               ),
             ),
@@ -330,6 +338,7 @@ class HomeScreen extends StatelessWidget {
     required String value,
     required String label,
     required bool isDark,
+    bool isTablet = false,
   }) {
     final int? numberValue =
         int.tryParse(value.replaceAll('%', '').replaceAll(',', ''));
@@ -339,13 +348,17 @@ class HomeScreen extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         if (numberValue != null)
-          _OdometerNumber(value: numberValue, suffix: suffix)
+          _OdometerNumber(
+            value: numberValue,
+            suffix: suffix,
+            fontSize: isTablet ? 22 : 15,
+          )
         else
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 15,
+              fontSize: isTablet ? 22 : 15,
               fontWeight: FontWeight.w900,
               fontFamily: 'Inter',
             ),
@@ -357,7 +370,7 @@ class HomeScreen extends StatelessWidget {
           label,
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.82),
-            fontSize: 8.5,
+            fontSize: isTablet ? 12 : 8.5,
             fontWeight: FontWeight.w700,
             fontFamily: 'Cairo',
           ),
@@ -368,11 +381,11 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildOverviewDivider() {
+  Widget _buildOverviewDivider(bool isTablet) {
     return Container(
       width: 1,
-      height: 24,
-      margin: const EdgeInsets.symmetric(horizontal: 5),
+      height: isTablet ? 34 : 24,
+      margin: EdgeInsets.symmetric(horizontal: isTablet ? 10 : 5),
       color: Colors.white.withValues(alpha: 0.28),
     );
   }
@@ -1542,10 +1555,15 @@ class HomeScreen extends StatelessWidget {
 }
 
 class _OdometerNumber extends StatelessWidget {
-  const _OdometerNumber({required this.value, this.suffix = ''});
+  const _OdometerNumber({
+    required this.value,
+    this.suffix = '',
+    this.fontSize = 15,
+  });
 
   final int value;
   final String suffix;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -1559,13 +1577,14 @@ class _OdometerNumber extends StatelessWidget {
           _OdometerDigit(
             digit: int.parse(digits[i]),
             delay: Duration(milliseconds: i * 70),
+            fontSize: fontSize,
           ),
         if (suffix.isNotEmpty)
           Text(
             suffix,
-            style: const TextStyle(
+            style: TextStyle(
               color: Colors.white,
-              fontSize: 15,
+              fontSize: fontSize,
               fontWeight: FontWeight.w900,
               fontFamily: 'Inter',
             ),
@@ -1576,10 +1595,15 @@ class _OdometerNumber extends StatelessWidget {
 }
 
 class _OdometerDigit extends StatefulWidget {
-  const _OdometerDigit({required this.digit, required this.delay});
+  const _OdometerDigit({
+    required this.digit,
+    required this.delay,
+    this.fontSize = 15,
+  });
 
   final int digit;
   final Duration delay;
+  final double fontSize;
 
   @override
   State<_OdometerDigit> createState() => _OdometerDigitState();
@@ -1627,10 +1651,12 @@ class _OdometerDigitState extends State<_OdometerDigit>
 
   @override
   Widget build(BuildContext context) {
-    const digitHeight = 18.0;
+    final fontSize = widget.fontSize;
+    final digitHeight = fontSize * 1.2;
+    final digitWidth = fontSize * 0.63;
 
     return SizedBox(
-      width: 9.5,
+      width: digitWidth,
       height: digitHeight,
       child: ClipRect(
         child: OverflowBox(
@@ -1648,8 +1674,8 @@ class _OdometerDigitState extends State<_OdometerDigit>
               );
               final eased = (_animation.value * 0.86) +
                   (spring.x(_animation.value * 2).clamp(0.0, 1.0) * 0.14);
-              final distanoe = ((_targetDigit - _startDigit) % 10) + 10;
-              final offset = (eased * distanoe) % 10;
+              final distance = ((_targetDigit - _startDigit) % 10) + 10;
+              final offset = (eased * distance) % 10;
 
               return Transform.translate(
                 offset: Offset(0, -offset * digitHeight),
@@ -1661,9 +1687,9 @@ class _OdometerDigitState extends State<_OdometerDigit>
                       child: Text(
                         '$digit',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                           color: Colors.white,
-                          fontSize: 15,
+                          fontSize: fontSize,
                           height: 1.2,
                           fontWeight: FontWeight.w900,
                           fontFamily: 'Inter',

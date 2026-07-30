@@ -1234,7 +1234,7 @@ class AppProvider extends ChangeNotifier {
   bool _isQuestionsLoading = false;
   bool get isQuestionsLoading => _isQuestionsLoading;
 
-  bool _isDarkTheme = true; // Defaults to dark mode matching CSS styles
+  bool _isDarkTheme = false; // Defaults to light mode
   bool get isDarkTheme => _isDarkTheme;
 
   bool _isAnswersRevealed = false;

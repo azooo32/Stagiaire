@@ -304,6 +304,172 @@ class _VideoScreenState extends State<VideoScreen>
     super.dispose();
   }
 
+  Widget _buildPlayerWidget(ClinicalVideo? activeVideo, Color brandColor) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: brandColor.withValues(alpha: 0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Container(
+          color: Colors.black,
+          child: () {
+            if (activeVideo == null) {
+              return const Center(
+                child: Text(
+                  'No videos available.\nTap "Add Video" below to add one!',
+                  style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                      fontFamily: 'Cairo'),
+                  textAlign: TextAlign.center,
+                ),
+              );
+            }
+            if (_isPlayerLoading) {
+              return Center(child: _buildLogoSpinner());
+            }
+            if (_chewieController != null) {
+              return ValueListenableBuilder<bool>(
+                valueListenable: SecurityService.isScreenRecording,
+                builder: (context, isRecording, _) {
+                  if (isRecording) {
+                    return _buildSecurityOverlay();
+                  }
+                  return Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: (_) =>
+                        _showVideoSpeedButtonTemporarily(),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Chewie(controller: _chewieController!),
+                        if (_showVideoSpeedButton)
+                          _buildVideoSpeedButton(brandColor),
+                      ],
+                    ),
+                  );
+                },
+              );
+            }
+            // Fallback placeholder/play overlay
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.network(
+                  'https://images.unsplash.com/photo-1579684389782-64d84b5e905d?q=80&w=600&auto=format&fit=crop',
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) =>
+                      Container(color: Colors.black),
+                ),
+                Container(color: Colors.black38),
+                Center(
+                  child: GestureDetector(
+                    onTap: () => _initVideo(activeVideo.videoUrl),
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        shape: BoxShape.circle,
+                        border:
+                            Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: const Icon(Icons.play_arrow_rounded,
+                          color: Colors.white, size: 36),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaylistCard(List<ClinicalVideo> videos, Color brandColor, AppProvider provider) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: provider.isDarkTheme ? AppColors.surface : Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: brandColor.withValues(alpha: 0.01),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // Video Playlist Header
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Video Playlist',
+                style: TextStyle(
+                  color: provider.isDarkTheme
+                      ? AppColors.text
+                      : const Color(0xFF1E1E50),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  fontFamily: 'Cairo',
+                ),
+              ),
+              Text(
+                '${videos.length} Videos',
+                style: TextStyle(
+                  color: brandColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                  fontFamily: 'Cairo',
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 4),
+
+          // Videos List builder
+          if (videos.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24.0),
+              child: Text(
+                'Playlist is empty.',
+                style: TextStyle(
+                    color: provider.isDarkTheme
+                        ? AppColors.textDim
+                        : const Color(0xFF9E9EBF),
+                    fontSize: 13,
+                    fontFamily: 'Cairo'),
+              ),
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: videos.length,
+              itemBuilder: (context, index) {
+                return _buildVideoPlaylistItem(
+                    index, videos[index], brandColor, provider);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double statusBarHeight = MediaQuery.of(context).padding.top;
@@ -353,7 +519,7 @@ class _VideoScreenState extends State<VideoScreen>
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius: BorderRadius.only(
+                  borderRadius: const BorderRadius.only(
                     bottomLeft: Radius.circular(24),
                     bottomRight: Radius.circular(24),
                   ),
@@ -413,6 +579,7 @@ class _VideoScreenState extends State<VideoScreen>
     }
 
     final activeVideo = videos.isNotEmpty ? videos[_activeVideoIndex] : null;
+    final isLandscapeTablet = orientation == Orientation.landscape && MediaQuery.of(context).size.width > 600;
 
     return Directionality(
       textDirection: TextDirection.ltr,
@@ -482,223 +649,99 @@ class _VideoScreenState extends State<VideoScreen>
 
             const SizedBox(height: 12),
 
-            // Video Player Card Container (Fixed)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1100),
-                  child: AspectRatio(
-                    aspectRatio: 16 / 9,
-                    child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: brandColor.withValues(alpha: 0.08),
-                      blurRadius: 16,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: Container(
-                    color: Colors.black,
-                    child: () {
-                      if (activeVideo == null) {
-                        return const Center(
-                          child: Text(
-                            'No videos available.\nTap "Add Video" below to add one!',
-                            style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
-                                fontFamily: 'Cairo'),
-                            textAlign: TextAlign.center,
+            Expanded(
+              child: isLandscapeTablet
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Left side: Player (60% width)
+                        Expanded(
+                          flex: 3,
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: AspectRatio(
+                                aspectRatio: 16 / 9,
+                                child: _buildPlayerWidget(activeVideo, brandColor),
+                              ),
+                            ),
                           ),
-                        );
-                      }
-                      if (_isPlayerLoading) {
-                        return Center(child: _buildLogoSpinner());
-                      }
-                      if (_chewieController != null) {
-                        return ValueListenableBuilder<bool>(
-                          valueListenable: SecurityService.isScreenRecording,
-                          builder: (context, isRecording, _) {
-                            if (isRecording) {
-                              return _buildSecurityOverlay();
-                            }
-                            return Listener(
-                              behavior: HitTestBehavior.translucent,
-                              onPointerDown: (_) =>
-                                  _showVideoSpeedButtonTemporarily(),
-                              child: Stack(
-                                fit: StackFit.expand,
+                        ),
+                        // Right side: Playlist (40% width)
+                        Expanded(
+                          flex: 2,
+                          child: SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 16.0, right: 16.0, bottom: 16.0),
+                              child: Column(
                                 children: [
-                                  Chewie(controller: _chewieController!),
-                                  if (_showVideoSpeedButton)
-                                    _buildVideoSpeedButton(brandColor),
+                                  // Video Playlist Section Card
+                                  _buildPlaylistCard(videos, brandColor, provider),
+                                  const SizedBox(height: 16),
+                                  // Action button (Add Video)
+                                  if (provider.isAdminOrOwner && !widget.favoriteOnly)
+                                    _buildAddFeatureBox(
+                                      title: 'Add Video',
+                                      subtitle: 'Add video to playlist',
+                                      brandColor: brandColor,
+                                      onTap: () => showAddVideoDialog(context, provider,
+                                          subject: widget.subject,
+                                          sectionId: widget.sectionId),
+                                    ),
                                 ],
                               ),
-                            );
-                          },
-                        );
-                      }
-                      // Fallback placeholder/play overlay
-                      return Stack(
-                        fit: StackFit.expand,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
                         children: [
-                          Image.network(
-                            'https://images.unsplash.com/photo-1579684389782-64d84b5e905d?q=80&w=600&auto=format&fit=crop',
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(color: Colors.black),
-                          ),
-                          Container(color: Colors.black38),
-                          Center(
-                            child: GestureDetector(
-                              onTap: () => _initVideo(activeVideo.videoUrl),
-                              child: Container(
-                                width: 64,
-                                height: 64,
-                                decoration: BoxDecoration(
-                                  color: Colors.white24,
-                                  shape: BoxShape.circle,
-                                  border:
-                                      Border.all(color: Colors.white, width: 2),
+                          // Video Player Card Container (Fixed)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 1100),
+                                child: AspectRatio(
+                                  aspectRatio: 16 / 9,
+                                  child: _buildPlayerWidget(activeVideo, brandColor),
                                 ),
-                                child: const Icon(Icons.play_arrow_rounded,
-                                    color: Colors.white, size: 36),
                               ),
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          // Video Playlist Section Card
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 1100),
+                                child: _buildPlaylistCard(videos, brandColor, provider),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          // Action button (Add Video)
+                          if (provider.isAdminOrOwner && !widget.favoriteOnly)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                              child: _buildAddFeatureBox(
+                                title: 'Add Video',
+                                subtitle: 'Add video to playlist',
+                                brandColor: brandColor,
+                                onTap: () => showAddVideoDialog(context, provider,
+                                    subject: widget.subject,
+                                    sectionId: widget.sectionId),
+                              ),
+                            ),
+                          const SizedBox(height: 32),
                         ],
-                      );
-                    }(),
-                  ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            ),
-
-            // Scrollable Playlist & Action area
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 12),
-
-                    // Video Playlist Section Card
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 1100),
-                          child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: provider.isDarkTheme
-                              ? AppColors.surface
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [
-                            BoxShadow(
-                              color: brandColor.withValues(alpha: 0.01),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          children: [
-                            // Video Playlist Header
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  'Video Playlist',
-                                  style: TextStyle(
-                                    color: provider.isDarkTheme
-                                        ? AppColors.text
-                                        : const Color(0xFF1E1E50),
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                    fontFamily: 'Cairo',
-                                  ),
-                                ),
-                                Text(
-                                  '${videos.length} Videos',
-                                  style: TextStyle(
-                                    color: brandColor,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                    fontFamily: 'Cairo',
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                            const SizedBox(
-                                height:
-                                    4), // Reduced spacing below title as requested
-
-                            // Videos List builder
-                            if (videos.isEmpty)
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 24.0),
-                                child: Text(
-                                  'Playlist is empty.',
-                                  style: TextStyle(
-                                      color: provider.isDarkTheme
-                                          ? AppColors.textDim
-                                          : const Color(0xFF9E9EBF),
-                                      fontSize: 13,
-                                      fontFamily: 'Cairo'),
-                                ),
-                              )
-                            else
-                              ListView.builder(
-                                shrinkWrap: true,
-                                padding: EdgeInsets
-                                    .zero, // Removed ListView padding to minimize gaps
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: videos.length,
-                                itemBuilder: (context, index) {
-                                  return _buildVideoPlaylistItem(index,
-                                      videos[index], brandColor, provider);
-                                },
-                              ),
-                          ],
-                        ),
-                          ),
-                        ),
                       ),
                     ),
-
-                    const SizedBox(height: 16),
-
-                    // Action button (Add Video)
-                    if (provider.isAdminOrOwner && !widget.favoriteOnly)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: _buildAddFeatureBox(
-                          title: 'Add Video',
-                          subtitle: 'Add video to playlist',
-                          brandColor: brandColor,
-                          onTap: () => showAddVideoDialog(context, provider,
-                              subject: widget.subject,
-                              sectionId: widget.sectionId),
-                        ),
-                      ),
-
-                    const SizedBox(height: 32),
-                  ],
-                ),
-              ),
             ),
           ],
         ),

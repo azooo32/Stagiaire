@@ -238,6 +238,19 @@ class _VoiceScreenState extends State<VoiceScreen> {
     }
 
     try {
+      // 1. Fast path: if the player is already initialized for this item, just seek and resume!
+      if (_activeAudioIndex == index && _audioPlayer != null) {
+        final position = _positionMap[index] ?? Duration.zero;
+        if (position > Duration.zero) {
+          await _audioPlayer!.seek(position);
+        }
+        await _audioPlayer!.setPlaybackRate(_speedValue(speedText));
+        await _audioPlayer!.resume();
+        if (mounted) setState(() => _isPlayingMap[index] = true);
+        return;
+      }
+
+      // 2. Slow path: recreate the player for a new audio note
       _audioPlayer?.stop();
       await _audioPlayer?.dispose();
       _audioPlayer = AudioPlayer();
@@ -303,6 +316,13 @@ class _VoiceScreenState extends State<VoiceScreen> {
         await _audioPlayer!.setSource(DeviceFileSource(audioUrl));
       }
       await _audioPlayer!.setPlaybackRate(_speedValue(speedText));
+
+      // Seek to saved position if user seeked before pressing play
+      final savedPosition = _positionMap[index] ?? Duration.zero;
+      if (savedPosition > Duration.zero) {
+        await _audioPlayer!.seek(savedPosition);
+      }
+
       await _audioPlayer!.resume();
 
       final duration = await _audioPlayer!.getDuration();
@@ -329,6 +349,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
     const Color brandColor = Color(0xFF6B4EFF);
     final provider = Provider.of<AppProvider>(context);
     final recordings = _sectionRecordings(provider);
+    final isTablet = MediaQuery.of(context).size.width > 600;
 
     // Initialize state values dynamically
     for (int i = 0; i < recordings.length; i++) {
@@ -362,7 +383,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.only(
+                borderRadius: const BorderRadius.only(
                   bottomLeft: Radius.circular(16),
                   bottomRight: Radius.circular(16),
                 ),
@@ -410,157 +431,164 @@ class _VoiceScreenState extends State<VoiceScreen> {
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 16),
-                    // Compact Glassmorphic Stats Card
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 10, horizontal: 16),
-                        decoration: BoxDecoration(
-                          color: provider.isDarkTheme
-                              ? AppColors.surface.withValues(alpha: 0.6)
-                              : Colors.white.withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                              color: provider.isDarkTheme
-                                  ? AppColors.border
-                                  : brandColor.withValues(alpha: 0.1),
-                              width: 1.0),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.02),
-                              blurRadius: 8,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.mic_none_outlined,
-                                      color: brandColor, size: 18),
-                                  const SizedBox(width: 8),
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        '${recordings.length}',
-                                        style: const TextStyle(
-                                          color: brandColor,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          fontFamily: 'Inter',
-                                        ),
-                                      ),
-                                      const Text(
-                                        'Voice Notes',
-                                        style: TextStyle(
-                                          color: Color(0xFF9E9EBF),
-                                          fontSize: 8.5,
-                                          fontFamily: 'Cairo',
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              width: 1,
-                              height: 32,
-                              color: brandColor.withValues(alpha: 0.15),
-                            ),
-                            Expanded(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.access_time_outlined,
-                                      color: brandColor, size: 18),
-                                  const SizedBox(width: 8),
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        _calculateTotalDuration(recordings),
-                                        style: const TextStyle(
-                                          color: brandColor,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16,
-                                          fontFamily: 'Inter',
-                                        ),
-                                      ),
-                                      const Text(
-                                        'Total Duration',
-                                        style: TextStyle(
-                                          color: Color(0xFF9E9EBF),
-                                          fontSize: 8.5,
-                                          fontFamily: 'Cairo',
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: isTablet ? 900 : double.infinity,
                     ),
-
-                    const SizedBox(height: 12),
-
-                    if (recordings.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 48.0, horizontal: 24.0),
-                        child: Text(
-                          'No voice recordings added yet.\nTap "Add New Recording" below to start!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        // Compact Glassmorphic Stats Card
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 10, horizontal: 16),
+                            decoration: BoxDecoration(
                               color: provider.isDarkTheme
-                                  ? AppColors.textDim
-                                  : const Color(0xFF9E9EBF),
-                              fontSize: 13,
-                              fontFamily: 'Cairo'),
+                                  ? AppColors.surface.withValues(alpha: 0.6)
+                                  : Colors.white.withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                  color: provider.isDarkTheme
+                                      ? AppColors.border
+                                      : brandColor.withValues(alpha: 0.1),
+                                  width: 1.0),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.02),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.mic_none_outlined,
+                                          color: brandColor, size: 18),
+                                      const SizedBox(width: 8),
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            '${recordings.length}',
+                                            style: const TextStyle(
+                                              color: brandColor,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                              fontFamily: 'Inter',
+                                            ),
+                                          ),
+                                          const Text(
+                                            'Voice Notes',
+                                            style: TextStyle(
+                                              color: Color(0xFF9E9EBF),
+                                              fontSize: 8.5,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 32,
+                                  color: brandColor.withValues(alpha: 0.15),
+                                ),
+                                Expanded(
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.access_time_outlined,
+                                          color: brandColor, size: 18),
+                                      const SizedBox(width: 8),
+                                      Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _calculateTotalDuration(recordings),
+                                            style: const TextStyle(
+                                              color: brandColor,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16,
+                                              fontFamily: 'Inter',
+                                            ),
+                                          ),
+                                          const Text(
+                                            'Total Duration',
+                                            style: TextStyle(
+                                              color: Color(0xFF9E9EBF),
+                                              fontSize: 8.5,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      )
-                    else
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          padding: EdgeInsets.zero,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: recordings.length,
-                          itemBuilder: (context, index) {
-                            return _buildRecordingCard(
-                                index, recordings[index], brandColor, provider);
-                          },
-                        ),
-                      ),
 
-                    const SizedBox(height: 24),
+                        const SizedBox(height: 12),
 
-                    // Dashed Border Button to Add Recording
-                    if (provider.isAdminOrOwner) ...[
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                        child: _buildAddRecordingBox(brandColor, provider),
-                      ),
-                    ],
+                        if (recordings.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 48.0, horizontal: 24.0),
+                            child: Text(
+                              'No voice recordings added yet.\nTap "Add New Recording" below to start!',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: provider.isDarkTheme
+                                      ? AppColors.textDim
+                                      : const Color(0xFF9E9EBF),
+                                  fontSize: 13,
+                                  fontFamily: 'Cairo'),
+                            ),
+                          )
+                        else
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              padding: EdgeInsets.zero,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: recordings.length,
+                              itemBuilder: (context, index) {
+                                return _buildRecordingCard(
+                                    index, recordings[index], brandColor, provider, isTablet);
+                              },
+                            ),
+                          ),
 
-                    const SizedBox(height: 32),
-                  ],
+                        const SizedBox(height: 24),
+
+                        // Dashed Border Button to Add Recording
+                        if (provider.isAdminOrOwner) ...[
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            child: _buildAddRecordingBox(brandColor, provider),
+                          ),
+                        ],
+
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -571,7 +599,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
   }
 
   Widget _buildRecordingCard(int index, ClinicalVoiceNote item,
-      Color brandColor, AppProvider provider) {
+      Color brandColor, AppProvider provider, bool isTablet) {
     final bool isPlaying = _isPlayingMap[index] ?? false;
     final bool isCompleted = _isCompletedMap[index] ?? false;
     final double progress = _progressMap[index] ?? item.initialProgress;
@@ -593,8 +621,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
         : item.durationText;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      margin: EdgeInsets.only(bottom: isTablet ? 12 : 8),
+      padding: isTablet
+          ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+          : const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: isDark ? AppColors.surface : Colors.white,
         borderRadius: BorderRadius.circular(14),
@@ -625,8 +655,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 ? null
                 : () => _toggleVoicePlayback(index, item, speedText, provider),
             child: Container(
-              width: 38,
-              height: 38,
+              width: isTablet ? 48 : 38,
+              height: isTablet ? 48 : 38,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: isUploading
@@ -656,10 +686,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
               ),
               alignment: Alignment.center,
               child: isUploading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
+                  ? SizedBox(
+                      width: isTablet ? 22 : 18,
+                      height: isTablet ? 22 : 18,
+                      child: const CircularProgressIndicator(
                         strokeWidth: 2.4,
                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
@@ -669,7 +699,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                           ? Icons.pause_rounded
                           : Icons.play_arrow_rounded,
                       color: Colors.white,
-                      size: 21,
+                      size: isTablet ? 28 : 21,
                     ),
             ),
           ),
@@ -688,7 +718,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   style: TextStyle(
                     color: isDark ? AppColors.text : const Color(0xFF1E1E50),
                     fontWeight: FontWeight.bold,
-                    fontSize: 12,
+                    fontSize: isTablet ? 15 : 12,
                     fontFamily: 'Cairo',
                   ),
                   maxLines: 1,
@@ -700,7 +730,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   isUploading ? 'Uploading audio...' : item.category,
                   style: TextStyle(
                     color: brandColor.withValues(alpha: 0.7),
-                    fontSize: 9,
+                    fontSize: isTablet ? 11 : 9,
                     fontFamily: 'Cairo',
                     fontWeight: FontWeight.w600,
                   ),
@@ -709,18 +739,18 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 // Progress Slider
                 SliderTheme(
                   data: SliderTheme.of(context).copyWith(
-                    trackHeight: 2.4,
+                    trackHeight: isTablet ? 3.5 : 2.4,
                     thumbShape:
-                        const RoundSliderThumbShape(enabledThumbRadius: 4.5),
+                        RoundSliderThumbShape(enabledThumbRadius: isTablet ? 6.5 : 4.5),
                     overlayShape:
-                        const RoundSliderOverlayShape(overlayRadius: 7.0),
+                        RoundSliderOverlayShape(overlayRadius: isTablet ? 10.0 : 7.0),
                     activeTrackColor: brandColor,
                     inactiveTrackColor:
                         isDark ? AppColors.surface2 : const Color(0xFFF1F5F9),
                     thumbColor: brandColor,
                   ),
                   child: SizedBox(
-                    height: 18,
+                    height: isTablet ? 22 : 18,
                     child: Slider(
                       value: progress.clamp(0.0, 1.0),
                       onChanged: isUploading
@@ -735,8 +765,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
                                 _progressMap[index] = val;
                                 _positionMap[index] = target;
                               });
-                              if (_activeAudioIndex == index)
+                              if (_activeAudioIndex == index) {
                                 _audioPlayer?.seek(target);
+                              }
                             },
                       onChangeEnd: (val) {
                         if (!isUploading && item.dbId != null) {
@@ -757,7 +788,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         color: isDark
                             ? AppColors.textDim
                             : const Color(0xFF9E9EBF),
-                        fontSize: 9,
+                        fontSize: isTablet ? 11 : 9,
                         fontFamily: 'Inter',
                       ),
                     ),
@@ -767,7 +798,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         color: isDark
                             ? AppColors.textDim
                             : const Color(0xFF9E9EBF),
-                        fontSize: 9,
+                        fontSize: isTablet ? 11 : 9,
                         fontFamily: 'Inter',
                       ),
                     ),
@@ -777,7 +808,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
             ),
           ),
 
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
 
           // ── RIGHT: 2x2 grid of actions ──
           Column(
@@ -794,8 +825,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
                       await openPdf(item.pdfUrl);
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 3),
+                      padding: isTablet
+                          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
+                          : const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: hasPdf
                             ? brandColor.withValues(alpha: 0.08)
@@ -820,7 +852,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                                 : (isDark
                                     ? AppColors.textMuted
                                     : const Color(0xFFCBD5E1)),
-                            size: 10,
+                            size: isTablet ? 14 : 10,
                           ),
                           const SizedBox(width: 3),
                           Text(
@@ -831,7 +863,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                                   : (isDark
                                       ? AppColors.textMuted
                                       : const Color(0xFFCBD5E1)),
-                              fontSize: 8.5,
+                              fontSize: isTablet ? 12 : 8.5,
                               fontWeight: FontWeight.bold,
                               fontFamily: 'Inter',
                             ),
@@ -840,7 +872,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 6),
                   GestureDetector(
                     onTap: () => provider.toggleClinicalBookmark(
                         'voice_note', item.dbId),
@@ -854,11 +886,11 @@ class _VoiceScreenState extends State<VoiceScreen> {
                               : (isDark
                                   ? AppColors.textMuted
                                   : const Color(0xFFCBD5E1)),
-                      size: 16,
+                      size: isTablet ? 22 : 16,
                     ),
                   ),
                   if (provider.isAdminOrOwner) ...[
-                    const SizedBox(width: 4), // 3-dots
+                    const SizedBox(width: 6), // 3-dots
                     GestureDetector(
                       onTap: () => _showVoiceOptions(context, item, provider),
                       child: Icon(
@@ -866,14 +898,14 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         color: isDark
                             ? AppColors.textMuted
                             : const Color(0xFFCBD5E1),
-                        size: 16,
+                        size: isTablet ? 22 : 16,
                       ),
                     ),
                   ],
                 ],
               ),
 
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
 
               // Bottom row: Speed + Checkmark
               Row(
@@ -886,8 +918,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         : () => _cycleSpeed(index, item.dbId ?? '', progress,
                             isCompleted, provider),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 3),
+                      padding: isTablet
+                          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
+                          : const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: brandColor.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(7),
@@ -896,14 +929,14 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         speedText,
                         style: TextStyle(
                           color: brandColor,
-                          fontSize: 8.5,
+                          fontSize: isTablet ? 12 : 8.5,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'Inter',
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   // Checkmark
                   GestureDetector(
                     onTap: () {
@@ -917,8 +950,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
                       }
                     },
                     child: Container(
-                      width: 21,
-                      height: 18,
+                      width: isTablet ? 28 : 21,
+                      height: isTablet ? 24 : 18,
                       decoration: BoxDecoration(
                         color: isCompleted
                             ? brandColor
@@ -938,7 +971,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                       child: Icon(
                         Icons.check,
                         color: isCompleted ? Colors.white : Colors.transparent,
-                        size: 12,
+                        size: isTablet ? 16 : 12,
                       ),
                     ),
                   ),

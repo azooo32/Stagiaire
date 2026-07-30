@@ -58,6 +58,16 @@ class ImageCacheService {
     }
 
     final dir = await _cacheDirectory();
+    final legacyFile = File(
+        '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}');
+    
+    // 1. If plain file already exists, return it immediately (fast path)
+    if (await legacyFile.exists() && await legacyFile.length() > 0) {
+      _memoryCache[trimmed] = legacyFile.path;
+      return legacyFile.path;
+    }
+
+    // 2. Backward compatibility: if only encrypted file exists, decrypt and migrate to plain file once
     final encryptedFile = File(
         '${dir.path}${Platform.pathSeparator}${_encryptedFileNameForUrl(trimmed)}');
     if (await encryptedFile.exists() && await encryptedFile.length() > 0) {
@@ -66,26 +76,15 @@ class ImageCacheService {
         _runtimeFileNameForUrl(trimmed),
       );
       if (runtimeFile != null) {
-        _memoryCache[trimmed] = runtimeFile.path;
-        return runtimeFile.path;
-      }
-    }
-
-    final legacyFile = File(
-        '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}');
-    if (await legacyFile.exists() && await legacyFile.length() > 0) {
-      await SecureFileCacheService()
-          .writeEncrypted(encryptedFile, await legacyFile.readAsBytes());
-      try {
-        await legacyFile.delete();
-      } catch (_) {}
-      final runtimeFile = await SecureFileCacheService().decryptToRuntimeFile(
-        encryptedFile,
-        _runtimeFileNameForUrl(trimmed),
-      );
-      if (runtimeFile != null) {
-        _memoryCache[trimmed] = runtimeFile.path;
-        return runtimeFile.path;
+        try {
+          await File(runtimeFile.path).copy(legacyFile.path);
+          _memoryCache[trimmed] = legacyFile.path;
+          // Clean up encrypted file to prevent redundant migrations
+          await encryptedFile.delete();
+          return legacyFile.path;
+        } catch (_) {
+          return runtimeFile.path;
+        }
       }
     }
     return null;
@@ -126,9 +125,9 @@ class ImageCacheService {
 
     try {
       final dir = await _cacheDirectory();
-      final encryptedFile = File(
-          '${dir.path}${Platform.pathSeparator}${_encryptedFileNameForUrl(trimmed)}');
-      final tempFile = File('${encryptedFile.path}.part');
+      final legacyFile = File(
+          '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}');
+      final tempFile = File('${legacyFile.path}.part');
 
       final client = HttpClient()..connectionTimeout = timeout;
       try {
@@ -143,19 +142,17 @@ class ImageCacheService {
         await sink.close();
 
         if (await tempFile.length() == 0) return null;
-        await SecureFileCacheService()
-            .writeEncrypted(encryptedFile, await tempFile.readAsBytes());
-        try {
-          await tempFile.delete();
-        } catch (_) {}
-        final runtimeFile = await SecureFileCacheService().decryptToRuntimeFile(
-          encryptedFile,
-          _runtimeFileNameForUrl(trimmed),
-        );
-        if (runtimeFile != null) {
-          _memoryCache[trimmed] = runtimeFile.path;
+
+        // Save as plain file directly
+        if (await legacyFile.exists()) {
+          try {
+            await legacyFile.delete();
+          } catch (_) {}
         }
-        return runtimeFile?.path;
+        await tempFile.rename(legacyFile.path);
+        
+        _memoryCache[trimmed] = legacyFile.path;
+        return legacyFile.path;
       } finally {
         client.close(force: true);
       }

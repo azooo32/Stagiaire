@@ -422,6 +422,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<AppProvider>(context);
+    final isTablet = MediaQuery.of(context).size.width > 600;
 
     final isLocked = !provider.isSubjectUnlockedByName(widget.subjectName);
     if (isLocked) {
@@ -905,6 +906,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
             Expanded(
               child: Container(
                 clipBehavior: Clip.antiAlias,
+                alignment: Alignment.topCenter, // Center on tablets!
                 decoration: BoxDecoration(
                   color: provider.isDarkTheme
                       ? AppColors.surface
@@ -1213,7 +1215,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                     );
                                                   } else {
                                                     setState(() {
-                                                      _expandedTopics[index] =
+                                        _expandedTopics[index] =
                                                           !isExpanded;
                                                     });
                                                   }
@@ -1224,10 +1226,9 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                   textDirection: TextDirection
                                                       .ltr, // Enforce LTR for consistent left-to-right flow
                                                   child: Container(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                        horizontal: 16.0,
-                                                        vertical: 12.0),
+                                                    padding: EdgeInsets.symmetric(
+                                                        horizontal: isTablet ? 20.0 : 16.0,
+                                                        vertical: isTablet ? 16.0 : 12.0),
                                                     child: Row(
                                                       crossAxisAlignment:
                                                           CrossAxisAlignment
@@ -1239,8 +1240,8 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                               Alignment.center,
                                                           children: [
                                                             SizedBox(
-                                                              width: 44,
-                                                              height: 44,
+                                                              width: isTablet ? 54 : 44,
+                                                              height: isTablet ? 54 : 44,
                                                               child:
                                                                   CircularProgressIndicator(
                                                                 value:
@@ -1270,7 +1271,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                         .text
                                                                     : const Color(
                                                                         0xFF1E293B),
-                                                                fontSize: 10,
+                                                                fontSize: isTablet ? 12 : 10,
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .bold,
@@ -1308,7 +1309,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                       FontWeight
                                                                           .bold,
                                                                   fontSize:
-                                                                      13.5,
+                                                                      isTablet ? 16.0 : 13.5,
                                                                   fontFamily:
                                                                       'Cairo',
                                                                 ),
@@ -1328,7 +1329,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                           : const Color(
                                                                               0xFF64748B),
                                                                       fontSize:
-                                                                          11,
+                                                                          isTablet ? 13 : 11,
                                                                       fontWeight:
                                                                           FontWeight
                                                                               .bold,
@@ -1347,7 +1348,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                           : const Color(
                                                                               0xFF64748B),
                                                                       fontSize:
-                                                                          11,
+                                                                          isTablet ? 13 : 11,
                                                                       fontWeight:
                                                                           FontWeight
                                                                               .bold,
@@ -1376,7 +1377,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                     .keyboard_arrow_down,
                                                             color: const Color(
                                                                 0xFF94A3B8),
-                                                            size: 22,
+                                                            size: isTablet ? 26 : 22,
                                                           ),
                                                       ],
                                                     ),
@@ -1463,13 +1464,11 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                 const EdgeInsets
                                                                     .only(
                                                                     bottom: 5),
-                                                            padding:
-                                                                const EdgeInsets
-                                                                    .symmetric(
-                                                                    horizontal:
-                                                                        14,
-                                                                    vertical:
-                                                                        10), // Tighter padding
+                                                            padding: EdgeInsets.symmetric(
+                                                                      horizontal:
+                                                                          isTablet ? 18 : 14,
+                                                                      vertical:
+                                                                          isTablet ? 14 : 10), // Tighter padding
                                                             decoration:
                                                                 BoxDecoration(
                                                               color: provider
@@ -1521,9 +1520,9 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                           .center,
                                                                   children: [
                                                                     SizedBox(
-                                                                      width: 38,
+                                                                      width: isTablet ? 46 : 38,
                                                                       height:
-                                                                          38,
+                                                                          isTablet ? 46 : 38,
                                                                       child:
                                                                           CircularProgressIndicator(
                                                                         value: subPct /
@@ -1548,7 +1547,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                             ? AppColors.text
                                                                             : const Color(0xFF1E293B),
                                                                         fontSize:
-                                                                            9.5,
+                                                                            isTablet ? 11.5 : 9.5,
                                                                         fontWeight:
                                                                             FontWeight.bold,
                                                                         fontFamily:
@@ -1576,7 +1575,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                               ? AppColors.text
                                                                               : const Color(0xFF1E293B),
                                                                           fontSize:
-                                                                              12,
+                                                                              isTablet ? 14 : 12,
                                                                           fontWeight:
                                                                               FontWeight.w600,
                                                                           fontFamily:
@@ -1595,7 +1594,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                                                             style:
                                                                                 TextStyle(
                                                                               color: provider.isDarkTheme ? AppColors.textMuted : const Color(0xFF64748B),
-                                                                              fontSize: 11,
+                                                                              fontSize: isTablet ? 13 : 11,
                                                                               fontWeight: FontWeight.bold,
                                                                               fontFamily: 'Cairo',
                                                                             ),

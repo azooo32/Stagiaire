@@ -1426,6 +1426,7 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<AppProvider>(context);
+    final isTablet = MediaQuery.of(context).size.width > 600;
     final isLocked = !provider.isClinicalSubjectUnlockedByName(widget.subject);
     if (isLocked) {
       return const Scaffold(
@@ -1561,11 +1562,11 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                                 physics: const NeverScrollableScrollPhysics(),
                                 padding: EdgeInsets.zero,
                                 gridDelegate:
-                                    const SliverGridDelegateWithMaxCrossAxisExtent(
+                                    SliverGridDelegateWithMaxCrossAxisExtent(
                                   maxCrossAxisExtent: 260,
                                   crossAxisSpacing: 12,
                                   mainAxisSpacing: 12,
-                                  childAspectRatio: 0.88,
+                                  childAspectRatio: isTablet ? 1.35 : 0.88,
                                 ),
                                 itemCount: voiceAndVideoSeos.length,
                                 itemBuilder: (context, index) {
@@ -1659,6 +1660,7 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                                   section,
                                   sectionStations,
                                   brandColor,
+                                  isTablet,
                                 ),
                               );
                             }).toList();
@@ -1698,6 +1700,7 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
     ClinicalSection section,
     List<ClinicalSlideStation> sectionStations,
     Color brandColor,
+    bool isTablet,
   ) {
     int totalSlides = sectionStations.map((s) {
       final parts = s.progressText.split('/');
@@ -1776,8 +1779,8 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 210,
+              gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: isTablet ? 260 : 210,
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
                 childAspectRatio: 0.86,
@@ -1788,9 +1791,9 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
               itemBuilder: (context, index) {
                 if (index < sectionStations.length) {
                   return _buildStationCard(
-                      context, sectionStations[index], brandColor);
+                      context, sectionStations[index], brandColor, isTablet);
                 } else {
-                  return _buildAddStationCard(brandColor, provider, section.id);
+                  return _buildAddStationCard(brandColor, provider, section.id, isTablet);
                 }
               },
             ),
@@ -1833,11 +1836,14 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
 
   // Grid Station Card
   Widget _buildStationCard(
-      BuildContext context, ClinicalSlideStation station, Color brandColor) {
+      BuildContext context, ClinicalSlideStation station, Color brandColor, bool isTablet) {
     final provider = Provider.of<AppProvider>(context);
     final isDark = provider.isDarkTheme;
     final isBookmarked = provider.isClinicalBookmarked('station', station.dbId);
     final isDone = provider.isStationCompleted(station.dbId);
+
+    final double circleSize = isTablet ? 72 : 52;
+    final double iconSize = isTablet ? 28 : 20;
 
     return GestureDetector(
       onTap: () {
@@ -1870,7 +1876,9 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          padding: isTablet
+              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 14)
+              : const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1879,8 +1887,9 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
               Align(
                 alignment: Alignment.topRight,
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                  padding: isTablet
+                      ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4)
+                      : const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                   decoration: BoxDecoration(
                     color: brandColor.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(8),
@@ -1889,7 +1898,7 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                     '${station.id}',
                     style: TextStyle(
                       color: brandColor,
-                      fontSize: 9,
+                      fontSize: isTablet ? 12 : 9,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Inter',
                     ),
@@ -1899,8 +1908,8 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
 
               // Prominent Circular Icon in Center
               Container(
-                width: 52,
-                height: 52,
+                width: circleSize,
+                height: circleSize,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -1918,7 +1927,7 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                 ),
                 alignment: Alignment.center,
                 child: _buildStationIcon(
-                    _parseIconType(station.iconType), brandColor),
+                    _parseIconType(station.iconType), brandColor, iconSize),
               ),
 
               // Title underneath the circle
@@ -1929,7 +1938,7 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                   style: TextStyle(
                     color: isDark ? AppColors.text : const Color(0xFF1E1E50),
                     fontWeight: FontWeight.w700,
-                    fontSize: 11,
+                    fontSize: isTablet ? 14 : 11,
                     fontFamily: 'Cairo',
                     height: 1.2,
                   ),
@@ -1958,26 +1967,37 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                             ? AppColors.amber
                             : (isDark
                                 ? AppColors.textMuted
-                                : brandColor.withValues(alpha: 0.45)),
-                        size: 20,
+                                : const Color(0xFF9E9EBF)),
+                        size: isTablet ? 20 : 15,
                       ),
                     ),
                   ),
 
-                  // Marker / Completion button
-                  InkWell(
-                    onTap: () => provider.toggleStationCompletion(station.dbId),
-                    borderRadius: BorderRadius.circular(20),
-                    child: Padding(
+                  // Completion indicator / button
+                  GestureDetector(
+                    onTap: () {
+                      provider.toggleStationCompletion(station.dbId);
+                    },
+                    child: Container(
                       padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: isDone
+                            ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                            : (isDark ? AppColors.surface2 : Colors.grey.shade50),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isDone
+                              ? const Color(0xFF10B981).withValues(alpha: 0.3)
+                              : (isDark ? AppColors.border : Colors.grey.shade300),
+                          width: 1,
+                        ),
+                      ),
                       child: Icon(
-                        isDone
-                            ? Icons.check_circle_rounded
-                            : Icons.check_circle_outline_rounded,
+                        Icons.check_rounded,
                         color: isDone
                             ? const Color(0xFF10B981)
-                            : brandColor,
-                        size: 20,
+                            : (isDark ? AppColors.textMuted : Colors.grey.shade400),
+                        size: isTablet ? 15 : 11,
                       ),
                     ),
                   ),
@@ -1992,7 +2012,11 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
 
   // Add New Station Card
   Widget _buildAddStationCard(
-      Color brandColor, AppProvider provider, String sectionId) {
+      Color brandColor, AppProvider provider, String sectionId, bool isTablet) {
+    final double circleSize = isTablet ? 48 : 32;
+    final double iconSize = isTablet ? 24 : 16;
+    final double fontSize = isTablet ? 12 : 8;
+
     return CustomPaint(
       painter: DashedBorderPainter(color: brandColor.withValues(alpha: 0.3)),
       child: ClipRRect(
@@ -2009,8 +2033,8 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Container(
-                  width: 32,
-                  height: 32,
+                  width: circleSize,
+                  height: circleSize,
                   decoration: BoxDecoration(
                     color: brandColor.withValues(alpha: 0.08),
                     shape: BoxShape.circle,
@@ -2019,15 +2043,15 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                   child: Icon(
                     Icons.add,
                     color: brandColor,
-                    size: 16,
+                    size: iconSize,
                   ),
                 ),
-                const SizedBox(height: 6),
+                SizedBox(height: isTablet ? 10 : 6),
                 Text(
                   'Add New Station',
                   style: TextStyle(
                     color: brandColor,
-                    fontSize: 8,
+                    fontSize: fontSize,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo',
                   ),
@@ -2042,33 +2066,33 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
   }
 
   // Draw appropriate icon / CustomPainter based on type
-  Widget _buildStationIcon(IconType type, Color color) {
+  Widget _buildStationIcon(IconType type, Color color, double size) {
     switch (type) {
       case IconType.scalpel:
         return CustomPaint(
-            size: const Size(22, 22), painter: ScalpelPainter(color: color));
+            size: Size(size * 1.375, size * 1.375), painter: ScalpelPainter(color: color));
       case IconType.kidneys:
         return CustomPaint(
-            size: const Size(22, 22), painter: KidneysPainter(color: color));
+            size: Size(size * 1.375, size * 1.375), painter: KidneysPainter(color: color));
       case IconType.stomach:
         return CustomPaint(
-            size: const Size(22, 22), painter: StomachPainter(color: color));
+            size: Size(size * 1.375, size * 1.375), painter: StomachPainter(color: color));
       case IconType.liver:
         return CustomPaint(
-            size: const Size(22, 22), painter: LiverPainter(color: color));
+            size: Size(size * 1.375, size * 1.375), painter: LiverPainter(color: color));
       case IconType.vascular:
         return CustomPaint(
-            size: const Size(22, 22), painter: VascularPainter(color: color));
+            size: Size(size * 1.375, size * 1.375), painter: VascularPainter(color: color));
       case IconType.brain:
-        return FaIcon(FontAwesomeIcons.brain, color: color, size: 16);
+        return FaIcon(FontAwesomeIcons.brain, color: color, size: size);
       case IconType.ribcage:
         return CustomPaint(
-            size: const Size(22, 22), painter: RibcagePainter(color: color));
+            size: Size(size * 1.375, size * 1.375), painter: RibcagePainter(color: color));
       case IconType.baby:
-        return FaIcon(FontAwesomeIcons.baby, color: color, size: 16);
+        return FaIcon(FontAwesomeIcons.baby, color: color, size: size);
       case IconType.siren:
         return Icon(Icons.notifications_active_outlined,
-            color: color, size: 16);
+            color: color, size: size);
     }
   }
 

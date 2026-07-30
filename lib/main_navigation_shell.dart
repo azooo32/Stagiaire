@@ -109,33 +109,36 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
           provider.isDarkTheme ? AppColors.bg : const Color(0xFFF8F9FE),
       body: Stack(
         children: [
-          IndexedStack(
-            index: provider.currentTab,
-            children: _screens,
+          Positioned.fill(
+            bottom: 60.0 + bottomInset,
+            child: IndexedStack(
+              index: provider.currentTab,
+              children: _screens,
+            ),
           ),
           Positioned(
-            left: 16,
-            right: 16,
-            bottom: bottomInset > 0 ? bottomInset + 2.0 : 4.0,
-            child: _buildFloatingNavigationBar(provider),
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildFloatingNavigationBar(provider, bottomInset),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFloatingNavigationBar(AppProvider provider) {
+  Widget _buildFloatingNavigationBar(AppProvider provider, double bottomInset) {
     return Container(
       decoration: BoxDecoration(
         color: provider.isDarkTheme ? AppColors.surface : Colors.white,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         boxShadow: [
           BoxShadow(
             color: provider.isDarkTheme
                 ? AppColors.indigoGlow
                 : const Color(0xFF6B4EFF).withValues(alpha: 0.08),
             blurRadius: 20,
-            offset: const Offset(0, 10),
+            offset: const Offset(0, -4),
           ),
         ],
       ),
@@ -154,7 +157,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeOutBack,
                 left: dotLeft,
-                bottom: _isAnimating ? 14 : 6,
+                bottom: (_isAnimating ? 14 : 6) + bottomInset,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
                   width: dotWidth,
@@ -168,7 +171,7 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: EdgeInsets.fromLTRB(0, 14, 0, 14 + bottomInset),
                 child: Row(
                   children: [
                     Expanded(

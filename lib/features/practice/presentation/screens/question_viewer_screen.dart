@@ -1198,6 +1198,7 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
       backgroundColor: isDark ? AppColors.indigo : const Color(0xFF5B3EEF),
       body: SafeArea(
         top: false,
+        bottom: false,
         child: Column(
           children: [
             // ─── Premium Two-Row Header ───
@@ -2122,8 +2123,12 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                   ),
                 ),
               ),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 14, vertical: 4), // Slim vertical padding
+              padding: EdgeInsets.fromLTRB(
+                14,
+                4,
+                14,
+                4 + MediaQuery.of(context).padding.bottom,
+              ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [

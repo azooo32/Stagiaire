@@ -1117,13 +1117,15 @@ void _animateToSlide({
   required bool canManageSlides,
   required List<WorkspaceSlide> slides,
   required BuildContext context,
+  bool sidebarOpen = false,
 }) {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null || !renderBox.hasSize) return;
     final viewportHeight = renderBox.size.height;
     
-    final pageWidth = renderBox.size.width;
+    final totalWidth = renderBox.size.width;
+    final pageWidth = ((sidebarOpen ? (totalWidth - 216.0) : totalWidth) - 20.0).clamp(280.0, double.infinity);
     final pageHeight = pageWidth * _slideCanvasHeight / _slideCanvasWidth;
     final controlsHeight = canManageSlides ? 33.0 : 0.0;
     final pageExtent = pageHeight + controlsHeight;
@@ -1136,7 +1138,7 @@ void _animateToSlide({
                 _subtitleKey(slides[i - 1].subtitle))
           i,
     ].length;
-    final headerExtent = headersBefore * (compact ? 32.0 : 40.0);
+    final headerExtent = headersBefore * (compact ? 50.0 : 64.0);
     final top = topPadding + headerExtent + index * (pageExtent + spacing);
     
     final currentScale = transformationController.value.getMaxScaleOnAxis();
@@ -1237,6 +1239,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
       canManageSlides: widget.canManageSlides,
       slides: widget.controller.slides,
       context: context,
+      sidebarOpen: _sidebarOpen,
     );
   }
 
@@ -3014,8 +3017,8 @@ class _SlidePaper extends StatelessWidget {
         color: isDark ? const Color(0xFF242039) : Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isDark ? const Color(0xFF7C65FF) : workspacePurple,
-          width: 2,
+          color: isDark ? const Color(0xFF3A3258) : const Color(0xFFE2E0EF),
+          width: 1.5,
         ),
         boxShadow: [
           if (isCurrent) ...
