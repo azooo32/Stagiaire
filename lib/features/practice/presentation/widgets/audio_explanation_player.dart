@@ -296,13 +296,18 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final timeColor = isDark ? AppColors.text : const Color(0xFF1E1E50);
 
+    final double screenWidth = MediaQuery.sizeOf(context).width;
+    final bool isTablet = screenWidth >= 600;
+
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: Container(
-        height: 52,
-        constraints: const BoxConstraints(maxWidth: 300),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: const BoxDecoration(color: Colors.transparent),
+      child: SizedBox(
+        width: double.infinity,
+        child: Container(
+          height: 52,
+          constraints: BoxConstraints(maxWidth: isTablet ? double.infinity : 300),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: const BoxDecoration(color: Colors.transparent),
         child: Row(
           children: [
             GestureDetector(
@@ -379,7 +384,7 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 

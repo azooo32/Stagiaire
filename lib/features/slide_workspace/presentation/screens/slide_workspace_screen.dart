@@ -319,6 +319,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
     if (_isOutsideRecording) {
       await _cancelOutsideRecording();
     }
+    await _allowScreenshot();
     return true;
   }
 

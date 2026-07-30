@@ -470,6 +470,16 @@ class _VideoScreenState extends State<VideoScreen>
     );
   }
 
+  Widget _wrapWithWillPopScope(Widget child) {
+    return WillPopScope(
+      onWillPop: () async {
+        await SecurityService.disableSecure();
+        return true;
+      },
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final double statusBarHeight = MediaQuery.of(context).padding.top;
@@ -495,7 +505,8 @@ class _VideoScreenState extends State<VideoScreen>
     _lastOrientation = orientation;
 
     if (provider.isClinicalLoading) {
-      return Directionality(
+      return _wrapWithWillPopScope(
+        Directionality(
         textDirection: TextDirection.ltr,
         child: Scaffold(
           backgroundColor:
@@ -568,7 +579,7 @@ class _VideoScreenState extends State<VideoScreen>
             ],
           ),
         ),
-      );
+      ));
     }
 
     final videos = _sectionVideos(provider);
@@ -581,9 +592,10 @@ class _VideoScreenState extends State<VideoScreen>
     final activeVideo = videos.isNotEmpty ? videos[_activeVideoIndex] : null;
     final isLandscapeTablet = orientation == Orientation.landscape && MediaQuery.of(context).size.width > 600;
 
-    return Directionality(
-      textDirection: TextDirection.ltr,
-      child: Scaffold(
+    return _wrapWithWillPopScope(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Scaffold(
         backgroundColor:
             provider.isDarkTheme ? AppColors.bg : const Color(0xFFF8F9FE),
         body: Column(
@@ -746,7 +758,7 @@ class _VideoScreenState extends State<VideoScreen>
           ],
         ),
       ),
-    );
+    ));
   }
 
   // Playlist Card Item builder
