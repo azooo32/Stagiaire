@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
@@ -1554,14 +1553,18 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
             recordTimer = null;
           }
 
-          return WillPopScope(
-            onWillPop: () async {
+          return PopScope(
+            canPop: false,
+            onPopInvokedWithResult: (didPop, result) async {
+              if (didPop) return;
               cancelTimerLocal();
               if (isRecording) {
                 await recorder.stop();
               }
               await recorder.dispose();
-              return true;
+              if (context.mounted) {
+                Navigator.of(context).pop();
+              }
             },
             child: Padding(
               padding: EdgeInsets.only(

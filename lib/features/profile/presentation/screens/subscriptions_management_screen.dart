@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/models/subject.dart';
 import '../../../../core/theme/colors.dart';

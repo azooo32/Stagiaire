@@ -2,14 +2,12 @@ import 'dart:async';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../../../core/providers/app_provider.dart';
@@ -471,10 +469,14 @@ class _VideoScreenState extends State<VideoScreen>
   }
 
   Widget _wrapWithWillPopScope(Widget child) {
-    return WillPopScope(
-      onWillPop: () async {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
         await SecurityService.disableSecure();
-        return true;
+        if (context.mounted) {
+          Navigator.of(context).pop();
+        }
       },
       child: child,
     );

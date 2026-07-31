@@ -2989,7 +2989,6 @@ class _EditQuestionDialog extends StatefulWidget {
   final AppProvider provider;
 
   const _EditQuestionDialog({
-    super.key,
     required this.question,
     required this.provider,
   });

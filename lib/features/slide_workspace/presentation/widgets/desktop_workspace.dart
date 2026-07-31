@@ -46,8 +46,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
   void initState() {
     super.initState();
     _transformationController = TransformationController();
-    _transformationController.value = Matrix4.identity()
-      ..scale(widget.zoomScale, widget.zoomScale, 1.0);
+    _transformationController.value = Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
   }
 
   @override
@@ -58,13 +57,11 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
       if ((currentScale - widget.zoomScale).abs() > 0.01) {
         if (widget.zoomScale <= 1.0) {
           final currentY = _transformationController.value.getTranslation().y;
-          _transformationController.value = Matrix4.identity()
-            ..translate(0.0, currentY.clamp(-double.infinity, 0.0));
+          _transformationController.value = Matrix4.translationValues(0.0, currentY.clamp(-double.infinity, 0.0), 0.0);
         } else {
           final currentY = _transformationController.value.getTranslation().y;
-          _transformationController.value = Matrix4.identity()
-            ..translate(0.0, currentY)
-            ..scale(widget.zoomScale, widget.zoomScale, 1.0);
+          _transformationController.value = Matrix4.translationValues(0.0, currentY, 0.0)
+            * Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
         }
       }
     }

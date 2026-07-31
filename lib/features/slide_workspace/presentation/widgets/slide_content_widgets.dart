@@ -144,12 +144,7 @@ class AdaptiveSlideContent extends StatefulWidget {
 }
 
 class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
-  ImageStream? _imageStream;
-  ImageStreamListener? _imageListener;
-  double? _imageAspectRatio;
   bool _hasLoadedRealImage = false;
-
-  static final Map<String, double> _aspectRatioCache = {};
 
   @override
   void initState() {
@@ -157,11 +152,6 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
     if (widget.loadRealImage) {
       _hasLoadedRealImage = true;
     }
-    final url = widget.slide.imageAsset.trim();
-    if (_aspectRatioCache.containsKey(url)) {
-      _imageAspectRatio = _aspectRatioCache[url];
-    }
-    _resolveImageAspect();
   }
 
   @override
@@ -170,73 +160,10 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
     if (widget.loadRealImage) {
       _hasLoadedRealImage = true;
     }
-    if (oldWidget.slide.imageAsset != widget.slide.imageAsset ||
-        oldWidget.loadRealImage != widget.loadRealImage) {
-      final url = widget.slide.imageAsset.trim();
-      _imageAspectRatio = _aspectRatioCache[url];
-      _resolveImageAspect();
-    }
-  }
-
-  void _resolveImageAspect() {
-    final loadReal = widget.loadRealImage || _hasLoadedRealImage;
-    if (!loadReal) return;
-    if (widget.isThumbnail) return;
-    if (_imageStream != null && _imageListener != null) {
-      _imageStream!.removeListener(_imageListener!);
-    }
-    final url = widget.slide.imageAsset.trim();
-    if (url.isEmpty) return;
-
-    if (_aspectRatioCache.containsKey(url)) {
-      final cachedAspect = _aspectRatioCache[url];
-      if (cachedAspect != null && cachedAspect > 0) {
-        if (_imageAspectRatio != cachedAspect) {
-          setState(() => _imageAspectRatio = cachedAspect);
-        }
-        return;
-      }
-    }
-
-    ImageProvider provider;
-    if (url.startsWith('http')) {
-      final localPath = ImageCacheService().getCachedPathSync(url);
-      if (localPath != null && localPath.isNotEmpty && !kIsWeb) {
-        provider = FileImage(File(localPath));
-      } else {
-        provider = NetworkImage(url);
-      }
-    } else {
-      if (kIsWeb) {
-        provider = NetworkImage(url);
-      } else {
-        provider = FileImage(File(url));
-      }
-    }
-
-    _imageStream = provider.resolve(const ImageConfiguration());
-    _imageListener = ImageStreamListener(
-      (image, _) {
-        final aspect = image.image.width / image.image.height;
-        if (aspect > 0) {
-          _aspectRatioCache[url] = aspect;
-          if (mounted && aspect != _imageAspectRatio) {
-            setState(() => _imageAspectRatio = aspect);
-          }
-        }
-      },
-      onError: (exception, stackTrace) {
-        debugPrint('Error resolving image aspect: $exception');
-      },
-    );
-    _imageStream!.addListener(_imageListener!);
   }
 
   @override
   void dispose() {
-    if (_imageStream != null && _imageListener != null) {
-      _imageStream!.removeListener(_imageListener!);
-    }
     super.dispose();
   }
 
@@ -247,10 +174,10 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
         widget.slideIndex != null &&
         stateProvider.editingSlideIndex == widget.slideIndex;
 
-    const totalFlex = 10;
+    const totalFlex = 3;
     final loadReal = widget.loadRealImage || _hasLoadedRealImage;
-    final imageFlex = (_imageAspectRatio ?? 0) > 1.12 ? 5 : 4;
-    final questionFlex = totalFlex - imageFlex;
+    const imageFlex = 1;
+    const questionFlex = totalFlex - imageFlex;
     final slide = widget.slide;
     final compact = widget.compact;
     final isDark = widget.isDark;
