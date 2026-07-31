@@ -62,6 +62,7 @@ class WorkspaceTopToolbar extends StatelessWidget {
   final VoidCallback? onZoomIn;
   final VoidCallback onBack;
   final VoidCallback? onAddSlide;
+  final VoidCallback? onReorderSlides;
 
   const WorkspaceTopToolbar({
     super.key,
@@ -77,6 +78,7 @@ class WorkspaceTopToolbar extends StatelessWidget {
     this.onZoomIn,
     required this.onBack,
     this.onAddSlide,
+    this.onReorderSlides,
   });
 
   static const _toolOrder = [
@@ -179,6 +181,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 16),
+            _reorderButton(iconExtent: iconExtent, iconSize: iconSize),
+            if (onReorderSlides != null) const SizedBox(width: 8),
             _backButton(iconExtent: iconExtent, iconSize: iconSize),
           ],
         ),
@@ -224,6 +228,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
                     const SizedBox(width: 10),
                     _historyButtons(iconExtent: iconExtent, iconSize: iconSize),
                     const SizedBox(width: 8),
+                    _reorderButton(iconExtent: iconExtent, iconSize: iconSize),
+                    if (onReorderSlides != null) const SizedBox(width: 8),
                     _backButton(iconExtent: iconExtent, iconSize: iconSize),
                   ],
                 ),
@@ -286,6 +292,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
                   SizedBox(width: isPhone ? 2 : 10),
                   _historyButtons(iconExtent: iconExtent, iconSize: iconSize),
                   SizedBox(width: isPhone ? 2 : 8),
+                  _reorderButton(iconExtent: iconExtent, iconSize: iconSize),
+                  if (onReorderSlides != null) SizedBox(width: isPhone ? 2 : 8),
                   _backButton(iconExtent: iconExtent, iconSize: iconSize),
                 ],
               ),
@@ -625,6 +633,21 @@ class WorkspaceTopToolbar extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _reorderButton({
+    required double iconExtent,
+    required double iconSize,
+  }) {
+    if (onReorderSlides == null) return const SizedBox.shrink();
+    return WorkspaceIconButton(
+      icon: Icons.swap_vert_rounded,
+      tooltip: 'ترتيب الشرائح',
+      foregroundColor: _foreground,
+      size: iconExtent,
+      iconSize: iconSize,
+      onTap: onReorderSlides,
     );
   }
 

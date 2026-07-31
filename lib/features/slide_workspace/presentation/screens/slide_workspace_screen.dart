@@ -15,6 +15,7 @@ import '../widgets/slide_workspace_chrome.dart';
 import '../widgets/workspace_state_provider.dart';
 import '../widgets/workspace_top_toolbar.dart';
 import '../widgets/slide_editor_dialog.dart';
+import '../widgets/slide_reorder_dialog.dart';
 import '../widgets/desktop_workspace.dart';
 import '../widgets/mobile_workspace.dart';
 
@@ -422,6 +423,25 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
     }
   }
 
+  Future<void> _showReorderDialog(bool isDark) async {
+    final updated = await SlideReorderDialog.show(
+      context,
+      controller: controller,
+      isDark: isDark,
+    );
+    if (updated == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تم حفظ ترتيب الشرائح بنجاح',
+            style: TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return WorkspaceOutsideStateProvider(
@@ -492,6 +512,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
                           }
                         },
                         onAddSlide: canManageSlides ? () => _showSlideEditorDialog() : null,
+                        onReorderSlides: canManageSlides ? () => _showReorderDialog(isDark) : null,
                       ),
                       if (!controller.hasSlides)
                         Expanded(

@@ -551,6 +551,15 @@ class SlideWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> reorderSlides(List<WorkspaceSlide> reorderedSlides) async {
+    slides = List.unmodifiable(_renumber(reorderedSlides));
+    notifyListeners();
+    if (stationId != null && stationId!.isNotEmpty) {
+      await _repository.reorderSlides(stationId!, slides);
+      await load();
+    }
+  }
+
   Future<void> updateSlide({
     required String slideId,
     required String title,

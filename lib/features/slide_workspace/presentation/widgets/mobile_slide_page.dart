@@ -338,13 +338,6 @@ class ObjectControls extends StatelessWidget {
     }
 
     final items = [
-      (Icons.keyboard_arrow_up_rounded, 'Move up', onMoveUp, index > 0),
-      (
-        Icons.keyboard_arrow_down_rounded,
-        'Move down',
-        onMoveDown,
-        index < total - 1
-      ),
       (
         isHidden ? Icons.visibility_outlined : Icons.visibility_off_outlined,
         isHidden ? 'Show' : 'Hide',
