@@ -529,22 +529,25 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   @override
   Future<void> reorderSlides(
       String stationId, List<WorkspaceSlide> slides) async {
-    // Apply the desired order locally first by setting temp indexes
-    final subtitleOrder = <String, int>{};
-    final localCounts = <String, int>{};
-
+    // 1. Assign unique negative indexes first to avoid unique constraint collisions
     for (var i = 0; i < slides.length; i++) {
       final slide = slides[i];
-      final subtitleKey = slide.subtitle.trim().toLowerCase();
-      subtitleOrder.putIfAbsent(subtitleKey, () => subtitleOrder.length + 1);
-      final subtitleSlideIndex = (localCounts[subtitleKey] ?? 0) + 1;
-      localCounts[subtitleKey] = subtitleSlideIndex;
+      await _supabase.client
+          .from('slides')
+          .update({'slide_index': -(i + 1)})
+          .eq('id', slide.id);
+    }
+
+    // 2. Assign the final positive indexes
+    for (var i = 0; i < slides.length; i++) {
+      final slide = slides[i];
       await _supabase.client
           .from('slides')
           .update({'slide_index': i + 1})
           .eq('id', slide.id);
     }
-    // Let the RPC clean everything up atomically
+
+    // 3. Let the RPC clean everything up atomically
     await _reorderStationSlides(stationId);
   }
 

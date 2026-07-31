@@ -10,6 +10,11 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Set larger image cache limits to keep loaded slide images in RAM/VRAM
+  // and prevent reloading/flickering when navigating between screens.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 300 * 1024 * 1024; // 300 MB
+  PaintingBinding.instance.imageCache.maximumSize = 150; // 150 images
+
   // Initialize Core Services
   try {
     await SupabaseService.initialize();
