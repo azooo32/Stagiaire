@@ -773,6 +773,7 @@ class AppProvider extends ChangeNotifier {
       String subject, String title, String category, String duration,
       {String? pdfUrl,
       String? audioUrl,
+      String? audioFileName,
       Uint8List? audioBytes,
       Uint8List? pdfBytes,
       String? sectionId,
@@ -810,12 +811,30 @@ class AppProvider extends ChangeNotifier {
     try {
       String? finalAudioUrl = audioUrl;
       if (audioBytes != null) {
+        // Build a unique filename with timestamp to avoid storage collisions
+        // Prefer explicit audioFileName (from file picker) over extracting from path/URL
+        final rawName = audioFileName??
+            audioUrl?.split('/').last.split('\\').last ??
+            'voice_note';
+        final ext = rawName.contains('.') ? rawName.split('.').last.toLowerCase() : 'mp3';
+        final baseName = rawName.contains('.') ? rawName.substring(0, rawName.lastIndexOf('.')) : rawName;
+        final uniqueName = '${baseName}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+        // Map extension to correct MIME type
+        final mimeType = const {
+          'mp3': 'audio/mpeg',
+          'm4a': 'audio/mp4',
+          'aac': 'audio/aac',
+          'wav': 'audio/wav',
+          'ogg': 'audio/ogg',
+          'webm': 'audio/webm',
+          'opus': 'audio/opus',
+        }[ext] ?? 'audio/mpeg';
         final uploaded = await _supabase.uploadFileBytes(
           'question-audios',
           audioBytes,
-          audioUrl?.split('/').last.split('\\').last ?? 'voice_note_${DateTime.now().millisecondsSinceEpoch}.mp3',
+          uniqueName,
           folder: 'voice-notes',
-          contentType: 'audio/mpeg',
+          contentType: mimeType,
         );
         if (uploaded != null) {
           finalAudioUrl = uploaded;

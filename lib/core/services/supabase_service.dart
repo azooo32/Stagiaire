@@ -777,7 +777,7 @@ class SupabaseService {
             bytes,
             fileOptions: FileOptions(
               cacheControl: '3600',
-              upsert: false,
+              upsert: true,
               contentType: contentType,
             ),
           );
