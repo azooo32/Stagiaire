@@ -1910,12 +1910,18 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                                       await FilePicker.platform.pickFiles(
                                     type: FileType.custom,
                                     allowedExtensions: ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'webm'],
-                                    withData: true,
+                                    // On web, file.bytes is always provided.
+                                    // On mobile, withData: false lets FilePicker copy to a real
+                                    // temp/cache path so File(path).readAsBytes() works reliably.
+                                    // withData: true on Android can return null bytes on some devices.
+                                    withData: kIsWeb,
                                   );
                                   if (result != null) {
                                     final file = result.files.single;
-                                    final pickedPath = file.path;
-                                    final pickedBytes = file.bytes;
+                                    // On web: use bytes (path is null on web).
+                                    // On mobile: use path (real cache path, bytes may be null).
+                                    final pickedPath = kIsWeb ? null : file.path;
+                                    final pickedBytes = kIsWeb ? file.bytes : null;
                                     Duration? detectedDuration;
                                     final tempPlayer = AudioPlayer();
                                     try {
@@ -2194,25 +2200,39 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
 
                       cancelTimerLocal();
 
+                      print('[VOICE_NOTE_LOG] Add Recording button clicked');
+                      print('[VOICE_NOTE_LOG] Title: "$title"');
+                      print('[VOICE_NOTE_LOG] Subject: "$subject"');
+                      print('[VOICE_NOTE_LOG] selectedAudioFile: "$selectedAudioFile"');
+                      print('[VOICE_NOTE_LOG] selectedAudioPath: "$selectedAudioPath"');
+                      print('[VOICE_NOTE_LOG] selectedAudioBytes: ${selectedAudioBytes != null ? "${selectedAudioBytes.length} bytes" : "null"}');
+
                       // Fetch bytes from blob/path if not already loaded (e.g. for recordings or local paths)
                       Uint8List? audioBytes = selectedAudioBytes;
                       if (audioBytes == null && selectedAudioPath != null) {
                         try {
+                          print('[VOICE_NOTE_LOG] Fetching bytes from path/url: "$selectedAudioPath"');
                           audioBytes = await getBytesFromPathOrUrl(selectedAudioPath!);
-                        } catch (e) {
-                          debugPrint('Error loading audio bytes: $e');
+                          print('[VOICE_NOTE_LOG] Successfully fetched audio bytes: ${audioBytes.length} bytes');
+                        } catch (e, s) {
+                          print('[VOICE_NOTE_LOG] Error loading audio bytes: $e');
+                          print('[VOICE_NOTE_LOG] Stacktrace: $s');
                         }
                       }
 
                       Uint8List? pdfBytes = selectedPdfBytes;
                       if (pdfBytes == null && selectedPdf != null && !kIsWeb) {
                         try {
+                          print('[VOICE_NOTE_LOG] Fetching PDF bytes from: "$selectedPdf"');
                           pdfBytes = await getBytesFromPathOrUrl(selectedPdf!);
-                        } catch (e) {
-                          debugPrint('Error loading PDF bytes: $e');
+                          print('[VOICE_NOTE_LOG] Successfully fetched PDF bytes: ${pdfBytes.length} bytes');
+                        } catch (e, s) {
+                          print('[VOICE_NOTE_LOG] Error loading PDF bytes: $e');
+                          print('[VOICE_NOTE_LOG] Stacktrace: $s');
                         }
                       }
 
+                      print('[VOICE_NOTE_LOG] Dispatching addClinicalVoiceNote');
                       unawaited(provider.addClinicalVoiceNote(
                         subject,
                         title,
