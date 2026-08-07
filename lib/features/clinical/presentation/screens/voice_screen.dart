@@ -2200,39 +2200,25 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
 
                       cancelTimerLocal();
 
-                      print('[VOICE_NOTE_LOG] Add Recording button clicked');
-                      print('[VOICE_NOTE_LOG] Title: "$title"');
-                      print('[VOICE_NOTE_LOG] Subject: "$subject"');
-                      print('[VOICE_NOTE_LOG] selectedAudioFile: "$selectedAudioFile"');
-                      print('[VOICE_NOTE_LOG] selectedAudioPath: "$selectedAudioPath"');
-                      print('[VOICE_NOTE_LOG] selectedAudioBytes: ${selectedAudioBytes != null ? "${selectedAudioBytes.length} bytes" : "null"}');
-
                       // Fetch bytes from blob/path if not already loaded (e.g. for recordings or local paths)
                       Uint8List? audioBytes = selectedAudioBytes;
                       if (audioBytes == null && selectedAudioPath != null) {
                         try {
-                          print('[VOICE_NOTE_LOG] Fetching bytes from path/url: "$selectedAudioPath"');
                           audioBytes = await getBytesFromPathOrUrl(selectedAudioPath!);
-                          print('[VOICE_NOTE_LOG] Successfully fetched audio bytes: ${audioBytes.length} bytes');
-                        } catch (e, s) {
-                          print('[VOICE_NOTE_LOG] Error loading audio bytes: $e');
-                          print('[VOICE_NOTE_LOG] Stacktrace: $s');
+                        } catch (e) {
+                          debugPrint('Error loading audio bytes: $e');
                         }
                       }
 
                       Uint8List? pdfBytes = selectedPdfBytes;
                       if (pdfBytes == null && selectedPdf != null && !kIsWeb) {
                         try {
-                          print('[VOICE_NOTE_LOG] Fetching PDF bytes from: "$selectedPdf"');
                           pdfBytes = await getBytesFromPathOrUrl(selectedPdf!);
-                          print('[VOICE_NOTE_LOG] Successfully fetched PDF bytes: ${pdfBytes.length} bytes');
-                        } catch (e, s) {
-                          print('[VOICE_NOTE_LOG] Error loading PDF bytes: $e');
-                          print('[VOICE_NOTE_LOG] Stacktrace: $s');
+                        } catch (e) {
+                          debugPrint('Error loading PDF bytes: $e');
                         }
                       }
 
-                      print('[VOICE_NOTE_LOG] Dispatching addClinicalVoiceNote');
                       unawaited(provider.addClinicalVoiceNote(
                         subject,
                         title,

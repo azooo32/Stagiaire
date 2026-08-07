@@ -806,7 +806,6 @@ class AppProvider extends ChangeNotifier {
       _dbVoiceNotes.add(pendingNote);
       _dbVoiceNotes.sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     }
-    print('[VOICE_NOTE_LOG] addClinicalVoiceNote called with tempId: $tempId');
     notifyListeners();
 
     try {
@@ -831,7 +830,6 @@ class AppProvider extends ChangeNotifier {
           'opus': 'audio/opus',
         }[ext] ?? 'audio/mpeg';
 
-        print('[VOICE_NOTE_LOG] Calling uploadFileBytes. name: $uniqueName, size: ${audioBytes.length} bytes, type: $mimeType');
         final uploaded = await _supabase.uploadFileBytes(
           'question-audios',
           audioBytes,
@@ -839,23 +837,20 @@ class AppProvider extends ChangeNotifier {
           folder: 'voice-notes',
           contentType: mimeType,
         );
-        print('[VOICE_NOTE_LOG] uploadFileBytes returned: $uploaded');
         if (uploaded != null) {
           finalAudioUrl = uploaded;
         } else {
-          throw Exception('Failed to upload audio bytes.');
+          throw Exception(_supabase.lastError ?? 'Failed to upload audio bytes.');
         }
       } else if (audioUrl != null && audioUrl.isNotEmpty) {
         if (!audioUrl.startsWith('http://') &&
             !audioUrl.startsWith('https://')) {
-          print('[VOICE_NOTE_LOG] Calling uploadFile for path: $audioUrl');
           final uploaded = await _supabase
               .uploadFile('question-audios', audioUrl, folder: 'voice-notes');
-          print('[VOICE_NOTE_LOG] uploadFile returned: $uploaded');
           if (uploaded != null) {
             finalAudioUrl = uploaded;
           } else {
-            throw Exception('Failed to upload audio file.');
+            throw Exception(_supabase.lastError ?? 'Failed to upload audio file.');
           }
         }
       }
@@ -872,7 +867,7 @@ class AppProvider extends ChangeNotifier {
         if (uploaded != null) {
           finalPdfUrl = uploaded;
         } else {
-          throw Exception('Failed to upload PDF bytes.');
+          throw Exception(_supabase.lastError ?? 'Failed to upload PDF bytes.');
         }
       } else if (pdfUrl != null && pdfUrl.isNotEmpty) {
         if (!pdfUrl.startsWith('http://') && !pdfUrl.startsWith('https://')) {
@@ -881,14 +876,12 @@ class AppProvider extends ChangeNotifier {
           if (uploaded != null) {
             finalPdfUrl = uploaded;
           } else {
-            throw Exception('Failed to upload PDF file.');
+            throw Exception(_supabase.lastError ?? 'Failed to upload PDF file.');
           }
         }
       }
 
-      print('[VOICE_NOTE_LOG] Resolving subject ID for subject: $subject');
       final subjectId = await _resolveClinicalSubjectId(subject);
-      print('[VOICE_NOTE_LOG] Resolved subjectId: $subjectId');
       if (subjectId != null) {
         final existingNotes = getClinicalVoiceNotes(subject)
             .where((vn) => !vn.isUploading)
@@ -900,7 +893,6 @@ class AppProvider extends ChangeNotifier {
                     .reduce((a, b) => a > b ? a : b) +
                 1;
 
-        print('[VOICE_NOTE_LOG] Inserting row into voice_notes table. audio_url: $finalAudioUrl');
         await _supabase.client.from('voice_notes').insert({
           'subject_id': subjectId,
           'title': title,
@@ -914,19 +906,14 @@ class AppProvider extends ChangeNotifier {
           'order_index': nextOrderIndex,
           'section_id': sectionId,
         });
-        print('[VOICE_NOTE_LOG] Insertion successful. Invalidating cache and reloading.');
         await invalidateClinicalCache(subject);
         await loadClinicalData(subject);
-        print('[VOICE_NOTE_LOG] Reload completed.');
-      } else {
-        print('[VOICE_NOTE_LOG] Error: Resolved subjectId is null');
       }
-    } catch (e, s) {
+    } catch (e) {
       _clinicalVoiceNotes.removeWhere((vn) => vn.dbId == tempId);
       _dbVoiceNotes.removeWhere((vn) => vn.dbId == tempId);
       notifyListeners();
-      print('[VOICE_NOTE_LOG] Exception in addClinicalVoiceNote: $e');
-      print('[VOICE_NOTE_LOG] Stacktrace: $s');
+      print('Error saving voice note: $e');
     }
   }
 
