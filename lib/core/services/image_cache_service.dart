@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'secure_file_cache_service.dart';
 
@@ -61,6 +62,7 @@ class ImageCacheService {
   }
 
   Future<String?> cachedPathForUrl(String url) async {
+    if (kIsWeb) return null;
     final trimmed = url.trim();
     if (trimmed.isEmpty ||
         !(trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
@@ -108,6 +110,7 @@ class ImageCacheService {
       {Duration timeout = const Duration(seconds: 30)}) async {
     final trimmed = url.trim();
     if (trimmed.isEmpty) return null;
+    if (kIsWeb) return trimmed;
     if (trimmed.startsWith('data:image') || trimmed.startsWith('blob:'))
       return trimmed;
     if (!(trimmed.startsWith('http://') || trimmed.startsWith('https://')))

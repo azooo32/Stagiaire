@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/subject.dart';
@@ -771,6 +773,8 @@ class AppProvider extends ChangeNotifier {
       String subject, String title, String category, String duration,
       {String? pdfUrl,
       String? audioUrl,
+      Uint8List? audioBytes,
+      Uint8List? pdfBytes,
       String? sectionId,
       int? durationSeconds}) async {
     final tempId = 'uploading_${DateTime.now().microsecondsSinceEpoch}';
@@ -805,7 +809,20 @@ class AppProvider extends ChangeNotifier {
 
     try {
       String? finalAudioUrl = audioUrl;
-      if (audioUrl != null && audioUrl.isNotEmpty) {
+      if (audioBytes != null) {
+        final uploaded = await _supabase.uploadFileBytes(
+          'question-audios',
+          audioBytes,
+          audioUrl?.split('/').last.split('\\').last ?? 'voice_note_${DateTime.now().millisecondsSinceEpoch}.mp3',
+          folder: 'voice-notes',
+          contentType: 'audio/mpeg',
+        );
+        if (uploaded != null) {
+          finalAudioUrl = uploaded;
+        } else {
+          throw Exception('Failed to upload audio bytes.');
+        }
+      } else if (audioUrl != null && audioUrl.isNotEmpty) {
         if (!audioUrl.startsWith('http://') &&
             !audioUrl.startsWith('https://')) {
           final uploaded = await _supabase
@@ -819,7 +836,20 @@ class AppProvider extends ChangeNotifier {
       }
 
       String? finalPdfUrl = pdfUrl;
-      if (pdfUrl != null && pdfUrl.isNotEmpty) {
+      if (pdfBytes != null) {
+        final uploaded = await _supabase.uploadFileBytes(
+          'question-images',
+          pdfBytes,
+          pdfUrl?.split('/').last.split('\\').last ?? 'voice_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf',
+          folder: 'voice-pdfs',
+          contentType: 'application/pdf',
+        );
+        if (uploaded != null) {
+          finalPdfUrl = uploaded;
+        } else {
+          throw Exception('Failed to upload PDF bytes.');
+        }
+      } else if (pdfUrl != null && pdfUrl.isNotEmpty) {
         if (!pdfUrl.startsWith('http://') && !pdfUrl.startsWith('https://')) {
           final uploaded = await _supabase.uploadFile('question-images', pdfUrl,
               folder: 'voice-pdfs');
@@ -1662,7 +1692,11 @@ class AppProvider extends ChangeNotifier {
         final user = _supabase.currentUser;
         if (user != null) {
           final deviceId = _cache.getInstallationId();
-          final deviceName = Platform.isAndroid ? 'Android' : (Platform.isIOS ? 'iOS' : 'Web/Desktop');
+          final deviceName = kIsWeb
+              ? 'Web'
+              : (defaultTargetPlatform == TargetPlatform.android
+                  ? 'Android'
+                  : (defaultTargetPlatform == TargetPlatform.iOS ? 'iOS' : 'Desktop'));
           unawaited(_supabase.registerOrUpdateSession(user.id, deviceId, deviceName));
           _startSessionCheckTimer(user.id, deviceId);
         }
@@ -1829,11 +1863,16 @@ class AppProvider extends ChangeNotifier {
               .timeout(const Duration(seconds: 30));
           for (final dq in deltaQuestions) {
             final id = _safeIntVal(dq['id']);
-            final idx = rawQuestions.indexWhere((q) => _safeIntVal(q['id']) == id);
-            if (idx != -1) {
-              rawQuestions[idx] = dq;
+            final isDeleted = dq['is_deleted'] == true;
+            if (isDeleted) {
+              rawQuestions.removeWhere((q) => _safeIntVal(q['id']) == id);
             } else {
-              rawQuestions.add(dq);
+              final idx = rawQuestions.indexWhere((q) => _safeIntVal(q['id']) == id);
+              if (idx != -1) {
+                rawQuestions[idx] = dq;
+              } else {
+                rawQuestions.add(dq);
+              }
             }
           }
         }

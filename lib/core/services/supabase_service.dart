@@ -244,6 +244,7 @@ class SupabaseService {
           .from('questions')
           .select('*')
           .inFilter('subject', patterns)
+          .eq('is_deleted', false)
           .order('id')
           .range(from, from + pageSize - 1);
       final list = List<Map<String, dynamic>>.from(response);

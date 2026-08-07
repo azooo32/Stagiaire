@@ -10,6 +10,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import '../../../../core/providers/app_provider.dart';
+import '../../../../core/utils/platform_file_helper.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/services/audio_cache_service.dart';
 
@@ -1521,7 +1522,9 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
   final AudioRecorder recorder = AudioRecorder();
   String? selectedAudioFile;
   String? selectedAudioPath;
+  Uint8List? selectedAudioBytes;
   String? selectedPdf;
+  Uint8List? selectedPdfBytes;
   String finalDuration = '00:00';
   int? finalDurationSeconds;
 
@@ -1905,28 +1908,38 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                                 try {
                                   final result =
                                       await FilePicker.platform.pickFiles(
-                                    type: FileType.audio,
+                                    type: FileType.custom,
+                                    allowedExtensions: ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'webm'],
+                                    withData: true,
                                   );
-                                  if (result != null &&
-                                      result.files.single.path != null) {
-                                    final pickedPath =
-                                        result.files.single.path!;
+                                  if (result != null) {
+                                    final file = result.files.single;
+                                    final pickedPath = file.path;
+                                    final pickedBytes = file.bytes;
                                     Duration? detectedDuration;
                                     final tempPlayer = AudioPlayer();
                                     try {
-                                      await tempPlayer.setSource(
-                                          DeviceFileSource(pickedPath));
-                                      detectedDuration =
-                                          await tempPlayer.getDuration();
+                                      if (kIsWeb) {
+                                        if (pickedBytes != null) {
+                                          await tempPlayer.setSource(BytesSource(pickedBytes));
+                                          detectedDuration = await tempPlayer.getDuration();
+                                        }
+                                      } else {
+                                        if (pickedPath != null) {
+                                          await tempPlayer.setSource(DeviceFileSource(pickedPath));
+                                          detectedDuration = await tempPlayer.getDuration();
+                                        }
+                                      }
+                                    } catch (e) {
+                                      debugPrint('Error getting duration: $e');
                                     } finally {
                                       await tempPlayer.dispose();
                                     }
                                     setModalState(() {
-                                      selectedAudioFile =
-                                          result.files.single.name;
+                                      selectedAudioFile = file.name;
                                       selectedAudioPath = pickedPath;
-                                      finalDurationSeconds =
-                                          detectedDuration?.inSeconds;
+                                      selectedAudioBytes = pickedBytes;
+                                      finalDurationSeconds = detectedDuration?.inSeconds;
                                       finalDuration = detectedDuration != null
                                           ? '${detectedDuration.inMinutes.remainder(60).toString().padLeft(2, '0')}:${detectedDuration.inSeconds.remainder(60).toString().padLeft(2, '0')}'
                                           : '00:00';
@@ -2104,14 +2117,29 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                             final result = await FilePicker.platform.pickFiles(
                               type: FileType.custom,
                               allowedExtensions: ['pdf'],
+                              withData: true,
                             );
-                            if (result != null &&
-                                result.files.single.path != null) {
-                              final saved = await _savePdfPersistently(
-                                  result.files.single.path!);
-                              setModalState(() {
-                                selectedPdf = saved;
-                              });
+                            if (result != null) {
+                              final file = result.files.single;
+                              if (kIsWeb) {
+                                setModalState(() {
+                                  selectedPdf = file.name;
+                                  selectedPdfBytes = file.bytes;
+                                });
+                              } else {
+                                selectedPdfBytes = file.bytes;
+                                if (file.path != null) {
+                                  final saved = await _savePdfPersistently(
+                                      file.path!);
+                                  setModalState(() {
+                                    selectedPdf = saved;
+                                  });
+                                } else {
+                                  setModalState(() {
+                                    selectedPdf = file.name;
+                                  });
+                                }
+                              }
                             }
                           } catch (e) {
                             debugPrint('Error picking pdf: $e');
@@ -2155,7 +2183,7 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                         return;
                       }
 
-                      if (selectedAudioFile == null) {
+                      if (selectedAudioFile == null && selectedAudioBytes == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                               content: Text(
@@ -2166,6 +2194,25 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
 
                       cancelTimerLocal();
 
+                      // Fetch bytes from blob/path if not already loaded (e.g. for recordings or local paths)
+                      Uint8List? audioBytes = selectedAudioBytes;
+                      if (audioBytes == null && selectedAudioPath != null) {
+                        try {
+                          audioBytes = await getBytesFromPathOrUrl(selectedAudioPath!);
+                        } catch (e) {
+                          debugPrint('Error loading audio bytes: $e');
+                        }
+                      }
+
+                      Uint8List? pdfBytes = selectedPdfBytes;
+                      if (pdfBytes == null && selectedPdf != null && !kIsWeb) {
+                        try {
+                          pdfBytes = await getBytesFromPathOrUrl(selectedPdf!);
+                        } catch (e) {
+                          debugPrint('Error loading PDF bytes: $e');
+                        }
+                      }
+
                       unawaited(provider.addClinicalVoiceNote(
                         subject,
                         title,
@@ -2173,6 +2220,8 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                         finalDuration,
                         pdfUrl: selectedPdf,
                         audioUrl: selectedAudioPath,
+                        audioBytes: audioBytes,
+                        pdfBytes: pdfBytes,
                         sectionId: sectionId,
                         durationSeconds: finalDurationSeconds,
                       ));

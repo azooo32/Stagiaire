@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -729,14 +730,16 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
         );
       } catch (_) {}
 
-      if (savedPath == null) {
+      if (savedPath == null && !kIsWeb) {
         Directory? dir;
-        if (Platform.isAndroid) {
+        if (defaultTargetPlatform == TargetPlatform.android) {
           dir = Directory('/storage/emulated/0/Download');
           if (!await dir.exists()) {
             dir = Directory('/storage/emulated/0/Pictures');
           }
-        } else if (Platform.isIOS || Platform.isMacOS || Platform.isWindows) {
+        } else if (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS ||
+            defaultTargetPlatform == TargetPlatform.windows) {
           dir = await getDownloadsDirectory() ??
               await getApplicationDocumentsDirectory();
         }
