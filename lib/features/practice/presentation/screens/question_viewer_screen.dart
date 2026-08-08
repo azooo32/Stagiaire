@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1456,6 +1458,34 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                   ),
                                 ),
                               ),
+                              // Copy Button
+                              GestureDetector(
+                                onTap: () {
+                                  final buffer = StringBuffer();
+                                  buffer.writeln(q.text.trim());
+                                  buffer.writeln();
+                                  for (int i = 0; i < q.options.length; i++) {
+                                    final letter = String.fromCharCode(65 + i);
+                                    buffer.writeln(
+                                        '$letter) ${q.options[i].trim()}');
+                                  }
+                                  Clipboard.setData(
+                                      ClipboardData(text: buffer.toString()));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        '📋 تم نسخ السؤال مع الخيارات بنجاح',
+                                        style: TextStyle(fontFamily: 'Cairo'),
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: const Padding(
+                                  padding: EdgeInsets.only(right: 12.0),
+                                  child: Icon(Icons.copy_rounded,
+                                      color: Colors.white, size: 20),
+                                ),
+                              ),
                               // Edit Button
                               GestureDetector(
                                 onTap: () =>
@@ -1994,7 +2024,8 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                           builder: (context, constraints) {
                                             final visibleImages = _images
                                                 .where((img) =>
-                                                    _extractQuestionImageUrl(img)
+                                                    _extractQuestionImageUrl(
+                                                            img)
                                                         .isNotEmpty)
                                                 .toList();
 
@@ -2020,10 +2051,10 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                                             BoxConstraints(
                                                           maxHeight:
                                                               MediaQuery.of(
-                                                                      context)
-                                                                  .size
-                                                                  .height *
-                                                              0.65,
+                                                                          context)
+                                                                      .size
+                                                                      .height *
+                                                                  0.65,
                                                         ),
                                                         decoration:
                                                             BoxDecoration(
@@ -2040,7 +2071,8 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                                                   borderColor),
                                                           boxShadow: [
                                                             BoxShadow(
-                                                              color: Colors.black
+                                                              color: Colors
+                                                                  .black
                                                                   .withValues(
                                                                       alpha: isDark
                                                                           ? 0.2
