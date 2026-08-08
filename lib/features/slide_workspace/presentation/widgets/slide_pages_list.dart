@@ -12,13 +12,34 @@ const slideCanvasHeight = 608.0;
 const kHeaderCompactHeight = 52.0;
 const kHeaderDesktopHeight = 64.0;
 
+class _TranslationBounds {
+  final double min;
+  final double max;
+
+  const _TranslationBounds(this.min, this.max);
+
+  double get center => (min + max) / 2;
+}
+
+_TranslationBounds _translationBounds(
+  double contentExtent,
+  double viewportExtent,
+  double scale,
+) {
+  final scaledExtent = contentExtent * scale;
+  if (scaledExtent <= viewportExtent) {
+    final centered = (viewportExtent - scaledExtent) / 2;
+    return _TranslationBounds(centered, centered);
+  }
+  return _TranslationBounds(viewportExtent - scaledExtent, 0.0);
+}
+
 class WorkspaceListEntry {
   final String subtitle;
   final int? slideIndex;
 
   const WorkspaceListEntry.header(this.subtitle) : slideIndex = null;
-  const WorkspaceListEntry.slide(this.subtitle, int index)
-      : slideIndex = index;
+  const WorkspaceListEntry.slide(this.subtitle, int index) : slideIndex = index;
 
   bool get isHeader => slideIndex == null;
 }
@@ -70,10 +91,13 @@ void animateToSlide({
   WidgetsBinding.instance.addPostFrameCallback((_) {
     final renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null || !renderBox.hasSize) return;
-    
+
     final viewportHeight = renderBox.size.height;
     final totalWidth = renderBox.size.width;
-    final pageWidth = ((sidebarOpen ? (totalWidth - 216.0) : totalWidth) - 20.0).clamp(280.0, double.infinity);
+    final viewportWidth = sidebarOpen ? (totalWidth - 216.0) : totalWidth;
+    final pageWidth = viewportWidth
+        .clamp(280.0, double.infinity)
+        .toDouble();
     final pageHeight = pageWidth * slideCanvasHeight / slideCanvasWidth;
     final controlsHeight = canManageSlides ? 33.0 : 0.0;
     final pageExtent = pageHeight + controlsHeight;
@@ -118,14 +142,28 @@ void animateToSlide({
 
     final top = slideTops[index] ?? 10.0;
     final targetPageExtent = slideHeights[index] ?? pageExtent;
-    final totalContentHeight = currentY + 80.0; // bottomPad
+    final totalContentHeight = currentY + 10.0; // bottomPad
 
     final currentScale = transformationController.value.getMaxScaleOnAxis();
-    final targetY = -(top * currentScale) + (viewportHeight - (targetPageExtent * currentScale)) / 2;
-    final maxScrollY = (totalContentHeight * currentScale - viewportHeight).clamp(0.0, double.infinity);
+    final targetY = -(top * currentScale) +
+        (viewportHeight - (targetPageExtent * currentScale)) / 2;
+    final horizontalBounds = _translationBounds(
+      pageWidth,
+      viewportWidth,
+      currentScale,
+    );
+    final verticalBounds = _translationBounds(
+      totalContentHeight,
+      viewportHeight,
+      currentScale,
+    );
 
     final matrix = transformationController.value.clone();
-    matrix.setTranslationRaw(0.0, targetY.clamp(-maxScrollY, 0.0), 0);
+    matrix.setTranslationRaw(
+      horizontalBounds.center,
+      targetY.clamp(verticalBounds.min, verticalBounds.max).toDouble(),
+      0,
+    );
     transformationController.value = matrix;
   });
 }
@@ -212,7 +250,8 @@ class SlidePagesList extends StatefulWidget {
   State<SlidePagesList> createState() => _SlidePagesListState();
 }
 
-class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProviderStateMixin {
+class _SlidePagesListState extends State<SlidePagesList>
+    with SingleTickerProviderStateMixin {
   final Map<int, GlobalKey> _slideKeys = {};
   final Set<int> _activeStylusPointers = {};
   final GlobalKey _contentKey = GlobalKey();
@@ -221,6 +260,7 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
   bool _wasZoomed = false;
   double _lastViewportHeight = 0.0;
   double _lastPageWidth = 0.0;
+  double _lastTransformScale = double.nan;
 
   bool get _isDrawingTool =>
       widget.controller.selectedTool == WorkspaceTool.pen ||
@@ -289,6 +329,9 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
   void _onTransformChanged() {
     final matrix = widget.transformationController.value;
     final scale = matrix.getMaxScaleOnAxis();
+    final scaleChanged = !_lastTransformScale.isFinite ||
+        (scale - _lastTransformScale).abs() > 0.001;
+    _lastTransformScale = scale;
 
     if ((widget.controller.zoom - scale).abs() > 0.01) {
       widget.controller.setZoom(scale);
@@ -301,7 +344,41 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
       });
     }
 
-    if (_initialScrollAligned && _lastViewportHeight > 0 && _lastPageWidth > 0 && widget.controller.hasSlides) {
+    if (_lastViewportHeight > 0 && _lastPageWidth > 0) {
+      final contentHeight = _contentHeight(_lastPageWidth);
+      final horizontalBounds = _translationBounds(
+        _lastPageWidth,
+        _lastPageWidth,
+        scale,
+      );
+      final verticalBounds = _translationBounds(
+        contentHeight,
+        _lastViewportHeight,
+        scale,
+      );
+      final translation = matrix.getTranslation();
+      final targetX = scaleChanged
+          ? horizontalBounds.center
+          : translation.x
+              .clamp(horizontalBounds.min, horizontalBounds.max)
+              .toDouble();
+      final targetY = translation.y
+          .clamp(verticalBounds.min, verticalBounds.max)
+          .toDouble();
+
+      if ((translation.x - targetX).abs() > 0.01 ||
+          (translation.y - targetY).abs() > 0.01) {
+        final constrained = Matrix4.copy(matrix)
+          ..setTranslationRaw(targetX, targetY, translation.z);
+        widget.transformationController.value = constrained;
+        return;
+      }
+    }
+
+    if (_initialScrollAligned &&
+        _lastViewportHeight > 0 &&
+        _lastPageWidth > 0 &&
+        widget.controller.hasSlides) {
       final translation = matrix.getTranslation();
       final centerY = (-translation.y + _lastViewportHeight / 2) / scale;
 
@@ -315,13 +392,19 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
         final entry = entries[entryIndex];
         double entryHeight = 0.0;
         if (entry.isHeader) {
-          entryHeight = widget.compact
-              ? (10.0 + kHeaderCompactHeight + 6.0)
-              : (14.0 + kHeaderDesktopHeight + 8.0);
+          final isFirst = entryIndex == 0;
+          entryHeight =
+              (isFirst ? 0.0 : (widget.compact ? 10.0 : 14.0)) +
+                  (widget.compact
+                      ? kHeaderCompactHeight
+                      : kHeaderDesktopHeight) +
+                  (widget.compact ? 6.0 : 8.0);
         } else {
-          entryHeight = _lastPageWidth * slideCanvasHeight / slideCanvasWidth +
-              (widget.canManageSlides ? 33.0 : 0.0) +
-              (widget.compact ? 2.0 : 3.0);
+          final isLast = entryIndex == entries.length - 1;
+          entryHeight =
+              _lastPageWidth * slideCanvasHeight / slideCanvasWidth +
+                  (widget.canManageSlides ? 33.0 : 0.0) +
+                  (isLast ? 0.0 : (widget.compact ? 2.0 : 3.0));
         }
 
         if (!entry.isHeader) {
@@ -338,7 +421,9 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
 
       if (bestIndex != widget.controller.currentIndex) {
         final stateProvider = WorkspaceOutsideStateProvider.of(context);
-        if (stateProvider != null && stateProvider.editingSlideIndex != null && stateProvider.editingSlideIndex != bestIndex) {
+        if (stateProvider != null &&
+            stateProvider.editingSlideIndex != null &&
+            stateProvider.editingSlideIndex != bestIndex) {
           stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
         }
         widget.controller.goToSlide(bestIndex);
@@ -346,18 +431,26 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
     }
   }
 
+  double _contentHeight(double pageWidth) {
+    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
+    return box?.hasSize == true
+        ? box!.size.height
+        : _calculateFallbackHeight(pageWidth);
+  }
+
   double _calculateFallbackHeight(double pageWidth) {
     const topPad = 10.0;
     const bottomPad = 10.0;
     final entries = workspaceEntries(widget.controller.slides);
-    
+
     double totalContentHeight = topPad + bottomPad;
     for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
       final entry = entries[entryIndex];
       if (entry.isHeader) {
         final isFirst = entryIndex == 0;
         final topMargin = isFirst ? 0.0 : (widget.compact ? 10.0 : 14.0);
-        final headerBodyHeight = widget.compact ? kHeaderCompactHeight : kHeaderDesktopHeight;
+        final headerBodyHeight =
+            widget.compact ? kHeaderCompactHeight : kHeaderDesktopHeight;
         final bottomMargin = widget.compact ? 6.0 : 8.0;
         totalContentHeight += topMargin + headerBodyHeight + bottomMargin;
       } else {
@@ -376,16 +469,19 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
     final currentMatrix = widget.transformationController.value;
     final scale = currentMatrix.getMaxScaleOnAxis();
 
-    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
-    final double contentHeight = box?.hasSize == true 
-        ? box!.size.height 
-        : _calculateFallbackHeight(_lastPageWidth);
-
-    final double maxScrollY = (contentHeight * scale - _lastViewportHeight).clamp(0.0, double.infinity);
-    final double newY = _flingAnimationController.value.clamp(-maxScrollY, 0.0);
+    final contentHeight = _contentHeight(_lastPageWidth);
+    final verticalBounds = _translationBounds(
+      contentHeight,
+      _lastViewportHeight,
+      scale,
+    );
+    final double newY = _flingAnimationController.value
+        .clamp(verticalBounds.min, verticalBounds.max)
+        .toDouble();
 
     final newMatrix = Matrix4.copy(currentMatrix)
-      ..setTranslationRaw(0.0, newY, currentMatrix.getTranslation().z);
+      ..setTranslationRaw(
+          currentMatrix.getTranslation().x, newY, currentMatrix.getTranslation().z);
 
     widget.transformationController.value = newMatrix;
   }
@@ -400,7 +496,7 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
   @override
   Widget build(BuildContext context) {
     final entries = workspaceEntries(widget.controller.slides);
-    
+
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
         dragDevices: const {
@@ -411,11 +507,13 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          const sidePad = 10.0;
+          const sidePad = 0.0;
           const topPad = 10.0;
           const bottomPad = 10.0;
-          
-          final pageWidth = (constraints.maxWidth - (sidePad * 2)).clamp(280.0, double.infinity);
+
+          final pageWidth = constraints.maxWidth
+              .clamp(280.0, double.infinity)
+              .toDouble();
 
           final oldHeight = _lastViewportHeight;
           final oldWidth = _lastPageWidth;
@@ -436,7 +534,9 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
 
           final gestures = <Type, GestureRecognizerFactory>{};
           if (_customPanEnabled) {
-            gestures[WorkspaceScrollGestureRecognizer] = GestureRecognizerFactoryWithHandlers<WorkspaceScrollGestureRecognizer>(
+            gestures[WorkspaceScrollGestureRecognizer] =
+                GestureRecognizerFactoryWithHandlers<
+                    WorkspaceScrollGestureRecognizer>(
               () => WorkspaceScrollGestureRecognizer(),
               (WorkspaceScrollGestureRecognizer instance) {
                 instance
@@ -452,16 +552,31 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
                     final double viewportHeight = constraints.maxHeight;
 
                     final double totalContentWidth = pageWidth + sidePad * 2;
-                    final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
-                    final double contentHeight = box?.hasSize == true 
-                        ? box!.size.height 
+                    final box = _contentKey.currentContext?.findRenderObject()
+                        as RenderBox?;
+                    final double contentHeight = box?.hasSize == true
+                        ? box!.size.height
                         : _calculateFallbackHeight(pageWidth);
 
-                    final double maxScrollY = (contentHeight * scale - viewportHeight).clamp(0.0, double.infinity);
-                    final double maxScrollX = (totalContentWidth * scale - viewportWidth).clamp(0.0, double.infinity);
+                    final verticalBounds = _translationBounds(
+                      contentHeight,
+                      viewportHeight,
+                      scale,
+                    );
+                    final horizontalBounds = _translationBounds(
+                      totalContentWidth,
+                      viewportWidth,
+                      scale,
+                    );
 
-                    final double newY = (translation.y + delta.dy).clamp(-maxScrollY, 0.0);
-                    final double newX = (translation.x + delta.dx).clamp(-maxScrollX, 0.0);
+                    final double newY =
+                        (translation.y + delta.dy)
+                            .clamp(verticalBounds.min, verticalBounds.max)
+                            .toDouble();
+                    final double newX =
+                        (translation.x + delta.dx)
+                            .clamp(horizontalBounds.min, horizontalBounds.max)
+                            .toDouble();
 
                     final newMatrix = Matrix4.copy(currentMatrix)
                       ..setTranslationRaw(newX, newY, translation.z);
@@ -471,7 +586,8 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
                   ..onEnd = (velocity) {
                     final double velocityY = velocity.pixelsPerSecond.dy;
                     if (velocityY.abs() > 100) {
-                      final currentMatrix = widget.transformationController.value;
+                      final currentMatrix =
+                          widget.transformationController.value;
                       final translation = currentMatrix.getTranslation();
                       final simulation = ClampingScrollSimulation(
                         position: translation.y,
@@ -512,29 +628,45 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
               },
               onPointerSignal: (pointerSignal) {
                 if (pointerSignal is PointerScrollEvent) {
-                  GestureBinding.instance.pointerSignalResolver.register(pointerSignal, (event) {
+                  GestureBinding.instance.pointerSignalResolver
+                      .register(pointerSignal, (event) {
                     if (event is PointerScrollEvent) {
                       final double scrollDeltaY = event.scrollDelta.dy;
                       final double scrollDeltaX = event.scrollDelta.dx;
                       if (scrollDeltaY != 0 || scrollDeltaX != 0) {
-                        final currentMatrix = widget.transformationController.value;
+                        final currentMatrix =
+                            widget.transformationController.value;
                         final translation = currentMatrix.getTranslation();
                         final scale = currentMatrix.getMaxScaleOnAxis();
 
                         final double viewportWidth = constraints.maxWidth;
                         final double viewportHeight = constraints.maxHeight;
 
-                        final double totalContentWidth = pageWidth + sidePad * 2;
-                        final box = _contentKey.currentContext?.findRenderObject() as RenderBox?;
-                        final double contentHeight = box?.hasSize == true 
-                            ? box!.size.height 
+                        final double totalContentWidth =
+                            pageWidth + sidePad * 2;
+                        final box = _contentKey.currentContext
+                            ?.findRenderObject() as RenderBox?;
+                        final double contentHeight = box?.hasSize == true
+                            ? box!.size.height
                             : _calculateFallbackHeight(pageWidth);
 
-                        final double maxScrollY = (contentHeight * scale - viewportHeight).clamp(0.0, double.infinity);
-                        final double maxScrollX = (totalContentWidth * scale - viewportWidth).clamp(0.0, double.infinity);
+                        final verticalBounds = _translationBounds(
+                          contentHeight,
+                          viewportHeight,
+                          scale,
+                        );
+                        final horizontalBounds = _translationBounds(
+                          totalContentWidth,
+                          viewportWidth,
+                          scale,
+                        );
 
-                        final double newY = (translation.y - scrollDeltaY).clamp(-maxScrollY, 0.0);
-                        final double newX = (translation.x - scrollDeltaX).clamp(-maxScrollX, 0.0);
+                        final double newY = (translation.y - scrollDeltaY)
+                            .clamp(verticalBounds.min, verticalBounds.max)
+                            .toDouble();
+                        final double newX = (translation.x - scrollDeltaX)
+                            .clamp(horizontalBounds.min, horizontalBounds.max)
+                            .toDouble();
 
                         final newMatrix = Matrix4.copy(currentMatrix)
                           ..setTranslationRaw(newX, newY, translation.z);
@@ -548,23 +680,28 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
               child: InteractiveViewer(
                 transformationController: widget.transformationController,
                 panEnabled: false,
-                scaleEnabled: !_phoneDrawingMode && !(_isDrawingTool && _activeStylusPointers.isNotEmpty),
+                scaleEnabled: !_phoneDrawingMode &&
+                    !(_isDrawingTool && _activeStylusPointers.isNotEmpty),
                 boundaryMargin: EdgeInsets.zero,
-                minScale: 1.0,
-                maxScale: 5.0,
+                minScale: 0.5,
+                maxScale: 2.5,
                 alignment: Alignment.topLeft,
-                constrained: false, 
+                constrained: false,
                 child: Padding(
                   key: _contentKey,
-                  padding: const EdgeInsets.fromLTRB(sidePad, topPad, sidePad, bottomPad),
+                  padding: const EdgeInsets.fromLTRB(
+                      sidePad, topPad, sidePad, bottomPad),
                   child: SizedBox(
-                    width: pageWidth, 
+                    width: pageWidth,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        for (var entryIndex = 0; entryIndex < entries.length; entryIndex++)
-                          _buildEntry(entries[entryIndex], entryIndex, entries.length, pageWidth),
+                        for (var entryIndex = 0;
+                            entryIndex < entries.length;
+                            entryIndex++)
+                          _buildEntry(entries[entryIndex], entryIndex,
+                              entries.length, pageWidth),
                       ],
                     ),
                   ),
@@ -577,7 +714,8 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
     );
   }
 
-  Widget _buildEntry(WorkspaceListEntry entry, int entryIndex, int totalEntries, double pageWidth) {
+  Widget _buildEntry(WorkspaceListEntry entry, int entryIndex, int totalEntries,
+      double pageWidth) {
     final isLast = entryIndex == totalEntries - 1;
     if (entry.isHeader) {
       final isFirst = entryIndex == 0;
@@ -595,7 +733,7 @@ class _SlidePagesListState extends State<SlidePagesList> with SingleTickerProvid
         ),
       );
     }
-    
+
     final index = entry.slideIndex!;
     final baseHeight = pageWidth * slideCanvasHeight / slideCanvasWidth +
         (widget.canManageSlides ? 33 : 0);
@@ -642,7 +780,8 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void addPointer(PointerDownEvent event) {
-    if (event.kind == PointerDeviceKind.stylus || event.kind == PointerDeviceKind.invertedStylus) {
+    if (event.kind == PointerDeviceKind.stylus ||
+        event.kind == PointerDeviceKind.invertedStylus) {
       onStylusDetected?.call();
       _isRejected = true;
       resolve(GestureDisposition.rejected);

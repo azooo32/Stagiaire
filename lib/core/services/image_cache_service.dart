@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -18,16 +19,30 @@ class ImageCacheService {
   }
 
   /// Fire-and-forget: populates _memoryCache for every URL that is already
-  /// cached on disk. Called right after slides are loaded so that
-  /// _SlideImagePanel can find the local file path synchronously and skip
-  /// the network entirely.
+  /// cached on disk, and downloads any missing slide images in the background.
+  /// This is kept for callers that do not need to wait for the preload.
   void warmupCacheForUrls(List<String> urls) {
-    for (final url in urls) {
-      final trimmed = url.trim();
-      if (trimmed.isEmpty || _memoryCache.containsKey(trimmed)) continue;
-      cachedPathForUrl(trimmed).then((path) {
-        if (path != null) _memoryCache[trimmed] = path;
-      });
+    unawaited(preloadUrls(urls));
+  }
+
+  /// Makes all slide images available on the device before the Slides page is
+  /// shown. Files are stored in the application support directory, so future
+  /// opens do not depend on Supabase or an internet connection.
+  Future<void> preloadUrls(
+    List<String> urls, {
+    int concurrency = 4,
+  }) async {
+    final uniqueUrls = <String>{
+      for (final url in urls)
+        if (url.trim().startsWith('http')) url.trim(),
+    }.toList();
+
+    final batchSize = concurrency.clamp(1, 8).toInt();
+    for (var start = 0; start < uniqueUrls.length; start += batchSize) {
+      final end = (start + batchSize).clamp(0, uniqueUrls.length);
+      await Future.wait(
+        uniqueUrls.sublist(start, end).map((url) => getOrDownload(url)),
+      );
     }
   }
 
@@ -76,7 +91,7 @@ class ImageCacheService {
     final dir = await _cacheDirectory();
     final legacyFile = File(
         '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}');
-    
+
     // 1. If plain file already exists, return it immediately (fast path)
     if (await legacyFile.exists() && await legacyFile.length() > 0) {
       _memoryCache[trimmed] = legacyFile.path;
@@ -167,7 +182,7 @@ class ImageCacheService {
           } catch (_) {}
         }
         await tempFile.rename(legacyFile.path);
-        
+
         _memoryCache[trimmed] = legacyFile.path;
         return legacyFile.path;
       } finally {

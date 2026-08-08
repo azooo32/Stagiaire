@@ -55,7 +55,11 @@ class _VoiceScreenState extends State<VoiceScreen> {
   @override
   void dispose() {
     _playbackTimer?.cancel();
-    _audioPlayer?.dispose();
+    final player = _audioPlayer;
+    _audioPlayer = null;
+    if (player != null) {
+      player.stop().then((_) => player.dispose());
+    }
     super.dispose();
   }
 
@@ -305,7 +309,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
         final bytes = await AudioCacheService().getOrDownloadBytes(audioUrl);
         if (bytes != null && bytes.isNotEmpty) {
           await _audioPlayer!.setSource(BytesSource(bytes));
-        } else if (audioUrl.startsWith('http') || audioUrl.startsWith('https')) {
+        } else if (audioUrl.startsWith('http') ||
+            audioUrl.startsWith('https')) {
           await _audioPlayer!.setSource(UrlSource(audioUrl));
         } else {
           await _audioPlayer!.setSource(DeviceFileSource(audioUrl));
@@ -562,7 +567,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
                           )
                         else
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 16.0),
                             child: ListView.builder(
                               shrinkWrap: true,
                               padding: EdgeInsets.zero,
@@ -570,7 +576,11 @@ class _VoiceScreenState extends State<VoiceScreen> {
                               itemCount: recordings.length,
                               itemBuilder: (context, index) {
                                 return _buildRecordingCard(
-                                    index, recordings[index], brandColor, provider, isTablet);
+                                    index,
+                                    recordings[index],
+                                    brandColor,
+                                    provider,
+                                    isTablet);
                               },
                             ),
                           ),
@@ -580,7 +590,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
                         // Dashed Border Button to Add Recording
                         if (provider.isAdminOrOwner) ...[
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 16.0),
                             child: _buildAddRecordingBox(brandColor, provider),
                           ),
                         ],
@@ -740,10 +751,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 SliderTheme(
                   data: SliderTheme.of(context).copyWith(
                     trackHeight: isTablet ? 3.5 : 2.4,
-                    thumbShape:
-                        RoundSliderThumbShape(enabledThumbRadius: isTablet ? 6.5 : 4.5),
-                    overlayShape:
-                        RoundSliderOverlayShape(overlayRadius: isTablet ? 10.0 : 7.0),
+                    thumbShape: RoundSliderThumbShape(
+                        enabledThumbRadius: isTablet ? 6.5 : 4.5),
+                    overlayShape: RoundSliderOverlayShape(
+                        overlayRadius: isTablet ? 10.0 : 7.0),
                     activeTrackColor: brandColor,
                     inactiveTrackColor:
                         isDark ? AppColors.surface2 : const Color(0xFFF1F5F9),
@@ -826,8 +837,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
                     },
                     child: Container(
                       padding: isTablet
-                          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
-                          : const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5)
+                          : const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: hasPdf
                             ? brandColor.withValues(alpha: 0.08)
@@ -919,8 +932,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
                             isCompleted, provider),
                     child: Container(
                       padding: isTablet
-                          ? const EdgeInsets.symmetric(horizontal: 10, vertical: 5)
-                          : const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5)
+                          : const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: brandColor.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(7),
@@ -1141,7 +1156,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: isDark ? AppColors.surface : Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           content: Row(
             children: [
               const SizedBox(
@@ -1169,7 +1185,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
     );
 
     try {
-      if (trimmedPath.startsWith('http://') || trimmedPath.startsWith('https://')) {
+      if (trimmedPath.startsWith('http://') ||
+          trimmedPath.startsWith('https://')) {
         final uri = Uri.parse(trimmedPath);
         final dir = await getTemporaryDirectory();
         final rawName = trimmedPath.split('/').last.split('?').first;
@@ -1189,7 +1206,8 @@ class _VoiceScreenState extends State<VoiceScreen> {
           await sink.close();
         } else {
           client.close(force: true);
-          throw Exception('Failed to download PDF (Status Code: ${response.statusCode})');
+          throw Exception(
+              'Failed to download PDF (Status Code: ${response.statusCode})');
         }
         client.close(force: true);
 
@@ -1909,7 +1927,14 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                                   final result =
                                       await FilePicker.platform.pickFiles(
                                     type: FileType.custom,
-                                    allowedExtensions: ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'webm'],
+                                    allowedExtensions: [
+                                      'mp3',
+                                      'm4a',
+                                      'wav',
+                                      'aac',
+                                      'ogg',
+                                      'webm'
+                                    ],
                                     // On web, file.bytes is always provided.
                                     // On mobile, withData: false lets FilePicker copy to a real
                                     // temp/cache path so File(path).readAsBytes() works reliably.
@@ -1920,20 +1945,26 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                                     final file = result.files.single;
                                     // On web: use bytes (path is null on web).
                                     // On mobile: use path (real cache path, bytes may be null).
-                                    final pickedPath = kIsWeb ? null : file.path;
-                                    final pickedBytes = kIsWeb ? file.bytes : null;
+                                    final pickedPath =
+                                        kIsWeb ? null : file.path;
+                                    final pickedBytes =
+                                        kIsWeb ? file.bytes : null;
                                     Duration? detectedDuration;
                                     final tempPlayer = AudioPlayer();
                                     try {
                                       if (kIsWeb) {
                                         if (pickedBytes != null) {
-                                          await tempPlayer.setSource(BytesSource(pickedBytes));
-                                          detectedDuration = await tempPlayer.getDuration();
+                                          await tempPlayer.setSource(
+                                              BytesSource(pickedBytes));
+                                          detectedDuration =
+                                              await tempPlayer.getDuration();
                                         }
                                       } else {
                                         if (pickedPath != null) {
-                                          await tempPlayer.setSource(DeviceFileSource(pickedPath));
-                                          detectedDuration = await tempPlayer.getDuration();
+                                          await tempPlayer.setSource(
+                                              DeviceFileSource(pickedPath));
+                                          detectedDuration =
+                                              await tempPlayer.getDuration();
                                         }
                                       }
                                     } catch (e) {
@@ -1945,7 +1976,8 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                                       selectedAudioFile = file.name;
                                       selectedAudioPath = pickedPath;
                                       selectedAudioBytes = pickedBytes;
-                                      finalDurationSeconds = detectedDuration?.inSeconds;
+                                      finalDurationSeconds =
+                                          detectedDuration?.inSeconds;
                                       finalDuration = detectedDuration != null
                                           ? '${detectedDuration.inMinutes.remainder(60).toString().padLeft(2, '0')}:${detectedDuration.inSeconds.remainder(60).toString().padLeft(2, '0')}'
                                           : '00:00';
@@ -2135,8 +2167,8 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                               } else {
                                 selectedPdfBytes = file.bytes;
                                 if (file.path != null) {
-                                  final saved = await _savePdfPersistently(
-                                      file.path!);
+                                  final saved =
+                                      await _savePdfPersistently(file.path!);
                                   setModalState(() {
                                     selectedPdf = saved;
                                   });
@@ -2189,7 +2221,8 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                         return;
                       }
 
-                      if (selectedAudioFile == null && selectedAudioBytes == null) {
+                      if (selectedAudioFile == null &&
+                          selectedAudioBytes == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                               content: Text(
@@ -2204,7 +2237,8 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                       Uint8List? audioBytes = selectedAudioBytes;
                       if (audioBytes == null && selectedAudioPath != null) {
                         try {
-                          audioBytes = await getBytesFromPathOrUrl(selectedAudioPath!);
+                          audioBytes =
+                              await getBytesFromPathOrUrl(selectedAudioPath!);
                         } catch (e) {
                           debugPrint('Error loading audio bytes: $e');
                         }
@@ -2315,4 +2349,3 @@ Future<String?> _savePdfPersistently(String originalPath) async {
     return originalPath;
   }
 }
-

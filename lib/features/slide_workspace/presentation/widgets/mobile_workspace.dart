@@ -79,16 +79,17 @@ class _CollapsibleSlideWorkspaceState
   void didUpdateWidget(covariant CollapsibleSlideWorkspace oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.zoomScale != widget.zoomScale) {
+      final currentTranslation =
+          _transformationController.value.getTranslation();
       final currentScale = _transformationController.value.getMaxScaleOnAxis();
       if ((currentScale - widget.zoomScale).abs() > 0.01) {
-        if (widget.zoomScale <= 1.0) {
-          final currentY = _transformationController.value.getTranslation().y;
-          _transformationController.value = Matrix4.translationValues(0.0, currentY.clamp(-double.infinity, 0.0), 0.0);
-        } else {
-          final currentY = _transformationController.value.getTranslation().y;
-          _transformationController.value = Matrix4.translationValues(0.0, currentY, 0.0)
-            * Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
-        }
+        _transformationController.value = Matrix4.translationValues(
+              currentTranslation.x,
+              currentTranslation.y,
+              currentTranslation.z,
+            ) *
+            Matrix4.diagonal3Values(
+                widget.zoomScale, widget.zoomScale, 1.0);
       }
     }
   }

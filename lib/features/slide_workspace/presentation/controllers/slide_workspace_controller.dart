@@ -44,7 +44,8 @@ class MoveObjectCommand extends WorkspaceCommand {
   void execute() {
     controller.mutateObject(slideId, objectId, isExam, (obj) {
       if (obj is ImageObject) {
-        return obj.copyWith(x: newX, y: newY, updatedAt: DateTime.now().millisecondsSinceEpoch);
+        return obj.copyWith(
+            x: newX, y: newY, updatedAt: DateTime.now().millisecondsSinceEpoch);
       }
       return obj;
     });
@@ -54,7 +55,8 @@ class MoveObjectCommand extends WorkspaceCommand {
   void undo() {
     controller.mutateObject(slideId, objectId, isExam, (obj) {
       if (obj is ImageObject) {
-        return obj.copyWith(x: oldX, y: oldY, updatedAt: DateTime.now().millisecondsSinceEpoch);
+        return obj.copyWith(
+            x: oldX, y: oldY, updatedAt: DateTime.now().millisecondsSinceEpoch);
       }
       return obj;
     });
@@ -94,7 +96,12 @@ class ResizeObjectCommand extends WorkspaceCommand {
   void execute() {
     controller.mutateObject(slideId, objectId, isExam, (obj) {
       if (obj is ImageObject) {
-        return obj.copyWith(x: newX, y: newY, width: newW, height: newH, updatedAt: DateTime.now().millisecondsSinceEpoch);
+        return obj.copyWith(
+            x: newX,
+            y: newY,
+            width: newW,
+            height: newH,
+            updatedAt: DateTime.now().millisecondsSinceEpoch);
       }
       return obj;
     });
@@ -104,7 +111,12 @@ class ResizeObjectCommand extends WorkspaceCommand {
   void undo() {
     controller.mutateObject(slideId, objectId, isExam, (obj) {
       if (obj is ImageObject) {
-        return obj.copyWith(x: oldX, y: oldY, width: oldW, height: oldH, updatedAt: DateTime.now().millisecondsSinceEpoch);
+        return obj.copyWith(
+            x: oldX,
+            y: oldY,
+            width: oldW,
+            height: oldH,
+            updatedAt: DateTime.now().millisecondsSinceEpoch);
       }
       return obj;
     });
@@ -218,8 +230,10 @@ class DuplicateObjectCommand extends WorkspaceCommand {
       duplicate = (original as ImageObject).copyWith(
         id: id,
         localPath: dupPath ?? id,
-        x: ((original as ImageObject).x + 20).clamp(0.0, 1100.0 - (original as ImageObject).width),
-        y: ((original as ImageObject).y + 20).clamp(0.0, 825.0 - (original as ImageObject).height),
+        x: ((original as ImageObject).x + 20)
+            .clamp(0.0, 1100.0 - (original as ImageObject).width),
+        y: ((original as ImageObject).y + 20)
+            .clamp(0.0, 825.0 - (original as ImageObject).height),
         createdAt: DateTime.now().millisecondsSinceEpoch,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       );
@@ -256,8 +270,10 @@ class DuplicateObjectCommand extends WorkspaceCommand {
       }
     }
     controller.insertObjectToSlide(slideId, duplicate, null, isExam);
-    if (duplicate is ImageObject && (duplicate as ImageObject).state == ImageState.local) {
-      controller.triggerUploadForObject(slideId, duplicate as ImageObject, isExam);
+    if (duplicate is ImageObject &&
+        (duplicate as ImageObject).state == ImageState.local) {
+      controller.triggerUploadForObject(
+          slideId, duplicate as ImageObject, isExam);
     }
   }
 
@@ -369,8 +385,9 @@ class SlideWorkspaceController extends ChangeNotifier {
   WorkspaceTool selectedTool = WorkspaceTool.pan;
   Color selectedColor = const Color(0xFF5B35F5);
   double strokeWidth = 2;
-  // Landscape iPad fit: comfortable height with a small, even canvas margin.
-  double zoom = .8;
+  // Start at the natural fit-to-width scale. Lower zoom levels are optional
+  // and are centered by SlidePagesList instead of leaving a one-sided gap.
+  double zoom = 1.0;
   bool isLoading = true;
   // Session-only study view; intentionally never persisted.
   bool isStudyMode = true;
@@ -405,9 +422,9 @@ class SlideWorkspaceController extends ChangeNotifier {
     if (cachedSlides.isNotEmpty) {
       slides = cachedSlides;
       currentIndex = min(currentIndex, slides.length - 1);
+      await _preloadSlideImages();
       isLoading = false;
       notifyListeners();
-      _warmupImageCache();
       unawaited(_refreshSlidesInBackground());
       _processPendingUploadTasks();
       return;
@@ -415,20 +432,20 @@ class SlideWorkspaceController extends ChangeNotifier {
 
     slides = await _repository.getSlides(stationId);
     currentIndex = slides.isEmpty ? 0 : min(currentIndex, slides.length - 1);
+    await _preloadSlideImages();
     isLoading = false;
     notifyListeners();
-    _warmupImageCache();
     _processPendingUploadTasks();
   }
 
-  void _warmupImageCache() {
+  Future<void> _preloadSlideImages([List<WorkspaceSlide>? source]) async {
     if (kIsWeb) return;
-    final urls = slides
+    final urls = (source ?? slides)
         .map((s) => s.imageAsset.trim())
         .where((url) => url.startsWith('http'))
         .toList();
     if (urls.isNotEmpty) {
-      ImageCacheService().warmupCacheForUrls(urls);
+      await ImageCacheService().preloadUrls(urls);
     }
   }
 
@@ -437,7 +454,7 @@ class SlideWorkspaceController extends ChangeNotifier {
       final freshSlides = await _repository.refreshSlides(stationId);
       if (freshSlides.isEmpty) return;
       final activeSlideId = hasSlides ? currentSlide.id : null;
-      
+
       final mergedSlides = freshSlides.map((fresh) {
         if (_dirtySlideIds.contains(fresh.id)) {
           final localIndex = slides.indexWhere((s) => s.id == fresh.id);
@@ -451,6 +468,7 @@ class SlideWorkspaceController extends ChangeNotifier {
         return fresh;
       }).toList();
 
+      await _preloadSlideImages(mergedSlides);
       slides = mergedSlides;
       if (activeSlideId != null) {
         final refreshedIndex =
@@ -718,7 +736,8 @@ class SlideWorkspaceController extends ChangeNotifier {
     }
 
     final isExam = !isStudyMode;
-    final currentStrokes = isExam ? currentSlide.examStrokes : currentSlide.strokes;
+    final currentStrokes =
+        isExam ? currentSlide.examStrokes : currentSlide.strokes;
 
     if (stroke.tool == WorkspaceTool.eraser) {
       activeStroke.value = null;
@@ -824,7 +843,8 @@ class SlideWorkspaceController extends ChangeNotifier {
     return file.path;
   }
 
-  Future<void> _addPendingUploadTask(String taskId, String slideId, String localPath, String fileName, bool isExam) async {
+  Future<void> _addPendingUploadTask(String taskId, String slideId,
+      String localPath, String fileName, bool isExam) async {
     if (kIsWeb) return;
     final prefs = await SharedPreferences.getInstance();
     final rawList = prefs.getStringList('pending_workspace_uploads') ?? [];
@@ -867,7 +887,8 @@ class SlideWorkspaceController extends ChangeNotifier {
           if (await file.exists()) {
             final bytes = await file.readAsBytes();
             localImageCache[localPath] = bytes;
-            _uploadImageInBackground(slideId, taskId, localPath, bytes, fileName, isExam);
+            _uploadImageInBackground(
+                slideId, taskId, localPath, bytes, fileName, isExam);
           } else {
             await _removePendingUploadTask(taskId);
           }
@@ -878,7 +899,8 @@ class SlideWorkspaceController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> _uploadImageInBackground(String slideId, String objectId, String? localPath, Uint8List bytes, String fileName, bool isExam) async {
+  Future<void> _uploadImageInBackground(String slideId, String objectId,
+      String? localPath, Uint8List bytes, String fileName, bool isExam) async {
     try {
       final url = await _repository.uploadWorkspaceImage(bytes, fileName);
       if (url != null) {
@@ -912,10 +934,12 @@ class SlideWorkspaceController extends ChangeNotifier {
           }
           await _removePendingUploadTask(objectId);
           notifyListeners();
-          
+
           await _repository.saveSlideStrokes(
             slideId,
-            isExam ? slides[slideIndex].examStrokes : slides[slideIndex].strokes,
+            isExam
+                ? slides[slideIndex].examStrokes
+                : slides[slideIndex].strokes,
             isExamMode: isExam,
           );
         }
@@ -937,12 +961,15 @@ class SlideWorkspaceController extends ChangeNotifier {
     });
   }
 
-  void mutateObject(String slideId, String objectId, bool isExam, WorkspaceObject Function(WorkspaceObject) mutator) {
+  void mutateObject(String slideId, String objectId, bool isExam,
+      WorkspaceObject Function(WorkspaceObject) mutator) {
     final slideIndex = slides.indexWhere((s) => s.id == slideId);
     if (slideIndex != -1) {
       final slide = slides[slideIndex];
       final objects = isExam ? slide.examStrokes : slide.strokes;
-      final updated = objects.map((obj) => obj.id == objectId ? mutator(obj) : obj).toList();
+      final updated = objects
+          .map((obj) => obj.id == objectId ? mutator(obj) : obj)
+          .toList();
       slides[slideIndex] = isExam
           ? slide.copyWith(examStrokes: updated)
           : slide.copyWith(strokes: updated);
@@ -950,7 +977,8 @@ class SlideWorkspaceController extends ChangeNotifier {
     }
   }
 
-  void insertObjectToSlide(String slideId, WorkspaceObject object, int? index, bool isExam) {
+  void insertObjectToSlide(
+      String slideId, WorkspaceObject object, int? index, bool isExam) {
     final slideIndex = slides.indexWhere((s) => s.id == slideId);
     if (slideIndex != -1) {
       final slide = slides[slideIndex];
@@ -981,7 +1009,8 @@ class SlideWorkspaceController extends ChangeNotifier {
     }
   }
 
-  void triggerUploadForObject(String slideId, ImageObject obj, bool isExam) async {
+  void triggerUploadForObject(
+      String slideId, ImageObject obj, bool isExam) async {
     final tempPath = obj.localPath;
     if (tempPath != null) {
       Uint8List? bytes = localImageCache[tempPath];
@@ -993,14 +1022,27 @@ class SlideWorkspaceController extends ChangeNotifier {
         }
       }
       if (bytes != null) {
-        await _addPendingUploadTask(obj.id, slideId, tempPath, 'workspace_image_${DateTime.now().millisecondsSinceEpoch}.png', isExam);
-        mutateObject(slideId, obj.id, isExam, (o) => (o as ImageObject).copyWith(state: ImageState.uploading));
-        _uploadImageInBackground(slideId, obj.id, tempPath, bytes, 'workspace_image_${DateTime.now().millisecondsSinceEpoch}.png', isExam);
+        await _addPendingUploadTask(
+            obj.id,
+            slideId,
+            tempPath,
+            'workspace_image_${DateTime.now().millisecondsSinceEpoch}.png',
+            isExam);
+        mutateObject(slideId, obj.id, isExam,
+            (o) => (o as ImageObject).copyWith(state: ImageState.uploading));
+        _uploadImageInBackground(
+            slideId,
+            obj.id,
+            tempPath,
+            bytes,
+            'workspace_image_${DateTime.now().millisecondsSinceEpoch}.png',
+            isExam);
       }
     }
   }
 
-  void retryUpload(String slideId, String tempId, bool isExam, String fileName) async {
+  void retryUpload(
+      String slideId, String tempId, bool isExam, String fileName) async {
     final slideIndex = slides.indexWhere((s) => s.id == slideId);
     if (slideIndex == -1) return;
     final slide = slides[slideIndex];
@@ -1021,8 +1063,10 @@ class SlideWorkspaceController extends ChangeNotifier {
     }
     if (bytes == null) return;
 
-    mutateObject(slideId, tempId, isExam, (o) => (o as ImageObject).copyWith(state: ImageState.uploading));
-    _uploadImageInBackground(slideId, tempId, tempPath, bytes, fileName, isExam);
+    mutateObject(slideId, tempId, isExam,
+        (o) => (o as ImageObject).copyWith(state: ImageState.uploading));
+    _uploadImageInBackground(
+        slideId, tempId, tempPath, bytes, fileName, isExam);
   }
 
   Future<String?> addImageObject(
@@ -1092,14 +1136,19 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   void onInteractionFinished(WorkspaceObject updated) {
     final isExam = !isStudyMode;
-    final currentStrokes = isExam ? currentSlide.examStrokes : currentSlide.strokes;
+    final currentStrokes =
+        isExam ? currentSlide.examStrokes : currentSlide.strokes;
     final originalIdx = currentStrokes.indexWhere((o) => o.id == updated.id);
     if (originalIdx == -1) return;
     final original = currentStrokes[originalIdx];
 
     if (original is ImageObject && updated is ImageObject) {
-      if (original.x != updated.x || original.y != updated.y || original.width != updated.width || original.height != updated.height) {
-        if (original.width != updated.width || original.height != updated.height) {
+      if (original.x != updated.x ||
+          original.y != updated.y ||
+          original.width != updated.width ||
+          original.height != updated.height) {
+        if (original.width != updated.width ||
+            original.height != updated.height) {
           final command = ResizeObjectCommand(
             controller: this,
             slideId: currentSlide.id,
@@ -1134,7 +1183,8 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   void bringToFront(String id) {
     final isExam = !isStudyMode;
-    final currentStrokes = isExam ? currentSlide.examStrokes : currentSlide.strokes;
+    final currentStrokes =
+        isExam ? currentSlide.examStrokes : currentSlide.strokes;
     final objIdx = currentStrokes.indexWhere((o) => o.id == id);
     if (objIdx == -1) return;
     final obj = currentStrokes[objIdx];
@@ -1160,7 +1210,8 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   void sendToBack(String id) {
     final isExam = !isStudyMode;
-    final currentStrokes = isExam ? currentSlide.examStrokes : currentSlide.strokes;
+    final currentStrokes =
+        isExam ? currentSlide.examStrokes : currentSlide.strokes;
     final objIdx = currentStrokes.indexWhere((o) => o.id == id);
     if (objIdx == -1) return;
     final obj = currentStrokes[objIdx];
@@ -1186,7 +1237,8 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   void lockWorkspaceObject(String id, bool locked) {
     final isExam = !isStudyMode;
-    final currentStrokes = isExam ? currentSlide.examStrokes : currentSlide.strokes;
+    final currentStrokes =
+        isExam ? currentSlide.examStrokes : currentSlide.strokes;
     final objIdx = currentStrokes.indexWhere((o) => o.id == id);
     if (objIdx == -1) return;
     final obj = currentStrokes[objIdx];
@@ -1205,7 +1257,8 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   void duplicateWorkspaceObject(String id) {
     final isExam = !isStudyMode;
-    final currentStrokes = isExam ? currentSlide.examStrokes : currentSlide.strokes;
+    final currentStrokes =
+        isExam ? currentSlide.examStrokes : currentSlide.strokes;
     final objIdx = currentStrokes.indexWhere((o) => o.id == id);
     if (objIdx == -1) return;
     final obj = currentStrokes[objIdx];
@@ -1221,7 +1274,8 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   void deleteWorkspaceObject(String id) async {
     final isExam = !isStudyMode;
-    final currentStrokes = isExam ? currentSlide.examStrokes : currentSlide.strokes;
+    final currentStrokes =
+        isExam ? currentSlide.examStrokes : currentSlide.strokes;
     final objIdx = currentStrokes.indexWhere((o) => o.id == id);
     if (objIdx == -1) return;
     final obj = currentStrokes[objIdx];
@@ -1315,5 +1369,4 @@ class SlideWorkspaceController extends ChangeNotifier {
     activeStroke.dispose();
     super.dispose();
   }
-
 }

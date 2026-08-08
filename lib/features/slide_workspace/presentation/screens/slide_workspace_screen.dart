@@ -8,6 +8,7 @@ import 'package:record/record.dart';
 import 'package:screen_protector/screen_protector.dart';
 
 import '../../../../core/providers/app_provider.dart';
+import '../../../../core/widgets/app_loader.dart';
 import '../../data/slide_workspace_repository.dart';
 import '../../domain/entities/slide_workspace_models.dart';
 import '../controllers/slide_workspace_controller.dart';
@@ -476,7 +477,27 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
                 return const Scaffold(
                   backgroundColor: Color(0xFFF8F7FC),
                   body: Center(
-                    child: CircularProgressIndicator(color: workspacePurple),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        LogoSpinner(size: 78, logoSize: 42),
+                        SizedBox(height: 22),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 28),
+                          child: Text(
+                            'يتم تحميل الموارد، قد يستغرق الأمر بضع دقائق حسب الإنترنت، وسيكون ذلك لمرة واحدة فقط.',
+                            textAlign: TextAlign.center,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: workspacePurple,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              height: 1.6,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               }

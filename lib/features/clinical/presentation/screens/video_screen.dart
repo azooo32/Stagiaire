@@ -83,8 +83,8 @@ class _VideoScreenState extends State<VideoScreen>
     });
 
     try {
-      await _videoPlayerController?.dispose();
       _chewieController?.dispose();
+      await _videoPlayerController?.dispose();
       _videoPlayerController = null;
       _chewieController = null;
 
@@ -297,8 +297,8 @@ class _VideoScreenState extends State<VideoScreen>
     SecurityService.disableSecure();
     _videoSpeedHideTimer?.cancel();
     _spinnerController.dispose();
-    _videoPlayerController?.dispose();
     _chewieController?.dispose();
+    _videoPlayerController?.dispose();
     super.dispose();
   }
 
@@ -324,9 +324,7 @@ class _VideoScreenState extends State<VideoScreen>
                 child: Text(
                   'No videos available.\nTap "Add Video" below to add one!',
                   style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
-                      fontFamily: 'Cairo'),
+                      color: Colors.white70, fontSize: 14, fontFamily: 'Cairo'),
                   textAlign: TextAlign.center,
                 ),
               );
@@ -343,8 +341,7 @@ class _VideoScreenState extends State<VideoScreen>
                   }
                   return Listener(
                     behavior: HitTestBehavior.translucent,
-                    onPointerDown: (_) =>
-                        _showVideoSpeedButtonTemporarily(),
+                    onPointerDown: (_) => _showVideoSpeedButtonTemporarily(),
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
@@ -377,8 +374,7 @@ class _VideoScreenState extends State<VideoScreen>
                       decoration: BoxDecoration(
                         color: Colors.white24,
                         shape: BoxShape.circle,
-                        border:
-                            Border.all(color: Colors.white, width: 2),
+                        border: Border.all(color: Colors.white, width: 2),
                       ),
                       child: const Icon(Icons.play_arrow_rounded,
                           color: Colors.white, size: 36),
@@ -393,7 +389,8 @@ class _VideoScreenState extends State<VideoScreen>
     );
   }
 
-  Widget _buildPlaylistCard(List<ClinicalVideo> videos, Color brandColor, AppProvider provider) {
+  Widget _buildPlaylistCard(
+      List<ClinicalVideo> videos, Color brandColor, AppProvider provider) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -507,8 +504,7 @@ class _VideoScreenState extends State<VideoScreen>
     _lastOrientation = orientation;
 
     if (provider.isClinicalLoading) {
-      return _wrapWithWillPopScope(
-        Directionality(
+      return _wrapWithWillPopScope(Directionality(
         textDirection: TextDirection.ltr,
         child: Scaffold(
           backgroundColor:
@@ -592,12 +588,12 @@ class _VideoScreenState extends State<VideoScreen>
     }
 
     final activeVideo = videos.isNotEmpty ? videos[_activeVideoIndex] : null;
-    final isLandscapeTablet = orientation == Orientation.landscape && MediaQuery.of(context).size.width > 600;
+    final isLandscapeTablet = orientation == Orientation.landscape &&
+        MediaQuery.of(context).size.width > 600;
 
-    return _wrapWithWillPopScope(
-      Directionality(
-        textDirection: TextDirection.ltr,
-        child: Scaffold(
+    return _wrapWithWillPopScope(Directionality(
+      textDirection: TextDirection.ltr,
+      child: Scaffold(
         backgroundColor:
             provider.isDarkTheme ? AppColors.bg : const Color(0xFFF8F9FE),
         body: Column(
@@ -676,7 +672,8 @@ class _VideoScreenState extends State<VideoScreen>
                               padding: const EdgeInsets.all(16.0),
                               child: AspectRatio(
                                 aspectRatio: 16 / 9,
-                                child: _buildPlayerWidget(activeVideo, brandColor),
+                                child:
+                                    _buildPlayerWidget(activeVideo, brandColor),
                               ),
                             ),
                           ),
@@ -687,19 +684,23 @@ class _VideoScreenState extends State<VideoScreen>
                           child: SingleChildScrollView(
                             physics: const BouncingScrollPhysics(),
                             child: Padding(
-                              padding: const EdgeInsets.only(top: 16.0, right: 16.0, bottom: 16.0),
+                              padding: const EdgeInsets.only(
+                                  top: 16.0, right: 16.0, bottom: 16.0),
                               child: Column(
                                 children: [
                                   // Video Playlist Section Card
-                                  _buildPlaylistCard(videos, brandColor, provider),
+                                  _buildPlaylistCard(
+                                      videos, brandColor, provider),
                                   const SizedBox(height: 16),
                                   // Action button (Add Video)
-                                  if (provider.isAdminOrOwner && !widget.favoriteOnly)
+                                  if (provider.isAdminOrOwner &&
+                                      !widget.favoriteOnly)
                                     _buildAddFeatureBox(
                                       title: 'Add Video',
                                       subtitle: 'Add video to playlist',
                                       brandColor: brandColor,
-                                      onTap: () => showAddVideoDialog(context, provider,
+                                      onTap: () => showAddVideoDialog(
+                                          context, provider,
                                           subject: widget.subject,
                                           sectionId: widget.sectionId),
                                     ),
@@ -716,13 +717,16 @@ class _VideoScreenState extends State<VideoScreen>
                         children: [
                           // Video Player Card Container (Fixed)
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 16.0),
                             child: Center(
                               child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 1100),
+                                constraints:
+                                    const BoxConstraints(maxWidth: 1100),
                                 child: AspectRatio(
                                   aspectRatio: 16 / 9,
-                                  child: _buildPlayerWidget(activeVideo, brandColor),
+                                  child: _buildPlayerWidget(
+                                      activeVideo, brandColor),
                                 ),
                               ),
                             ),
@@ -730,11 +734,14 @@ class _VideoScreenState extends State<VideoScreen>
                           const SizedBox(height: 12),
                           // Video Playlist Section Card
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 16.0),
                             child: Center(
                               child: ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 1100),
-                                child: _buildPlaylistCard(videos, brandColor, provider),
+                                constraints:
+                                    const BoxConstraints(maxWidth: 1100),
+                                child: _buildPlaylistCard(
+                                    videos, brandColor, provider),
                               ),
                             ),
                           ),
@@ -742,12 +749,14 @@ class _VideoScreenState extends State<VideoScreen>
                           // Action button (Add Video)
                           if (provider.isAdminOrOwner && !widget.favoriteOnly)
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 16.0),
                               child: _buildAddFeatureBox(
                                 title: 'Add Video',
                                 subtitle: 'Add video to playlist',
                                 brandColor: brandColor,
-                                onTap: () => showAddVideoDialog(context, provider,
+                                onTap: () => showAddVideoDialog(
+                                    context, provider,
                                     subject: widget.subject,
                                     sectionId: widget.sectionId),
                               ),
@@ -871,10 +880,11 @@ class _VideoScreenState extends State<VideoScreen>
                     await openPdf(item.pdfUrl);
                   },
                   child: () {
-                    final bool hasPdf = item.pdfUrl != null && item.pdfUrl!.trim().isNotEmpty;
+                    final bool hasPdf =
+                        item.pdfUrl != null && item.pdfUrl!.trim().isNotEmpty;
                     return Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: hasPdf
                             ? brandColor.withValues(alpha: 0.06)
@@ -1180,7 +1190,8 @@ class _VideoScreenState extends State<VideoScreen>
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: isDark ? AppColors.surface : Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           content: Row(
             children: [
               const SizedBox(
@@ -1208,7 +1219,8 @@ class _VideoScreenState extends State<VideoScreen>
     );
 
     try {
-      if (trimmedPath.startsWith('http://') || trimmedPath.startsWith('https://')) {
+      if (trimmedPath.startsWith('http://') ||
+          trimmedPath.startsWith('https://')) {
         final uri = Uri.parse(trimmedPath);
         final dir = await getTemporaryDirectory();
         final rawName = trimmedPath.split('/').last.split('?').first;
@@ -1228,7 +1240,8 @@ class _VideoScreenState extends State<VideoScreen>
           await sink.close();
         } else {
           client.close(force: true);
-          throw Exception('Failed to download PDF (Status Code: ${response.statusCode})');
+          throw Exception(
+              'Failed to download PDF (Status Code: ${response.statusCode})');
         }
         client.close(force: true);
 
@@ -2439,8 +2452,8 @@ class _VideoScreenState extends State<VideoScreen>
                             Navigator.pop(context);
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                  content:
-                                      Text('Added video "$title" successfully!')),
+                                  content: Text(
+                                      'Added video "$title" successfully!')),
                             );
                           } catch (e) {
                             if (!context.mounted) return;
@@ -2620,4 +2633,3 @@ class _GradientArcPainter extends CustomPainter {
   bool shouldRepaint(_GradientArcPainter oldDelegate) =>
       oldDelegate.progress != progress;
 }
-

@@ -185,8 +185,11 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
   @override
   void dispose() {
     _durationPollTimer?.cancel();
-    _audioPlayer?.stop();
-    _audioPlayer?.dispose();
+    final player = _audioPlayer;
+    _audioPlayer = null;
+    if (player != null) {
+      player.stop().then((_) => player.dispose());
+    }
     super.dispose();
   }
 
@@ -300,91 +303,97 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
     final bool isTablet = screenWidth >= 600;
 
     return Directionality(
-      textDirection: TextDirection.ltr,
-      child: SizedBox(
-        width: double.infinity,
-        child: Container(
-          height: 52,
-          constraints: BoxConstraints(maxWidth: isTablet ? double.infinity : 300),
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: const BoxDecoration(color: Colors.transparent),
-        child: Row(
-          children: [
-            GestureDetector(
-              onTap: _togglePlayPause,
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: const BoxDecoration(
-                  color: brandColor,
-                  shape: BoxShape.circle,
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: double.infinity,
+          child: Container(
+            height: 52,
+            constraints:
+                BoxConstraints(maxWidth: isTablet ? double.infinity : 300),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: const BoxDecoration(color: Colors.transparent),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: _togglePlayPause,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: brandColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
                 ),
-                child: Icon(
-                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 20,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderThemeData(
+                      trackHeight: 3.0,
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 6.0),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 12.0),
+                      activeTrackColor: brandColor,
+                      inactiveTrackColor: brandColor.withValues(alpha: 0.15),
+                      thumbColor: brandColor,
+                      overlayColor: brandColor.withValues(alpha: 0.12),
+                      trackShape: const RoundedRectSliderTrackShape(),
+                    ),
+                    child: Slider(
+                      min: 0.0,
+                      max: maxVal > 0.0 ? maxVal : 1.0,
+                      value: currentVal,
+                      onChanged: _audioPlayer == null
+                          ? null
+                          : (value) async {
+                              final newPosition =
+                                  Duration(milliseconds: value.toInt());
+                              await _audioPlayer!.seek(newPosition);
+                            },
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: SliderTheme(
-                data: SliderThemeData(
-                  trackHeight: 3.0,
-                  thumbShape:
-                      const RoundSliderThumbShape(enabledThumbRadius: 6.0),
-                  overlayShape:
-                      const RoundSliderOverlayShape(overlayRadius: 12.0),
-                  activeTrackColor: brandColor,
-                  inactiveTrackColor: brandColor.withValues(alpha: 0.15),
-                  thumbColor: brandColor,
-                  overlayColor: brandColor.withValues(alpha: 0.12),
-                  trackShape: const RoundedRectSliderTrackShape(),
-                ),
-                child: Slider(
-                  min: 0.0,
-                  max: maxVal > 0.0 ? maxVal : 1.0,
-                  value: currentVal,
-                  onChanged: _audioPlayer == null ? null : (value) async {
-                    final newPosition = Duration(milliseconds: value.toInt());
-                    await _audioPlayer!.seek(newPosition);
-                  },
-                ),
-              ),
-            ),
-            Text(
-              '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
-              style: TextStyle(
-                color: timeColor,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'Inter',
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _toggleSpeed,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                decoration: BoxDecoration(
-                  color: brandColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${_playbackSpeed}x',
-                  style: const TextStyle(
-                    color: brandColor,
+                Text(
+                  '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
+                  style: TextStyle(
+                    color: timeColor,
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Inter',
                   ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _toggleSpeed,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: brandColor.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${_playbackSpeed}x',
+                      style: const TextStyle(
+                        color: brandColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
-    ));
+          ),
+        ));
   }
 }
-

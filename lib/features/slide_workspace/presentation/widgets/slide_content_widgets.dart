@@ -36,12 +36,11 @@ class SlidePaper extends StatelessWidget {
   });
 
   bool get _shouldLoadImage {
-    if (loadRealImage != null) return loadRealImage!;
-    if (isThumbnail) return true;
-    if (controller == null) return true;
-    final currentIndex = controller!.currentIndex;
-    final position = slideIndex ?? slide.index;
-    return (position - currentIndex).abs() <= 5;
+    // The controller preloads every slide image into the persistent local
+    // cache before the page is marked ready. Keeping this unconditional is
+    // important: a previously cached slide must not turn back into a
+    // placeholder just because it is far from the current slide.
+    return loadRealImage ?? true;
   }
 
   @override
@@ -204,11 +203,17 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
                         : Container(
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: isDark ? const Color(0xFF1F1C33) : const Color(0xFFF7F5FE),
+                              color: isDark
+                                  ? const Color(0xFF1F1C33)
+                                  : const Color(0xFFF7F5FE),
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: isDark ? const Color(0xFF383154) : const Color(0xFFE6E3F4)),
+                              border: Border.all(
+                                  color: isDark
+                                      ? const Color(0xFF383154)
+                                      : const Color(0xFFE6E3F4)),
                             ),
-                            child: const Icon(Icons.image_outlined, color: workspaceMuted, size: 54),
+                            child: const Icon(Icons.image_outlined,
+                                color: workspaceMuted, size: 54),
                           ),
                   ),
                 ),
@@ -268,10 +273,16 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
                         isDark: isDark,
                         showAnswer: widget.studyMode,
                         isEditingInPlace: isEditingInPlace,
-                        promptController: isEditingInPlace && i < stateProvider.inPlacePromptControllers.length
+                        promptController: isEditingInPlace &&
+                                i <
+                                    stateProvider
+                                        .inPlacePromptControllers.length
                             ? stateProvider.inPlacePromptControllers[i]
                             : null,
-                        answerController: isEditingInPlace && i < stateProvider.inPlaceAnswerControllers.length
+                        answerController: isEditingInPlace &&
+                                i <
+                                    stateProvider
+                                        .inPlaceAnswerControllers.length
                             ? stateProvider.inPlaceAnswerControllers[i]
                             : null,
                       ),
@@ -334,7 +345,10 @@ class _SlideImagePanelState extends State<SlideImagePanel> {
     final imageUrl = widget.imageUrl.trim();
     if (imageUrl.isEmpty) return _placeholder();
 
-    if (_syncPath != null && _syncPath!.isNotEmpty && _syncPath != imageUrl && !kIsWeb) {
+    if (_syncPath != null &&
+        _syncPath!.isNotEmpty &&
+        _syncPath != imageUrl &&
+        !kIsWeb) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Image.file(
@@ -380,11 +394,13 @@ class _SlideImagePanelState extends State<SlideImagePanel> {
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: const Color(0xFFE6E3F4)),
         ),
-        child: const Icon(Icons.image_outlined, color: workspaceMuted, size: 54),
+        child:
+            const Icon(Icons.image_outlined, color: workspaceMuted, size: 54),
       );
 
   Widget _brokenImage() => const Center(
-        child: Icon(Icons.broken_image_outlined, color: workspaceMuted, size: 48),
+        child:
+            Icon(Icons.broken_image_outlined, color: workspaceMuted, size: 48),
       );
 }
 
@@ -414,7 +430,9 @@ class QuestionBlock extends StatelessWidget {
         ? const Color(0xFFC7B8EA).withValues(alpha: 0.55)
         : const Color(0xFFB39DDB).withValues(alpha: 0.65);
 
-    if (isEditingInPlace && promptController != null && answerController != null) {
+    if (isEditingInPlace &&
+        promptController != null &&
+        answerController != null) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 20),
         child: Column(
