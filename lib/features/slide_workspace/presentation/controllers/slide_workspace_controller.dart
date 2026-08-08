@@ -375,7 +375,21 @@ class SlideWorkspaceController extends ChangeNotifier {
   SlideWorkspaceController({
     required SlideWorkspaceRepository repository,
     required this.stationId,
-  }) : _repository = repository;
+  }) : _repository = repository {
+    // Restore cached metadata synchronously so reopening Slides never shows
+    // the first-load screen while the already-downloaded resources are being
+    // checked again.
+    try {
+      final cachedSlides = _repository.getCachedSlidesSync(stationId);
+      if (cachedSlides.isNotEmpty) {
+        slides = cachedSlides;
+        currentIndex = min(currentIndex, slides.length - 1);
+        isLoading = false;
+      }
+    } catch (_) {
+      // A cold start can happen before the persistent cache is initialized.
+    }
+  }
 
   final SlideWorkspaceRepository _repository;
   final String? stationId;
@@ -415,6 +429,21 @@ class SlideWorkspaceController extends ChangeNotifier {
   bool get canRedo => _redoStack.isNotEmpty;
 
   Future<void> load() async {
+    final synchronousCachedSlides =
+        _repository.getCachedSlidesSync(stationId);
+    if (synchronousCachedSlides.isNotEmpty) {
+      slides = synchronousCachedSlides;
+      currentIndex = min(currentIndex, slides.length - 1);
+      isLoading = false;
+      notifyListeners();
+      // Keep cache validation and remote refresh completely off the loading
+      // path. The existing slide data remains visible while this runs.
+      unawaited(_preloadSlideImages());
+      unawaited(_refreshSlidesInBackground());
+      _processPendingUploadTasks();
+      return;
+    }
+
     isLoading = true;
     notifyListeners();
 

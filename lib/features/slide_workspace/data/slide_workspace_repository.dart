@@ -7,6 +7,7 @@ import '../domain/entities/slide_workspace_models.dart';
 
 abstract class SlideWorkspaceRepository {
   Future<List<WorkspaceSlide>> getSlides(String? stationId);
+  List<WorkspaceSlide> getCachedSlidesSync(String? stationId);
   Future<List<WorkspaceSlide>> getCachedSlides(String? stationId);
   Future<List<WorkspaceSlide>> refreshSlides(String? stationId);
   Future<WorkspaceSlide> createSlide({
@@ -63,12 +64,18 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   }
 
   @override
-  Future<List<WorkspaceSlide>> getCachedSlides(String? stationId) async {
+  List<WorkspaceSlide> getCachedSlidesSync(String? stationId) {
     if (stationId == null || stationId.trim().isEmpty) return const [];
     if (_memorySlidesCache.containsKey(stationId)) {
       return _memorySlidesCache[stationId]!;
     }
-    final cached = _cache.getCacheAllowExpired(_slidesCacheKey(stationId));
+    dynamic cached;
+    try {
+      cached = _cache.getCacheAllowExpired(_slidesCacheKey(stationId));
+    } catch (_) {
+      // CacheService may still be initializing during a cold app start.
+      return const [];
+    }
     if (cached is! Map) return const [];
     final items = cached['slides'];
     if (items is! List) return const [];
@@ -78,6 +85,11 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .toList();
     _memorySlidesCache[stationId] = slides;
     return slides;
+  }
+
+  @override
+  Future<List<WorkspaceSlide>> getCachedSlides(String? stationId) async {
+    return getCachedSlidesSync(stationId);
   }
 
   @override

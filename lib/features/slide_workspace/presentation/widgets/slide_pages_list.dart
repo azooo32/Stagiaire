@@ -11,6 +11,7 @@ const slideCanvasWidth = 1100.0;
 const slideCanvasHeight = 608.0;
 const kHeaderCompactHeight = 52.0;
 const kHeaderDesktopHeight = 64.0;
+const kSlideSidePad = 8.0;
 
 class _TranslationBounds {
   final double min;
@@ -95,9 +96,10 @@ void animateToSlide({
     final viewportHeight = renderBox.size.height;
     final totalWidth = renderBox.size.width;
     final viewportWidth = sidebarOpen ? (totalWidth - 216.0) : totalWidth;
-    final pageWidth = viewportWidth
+    final pageWidth = (viewportWidth - kSlideSidePad * 2)
         .clamp(280.0, double.infinity)
         .toDouble();
+    final contentWidth = pageWidth + kSlideSidePad * 2;
     final pageHeight = pageWidth * slideCanvasHeight / slideCanvasWidth;
     final controlsHeight = canManageSlides ? 33.0 : 0.0;
     final pageExtent = pageHeight + controlsHeight;
@@ -148,7 +150,7 @@ void animateToSlide({
     final targetY = -(top * currentScale) +
         (viewportHeight - (targetPageExtent * currentScale)) / 2;
     final horizontalBounds = _translationBounds(
-      pageWidth,
+      contentWidth,
       viewportWidth,
       currentScale,
     );
@@ -507,7 +509,7 @@ class _SlidePagesListState extends State<SlidePagesList>
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          const sidePad = 0.0;
+          const sidePad = kSlideSidePad;
           const topPad = 10.0;
           const bottomPad = 10.0;
 
