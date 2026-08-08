@@ -35,7 +35,7 @@ with check (
   exists (
     select 1 from public.users
     where users.id = (select auth.uid())
-      and lower(users.role) in ('admin', 'owner', 'manager')
+      and lower(trim(users.role::text)) in ('admin', 'owner', 'manager')
   )
 );
 
@@ -48,14 +48,14 @@ using (
   exists (
     select 1 from public.users
     where users.id = (select auth.uid())
-      and lower(users.role) in ('admin', 'owner', 'manager')
+      and lower(trim(users.role::text)) in ('admin', 'owner', 'manager')
   )
 )
 with check (
   exists (
     select 1 from public.users
     where users.id = (select auth.uid())
-      and lower(users.role) in ('admin', 'owner', 'manager')
+      and lower(trim(users.role::text)) in ('admin', 'owner', 'manager')
   )
 );
 
@@ -68,7 +68,7 @@ using (
   exists (
     select 1 from public.users
     where users.id = (select auth.uid())
-      and lower(users.role) in ('admin', 'owner', 'manager')
+      and lower(trim(users.role::text)) in ('admin', 'owner', 'manager')
   )
 );
 

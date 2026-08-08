@@ -15,8 +15,8 @@ class WorkspaceOutsideStateProvider extends InheritedWidget {
   final Function(WorkspaceSlide slide) stopRecording;
   final VoidCallback cancelRecording;
 
-  final Function(int index) startInPlaceEdit;
-  final Function(int index) saveInPlaceEdit;
+  final Future<void> Function(int index) startInPlaceEdit;
+  final Future<void> Function(int index) saveInPlaceEdit;
 
   const WorkspaceOutsideStateProvider({
     super.key,
@@ -37,7 +37,8 @@ class WorkspaceOutsideStateProvider extends InheritedWidget {
   });
 
   static WorkspaceOutsideStateProvider? of(BuildContext context) {
-    return context.dependOnInheritedWidgetOfExactType<WorkspaceOutsideStateProvider>();
+    return context
+        .dependOnInheritedWidgetOfExactType<WorkspaceOutsideStateProvider>();
   }
 
   @override

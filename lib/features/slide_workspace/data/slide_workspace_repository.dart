@@ -15,6 +15,7 @@ abstract class SlideWorkspaceRepository {
     required String title,
     required String subtitle,
     required List<WorkspaceQuestion> questions,
+    int? insertAfterSlideIndex,
     String? imagePath,
     Uint8List? imageBytes,
     String? imageFileName,
@@ -113,7 +114,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       unawaited(_normalizeStationOrder(stationId));
     }
 
-    final role = await _supabase.getUserRole();
+    final role = (await _supabase.getUserRole())?.trim().toLowerCase();
     final canManageSlides =
         role == 'owner' || role == 'admin' || role == 'manager';
 
@@ -168,6 +169,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     required String title,
     required String subtitle,
     required List<WorkspaceQuestion> questions,
+    int? insertAfterSlideIndex,
     String? imagePath,
     Uint8List? imageBytes,
     String? imageFileName,
@@ -176,7 +178,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   }) async {
     final existing = await _supabase.client
         .from('slides')
-        .select('slide_index, subtitle, subtitle_index, subtitle_slide_index')
+        .select(
+            'id, slide_index, subtitle, subtitle_index, subtitle_slide_index')
         .eq('station_id', stationId)
         .eq('is_active', true)
         .order('subtitle_index', ascending: true)
@@ -189,8 +192,29 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .where((index) => index > 0)
         .toSet();
     var nextIndex = 1;
-    while (usedIndexes.contains(nextIndex)) {
-      nextIndex++;
+    if (insertAfterSlideIndex != null) {
+      final insertionIndex =
+          (insertAfterSlideIndex + 1).clamp(1, rows.length + 1);
+      final rowsToShift = rows.where((row) {
+        final index = (row['slide_index'] as num?)?.toInt();
+        return index != null && index >= insertionIndex;
+      }).toList()
+        ..sort((a, b) => ((b['slide_index'] as num?)?.toInt() ?? 0)
+            .compareTo((a['slide_index'] as num?)?.toInt() ?? 0));
+
+      for (final row in rowsToShift) {
+        final id = row['id']?.toString();
+        final index = (row['slide_index'] as num?)?.toInt();
+        if (id == null || index == null) continue;
+        await _supabase.client
+            .from('slides')
+            .update({'slide_index': index + 1}).eq('id', id);
+      }
+      nextIndex = insertionIndex;
+    } else {
+      while (usedIndexes.contains(nextIndex)) {
+        nextIndex++;
+      }
     }
 
     final subtitleKey = subtitle.trim().toLowerCase();
@@ -257,6 +281,9 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .select('*')
         .single();
 
+    if (insertAfterSlideIndex != null) {
+      await _reorderStationSlides(stationId);
+    }
     await _syncStationSlideCount(stationId);
     return _slideFromRow(Map<String, dynamic>.from(inserted));
   }
@@ -315,9 +342,11 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .select('metadata')
         .eq('id', slideId)
         .single();
-    final previousMetadata = Map<String, dynamic>.from(existingSlide['metadata'] ?? {});
+    final previousMetadata =
+        Map<String, dynamic>.from(existingSlide['metadata'] ?? {});
 
-    if (uploadedImageUrl != null) previousMetadata['image_url'] = uploadedImageUrl;
+    if (uploadedImageUrl != null)
+      previousMetadata['image_url'] = uploadedImageUrl;
     if (uploadedAudioUrl != null) {
       if (uploadedAudioUrl == 'clear_audio') {
         previousMetadata.remove('audio_url');
@@ -332,7 +361,9 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       'questions': qaItems,
       'answers': _answersFromQa(qaItems),
       if (uploadedImageUrl != null) 'image_url': uploadedImageUrl,
-      if (uploadedAudioUrl != null) 'voice_url': uploadedAudioUrl == 'clear_audio' ? null : uploadedAudioUrl,
+      if (uploadedAudioUrl != null)
+        'voice_url':
+            uploadedAudioUrl == 'clear_audio' ? null : uploadedAudioUrl,
       'metadata': previousMetadata,
     };
 
@@ -488,20 +519,20 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     final imageUrl = (row['image_url'] as String?)?.trim().isNotEmpty == true
         ? row['image_url'] as String
         : ((row['metadata'] as Map<String, dynamic>?)?['image_url'] as String?)
-            ?.trim()
-            .isNotEmpty ==
-            true
-        ? (row['metadata'] as Map<String, dynamic>)['image_url'] as String
-        : null;
+                    ?.trim()
+                    .isNotEmpty ==
+                true
+            ? (row['metadata'] as Map<String, dynamic>)['image_url'] as String
+            : null;
 
     final audioUrl = (row['voice_url'] as String?)?.trim().isNotEmpty == true
         ? row['voice_url'] as String
         : ((row['metadata'] as Map<String, dynamic>?)?['audio_url'] as String?)
-            ?.trim()
-            .isNotEmpty ==
-            true
-        ? (row['metadata'] as Map<String, dynamic>)['audio_url'] as String
-        : null;
+                    ?.trim()
+                    .isNotEmpty ==
+                true
+            ? (row['metadata'] as Map<String, dynamic>)['audio_url'] as String
+            : null;
 
     // 3. Delete the slide row permanently from the database
     await _supabase.client.from('slides').delete().eq('id', slideId);
@@ -546,8 +577,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       final slide = slides[i];
       await _supabase.client
           .from('slides')
-          .update({'slide_index': -(i + 1)})
-          .eq('id', slide.id);
+          .update({'slide_index': -(i + 1)}).eq('id', slide.id);
     }
 
     // 2. Assign the final positive indexes
@@ -555,8 +585,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       final slide = slides[i];
       await _supabase.client
           .from('slides')
-          .update({'slide_index': i + 1})
-          .eq('id', slide.id);
+          .update({'slide_index': i + 1}).eq('id', slide.id);
     }
 
     // 3. Let the RPC clean everything up atomically
@@ -620,7 +649,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   @override
   Future<String?> uploadWorkspaceImage(Uint8List bytes, String fileName) async {
     final user = _supabase.currentUser;
-    final folder = user != null ? 'student-workspace/${user.id}' : 'student-workspace';
+    final folder =
+        user != null ? 'student-workspace/${user.id}' : 'student-workspace';
     return _supabase.uploadFileBytes(
       'question-images',
       bytes,
@@ -763,7 +793,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         questions: _questionsFromCache(row['questions']),
         metadata: Map<String, dynamic>.from(row['metadata'] as Map? ?? {}),
         strokes: _objectsFromJson(row['strokes']),
-        examStrokes: _objectsFromJson(row['exam_strokes'] ?? row['exam_drawing_data']),
+        examStrokes:
+            _objectsFromJson(row['exam_strokes'] ?? row['exam_drawing_data']),
       );
 
   List<WorkspaceQuestion> _questionsFromCache(dynamic raw) {
@@ -954,7 +985,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     if (raw is List) {
       return raw
           .whereType<Map>()
-          .map((item) => WorkspaceObject.fromJson(Map<String, dynamic>.from(item)))
+          .map((item) =>
+              WorkspaceObject.fromJson(Map<String, dynamic>.from(item)))
           .toList();
     }
     if (raw is Map) {
@@ -962,7 +994,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       if (objects is List) {
         return objects
             .whereType<Map>()
-            .map((item) => WorkspaceObject.fromJson(Map<String, dynamic>.from(item)))
+            .map((item) =>
+                WorkspaceObject.fromJson(Map<String, dynamic>.from(item)))
             .toList();
       }
     }

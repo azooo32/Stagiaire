@@ -232,6 +232,7 @@ class SlidePagesList extends StatefulWidget {
   final TransformationController transformationController;
   final ValueChanged<int> onEditSlide;
   final ValueChanged<int> onDeleteSlide;
+  final ValueChanged<int>? onAddSlideAfter;
   final ValueChanged<int>? onSlideTap;
   final bool fillWidth;
 
@@ -245,6 +246,7 @@ class SlidePagesList extends StatefulWidget {
     this.fillWidth = false,
     required this.onEditSlide,
     required this.onDeleteSlide,
+    this.onAddSlideAfter,
     this.onSlideTap,
   });
 
@@ -395,18 +397,14 @@ class _SlidePagesListState extends State<SlidePagesList>
         double entryHeight = 0.0;
         if (entry.isHeader) {
           final isFirst = entryIndex == 0;
-          entryHeight =
-              (isFirst ? 0.0 : (widget.compact ? 10.0 : 14.0)) +
-                  (widget.compact
-                      ? kHeaderCompactHeight
-                      : kHeaderDesktopHeight) +
-                  (widget.compact ? 6.0 : 8.0);
+          entryHeight = (isFirst ? 0.0 : (widget.compact ? 10.0 : 14.0)) +
+              (widget.compact ? kHeaderCompactHeight : kHeaderDesktopHeight) +
+              (widget.compact ? 6.0 : 8.0);
         } else {
           final isLast = entryIndex == entries.length - 1;
-          entryHeight =
-              _lastPageWidth * slideCanvasHeight / slideCanvasWidth +
-                  (widget.canManageSlides ? 33.0 : 0.0) +
-                  (isLast ? 0.0 : (widget.compact ? 2.0 : 3.0));
+          entryHeight = _lastPageWidth * slideCanvasHeight / slideCanvasWidth +
+              (widget.canManageSlides ? 33.0 : 0.0) +
+              (isLast ? 0.0 : (widget.compact ? 2.0 : 3.0));
         }
 
         if (!entry.isHeader) {
@@ -482,8 +480,8 @@ class _SlidePagesListState extends State<SlidePagesList>
         .toDouble();
 
     final newMatrix = Matrix4.copy(currentMatrix)
-      ..setTranslationRaw(
-          currentMatrix.getTranslation().x, newY, currentMatrix.getTranslation().z);
+      ..setTranslationRaw(currentMatrix.getTranslation().x, newY,
+          currentMatrix.getTranslation().z);
 
     widget.transformationController.value = newMatrix;
   }
@@ -513,9 +511,8 @@ class _SlidePagesListState extends State<SlidePagesList>
           const topPad = 10.0;
           const bottomPad = 10.0;
 
-          final pageWidth = constraints.maxWidth
-              .clamp(280.0, double.infinity)
-              .toDouble();
+          final pageWidth =
+              constraints.maxWidth.clamp(280.0, double.infinity).toDouble();
 
           final oldHeight = _lastViewportHeight;
           final oldWidth = _lastPageWidth;
@@ -571,14 +568,12 @@ class _SlidePagesListState extends State<SlidePagesList>
                       scale,
                     );
 
-                    final double newY =
-                        (translation.y + delta.dy)
-                            .clamp(verticalBounds.min, verticalBounds.max)
-                            .toDouble();
-                    final double newX =
-                        (translation.x + delta.dx)
-                            .clamp(horizontalBounds.min, horizontalBounds.max)
-                            .toDouble();
+                    final double newY = (translation.y + delta.dy)
+                        .clamp(verticalBounds.min, verticalBounds.max)
+                        .toDouble();
+                    final double newX = (translation.x + delta.dx)
+                        .clamp(horizontalBounds.min, horizontalBounds.max)
+                        .toDouble();
 
                     final newMatrix = Matrix4.copy(currentMatrix)
                       ..setTranslationRaw(newX, newY, translation.z);
@@ -686,7 +681,7 @@ class _SlidePagesListState extends State<SlidePagesList>
                     !(_isDrawingTool && _activeStylusPointers.isNotEmpty),
                 boundaryMargin: EdgeInsets.zero,
                 minScale: 0.5,
-                maxScale: 2.5,
+                maxScale: 5.0,
                 alignment: Alignment.topLeft,
                 constrained: false,
                 child: Padding(
@@ -753,6 +748,9 @@ class _SlidePagesListState extends State<SlidePagesList>
           isDark: widget.isDark,
           zoomScale: 1.0,
           onEdit: () => widget.onEditSlide(index),
+          onAddAfter: widget.onAddSlideAfter == null
+              ? null
+              : () => widget.onAddSlideAfter!(index),
           onDelete: () => widget.onDeleteSlide(index),
           onSlideTap: widget.onSlideTap,
         ),

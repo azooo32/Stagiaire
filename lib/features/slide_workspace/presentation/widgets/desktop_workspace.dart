@@ -19,6 +19,7 @@ class DesktopWorkspace extends StatefulWidget {
   final VoidCallback? onAddSlide;
   final ValueChanged<int> onEditSlide;
   final ValueChanged<int> onDeleteSlide;
+  final ValueChanged<int>? onAddSlideAfter;
 
   const DesktopWorkspace({
     super.key,
@@ -31,6 +32,7 @@ class DesktopWorkspace extends StatefulWidget {
     required this.onBack,
     required this.onEditSlide,
     required this.onDeleteSlide,
+    this.onAddSlideAfter,
     this.onAddSlide,
   });
 
@@ -46,7 +48,8 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
   void initState() {
     super.initState();
     _transformationController = TransformationController();
-    _transformationController.value = Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
+    _transformationController.value =
+        Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
   }
 
   @override
@@ -62,8 +65,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
               currentTranslation.y,
               currentTranslation.z,
             ) *
-            Matrix4.diagonal3Values(
-                widget.zoomScale, widget.zoomScale, 1.0);
+            Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
       }
     }
   }
@@ -76,7 +78,9 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
 
   void _selectSlideWithoutScroll(int index) {
     final stateProvider = WorkspaceOutsideStateProvider.of(context);
-    if (stateProvider != null && stateProvider.editingSlideIndex != null && stateProvider.editingSlideIndex != index) {
+    if (stateProvider != null &&
+        stateProvider.editingSlideIndex != null &&
+        stateProvider.editingSlideIndex != index) {
       stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
     }
     if (index != widget.controller.currentIndex) {
@@ -86,7 +90,9 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
 
   void _goToSlide(int index) {
     final stateProvider = WorkspaceOutsideStateProvider.of(context);
-    if (stateProvider != null && stateProvider.editingSlideIndex != null && stateProvider.editingSlideIndex != index) {
+    if (stateProvider != null &&
+        stateProvider.editingSlideIndex != null &&
+        stateProvider.editingSlideIndex != index) {
       stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
     }
     widget.controller.goToSlide(index);
@@ -138,6 +144,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
                   fillWidth: true,
                   onEditSlide: widget.onEditSlide,
                   onDeleteSlide: widget.onDeleteSlide,
+                  onAddSlideAfter: widget.onAddSlideAfter,
                   onSlideTap: _selectSlideWithoutScroll,
                 ),
                 Positioned(
@@ -164,6 +171,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
       zoomScale: widget.zoomScale,
       onEditSlide: widget.onEditSlide,
       onDeleteSlide: widget.onDeleteSlide,
+      onAddSlideAfter: widget.onAddSlideAfter,
     );
   }
 }

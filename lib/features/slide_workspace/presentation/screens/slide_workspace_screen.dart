@@ -34,7 +34,8 @@ class SlideWorkspaceScreen extends StatefulWidget {
   State<SlideWorkspaceScreen> createState() => _SlideWorkspaceScreenState();
 }
 
-class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with WidgetsBindingObserver {
+class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
+    with WidgetsBindingObserver {
   late final SlideWorkspaceController controller;
 
   // --- Outside Recording State ---
@@ -50,6 +51,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
   int? _editingSlideIndex;
   final List<TextEditingController> _inPlacePromptControllers = [];
   final List<TextEditingController> _inPlaceAnswerControllers = [];
+  Future<void>? _inPlaceSaveOperation;
 
   Future<void> _startOutsideRecording(WorkspaceSlide slide) async {
     if (_isOutsideRecording) {
@@ -72,7 +74,8 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
       return;
     }
 
-    final outputPath = '${Directory.systemTemp.path}/slide_voice_outside_${slide.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    final outputPath =
+        '${Directory.systemTemp.path}/slide_voice_outside_${slide.id}_${DateTime.now().millisecondsSinceEpoch}.m4a';
     await _outsideRecorder!.start(
       const RecordConfig(
         encoder: AudioEncoder.aacLc,
@@ -139,13 +142,17 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('تم حفظ التسجيل بنجاح', style: TextStyle(fontFamily: 'Cairo'))),
+            const SnackBar(
+                content: Text('تم حفظ التسجيل بنجاح',
+                    style: TextStyle(fontFamily: 'Cairo'))),
           );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('فشل حفظ التسجيل. يرجى المحاولة مرة أخرى.', style: TextStyle(fontFamily: 'Cairo'))),
+            const SnackBar(
+                content: Text('فشل حفظ التسجيل. يرجى المحاولة مرة أخرى.',
+                    style: TextStyle(fontFamily: 'Cairo'))),
           );
         }
       }
@@ -164,16 +171,17 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
     });
   }
 
-  void _startInPlaceEdit(int index) {
+  Future<void> _startInPlaceEdit(int index) async {
     if (!mounted || index < 0 || index >= controller.slides.length) return;
-    
+
     if (_editingSlideIndex != null) {
       if (_editingSlideIndex == index) return;
-      _saveInPlaceEdit(_editingSlideIndex!);
+      await _saveInPlaceEdit(_editingSlideIndex!);
+      if (!mounted || index < 0 || index >= controller.slides.length) return;
     }
 
     final slide = controller.slides[index];
-    
+
     for (var c in _inPlacePromptControllers) {
       c.dispose();
     }
@@ -193,14 +201,52 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
     });
   }
 
-  Future<void> _saveInPlaceEdit(int index) async {
+  Future<void> _saveInPlaceEdit(int index) {
+    final activeOperation = _inPlaceSaveOperation;
+    if (activeOperation != null) return activeOperation;
+
+    final operation = _saveInPlaceEditInternal(index);
+    _inPlaceSaveOperation = operation;
+    operation.then<void>(
+      (_) {
+        if (identical(_inPlaceSaveOperation, operation)) {
+          _inPlaceSaveOperation = null;
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (identical(_inPlaceSaveOperation, operation)) {
+          _inPlaceSaveOperation = null;
+        }
+      },
+    );
+    return operation;
+  }
+
+  Future<void> _saveInPlaceEditInternal(int index) async {
     if (index < 0 || index >= controller.slides.length) return;
     final slide = controller.slides[index];
 
+    // Never send an incomplete controller list to the repository. A transient
+    // edit rebuild used to make this list empty and overwrite all questions.
+    if (_inPlacePromptControllers.length != slide.questions.length ||
+        _inPlaceAnswerControllers.length != slide.questions.length) {
+      debugPrint(
+          'Skipped in-place save because the question editors were incomplete.');
+      _closeInPlaceEditors(index);
+      return;
+    }
+
+    final promptControllers = List<TextEditingController>.from(
+      _inPlacePromptControllers,
+    );
+    final answerControllers = List<TextEditingController>.from(
+      _inPlaceAnswerControllers,
+    );
+
     final updatedQuestions = <WorkspaceQuestion>[];
-    for (var i = 0; i < _inPlacePromptControllers.length; i++) {
-      final prompt = _inPlacePromptControllers[i].text.trim();
-      final answer = _inPlaceAnswerControllers[i].text.trim();
+    for (var i = 0; i < promptControllers.length; i++) {
+      final prompt = promptControllers[i].text;
+      final answer = answerControllers[i].text;
       if (prompt.isNotEmpty) {
         updatedQuestions.add(WorkspaceQuestion(prompt: prompt, answer: answer));
       }
@@ -230,19 +276,26 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
       }
     }
 
-    if (_editingSlideIndex == index) {
-      for (var c in _inPlacePromptControllers) {
-        c.dispose();
-      }
-      _inPlacePromptControllers.clear();
-      for (var c in _inPlaceAnswerControllers) {
-        c.dispose();
-      }
-      _inPlaceAnswerControllers.clear();
+    _closeInPlaceEditors(index);
+  }
 
+  void _closeInPlaceEditors(int index) {
+    if (_editingSlideIndex != index) return;
+    for (var c in _inPlacePromptControllers) {
+      c.dispose();
+    }
+    _inPlacePromptControllers.clear();
+    for (var c in _inPlaceAnswerControllers) {
+      c.dispose();
+    }
+    _inPlaceAnswerControllers.clear();
+
+    if (mounted) {
       setState(() {
         _editingSlideIndex = null;
       });
+    } else {
+      _editingSlideIndex = null;
     }
   }
 
@@ -258,7 +311,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
   }
 
   void _setZoom(double value) {
-    controller.setZoom(value.clamp(0.5, 2.5));
+    controller.setZoom(value.clamp(0.5, 5.0));
   }
 
   Future<void> _preventScreenshot() async {
@@ -307,6 +360,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
               controller.load();
             }
           }
+
           route.animation!.addStatusListener(listener);
         }
       } else {
@@ -336,12 +390,16 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
       controller.flushPendingSaves();
     }
   }
 
-  Future<void> _showSlideEditorDialog({WorkspaceSlide? slide}) async {
+  Future<void> _showSlideEditorDialog({
+    WorkspaceSlide? slide,
+    int? insertAfterIndex,
+  }) async {
     final provider = Provider.of<AppProvider>(context, listen: false);
     final isDark = provider.isDarkTheme;
 
@@ -370,22 +428,37 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
           audioPath: result.audioPath,
         );
       } else {
-        await controller.addSlide(
-          title: result.title,
-          subtitle: result.subtitle,
-          questions: result.questions,
-          imagePath: result.imagePath,
-          imageBytes: result.imageBytes,
-          imageFileName: result.imageFileName,
-          imageContentType: result.imageContentType,
-          audioPath: result.audioPath,
-        );
+        if (insertAfterIndex != null) {
+          await controller.addSlideAfter(
+            insertAfterIndex,
+            title: result.title,
+            subtitle: result.subtitle,
+            questions: result.questions,
+            imagePath: result.imagePath,
+            imageBytes: result.imageBytes,
+            imageFileName: result.imageFileName,
+            imageContentType: result.imageContentType,
+            audioPath: result.audioPath,
+          );
+        } else {
+          await controller.addSlide(
+            title: result.title,
+            subtitle: result.subtitle,
+            questions: result.questions,
+            imagePath: result.imagePath,
+            imageBytes: result.imageBytes,
+            imageFileName: result.imageFileName,
+            imageContentType: result.imageContentType,
+            audioPath: result.audioPath,
+          );
+        }
       }
     } catch (e, s) {
       debugPrint('Error updating/adding slide: $e\n$s');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to save the slide. Please try again.')),
+          const SnackBar(
+              content: Text('Unable to save the slide. Please try again.')),
         );
       }
     }
@@ -418,7 +491,8 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
       debugPrint('Error deleting slide: $e\n$s');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to delete the slide. Please try again.')),
+          const SnackBar(
+              content: Text('Unable to delete the slide. Please try again.')),
         );
       }
     }
@@ -464,7 +538,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
         onPopInvokedWithResult: (didPop, result) async {
           if (didPop) return;
           final shouldPop = await _handleBack();
-          if (shouldPop && mounted) {
+          if (shouldPop && context.mounted) {
             Navigator.pop(context);
           }
         },
@@ -510,7 +584,8 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
               final tablet = width >= 760 && width < 1100;
 
               return Scaffold(
-                backgroundColor: isDark ? const Color(0xFF171428) : const Color(0xFFF9F8FD),
+                backgroundColor:
+                    isDark ? const Color(0xFF171428) : const Color(0xFFF9F8FD),
                 body: SafeArea(
                   child: Column(
                     children: [
@@ -532,8 +607,12 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
                             }
                           }
                         },
-                        onAddSlide: canManageSlides ? () => _showSlideEditorDialog() : null,
-                        onReorderSlides: canManageSlides ? () => _showReorderDialog(isDark) : null,
+                        onAddSlide: canManageSlides
+                            ? () => _showSlideEditorDialog()
+                            : null,
+                        onReorderSlides: canManageSlides
+                            ? () => _showReorderDialog(isDark)
+                            : null,
                       ),
                       if (!controller.hasSlides)
                         Expanded(
@@ -550,10 +629,16 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
                                   canManageSlides: canManageSlides,
                                   isDark: isDark,
                                   zoomScale: controller.zoom,
-                                  onEditSlide: (index) => _showSlideEditorDialog(
+                                  onEditSlide: (index) =>
+                                      _showSlideEditorDialog(
                                     slide: controller.slides[index],
                                   ),
                                   onDeleteSlide: _confirmDeleteSlide,
+                                  onAddSlideAfter: canManageSlides
+                                      ? (index) => _showSlideEditorDialog(
+                                            insertAfterIndex: index,
+                                          )
+                                      : null,
                                 )
                               : DesktopWorkspace(
                                   controller: controller,
@@ -569,11 +654,19 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen> with Widget
                                       }
                                     }
                                   },
-                                  onAddSlide: canManageSlides ? () => _showSlideEditorDialog() : null,
-                                  onEditSlide: (index) => _showSlideEditorDialog(
+                                  onAddSlide: canManageSlides
+                                      ? () => _showSlideEditorDialog()
+                                      : null,
+                                  onEditSlide: (index) =>
+                                      _showSlideEditorDialog(
                                     slide: controller.slides[index],
                                   ),
                                   onDeleteSlide: _confirmDeleteSlide,
+                                  onAddSlideAfter: canManageSlides
+                                      ? (index) => _showSlideEditorDialog(
+                                            insertAfterIndex: index,
+                                          )
+                                      : null,
                                 ),
                         ),
                     ],
@@ -603,7 +696,8 @@ class _EmptySlidesState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.slideshow_outlined, color: workspacePurple, size: 56),
+          const Icon(Icons.slideshow_outlined,
+              color: workspacePurple, size: 56),
           const SizedBox(height: 14),
           const Text(
             'No real slides yet',

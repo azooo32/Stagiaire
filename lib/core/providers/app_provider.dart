@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/subject.dart';
@@ -813,22 +814,28 @@ class AppProvider extends ChangeNotifier {
       if (audioBytes != null) {
         // Build a unique filename with timestamp to avoid storage collisions
         // Prefer explicit audioFileName (from file picker) over extracting from path/URL
-        final rawName = audioFileName??
+        final rawName = audioFileName ??
             audioUrl?.split('/').last.split('\\').last ??
             'voice_note';
-        final ext = rawName.contains('.') ? rawName.split('.').last.toLowerCase() : 'mp3';
-        final baseName = rawName.contains('.') ? rawName.substring(0, rawName.lastIndexOf('.')) : rawName;
-        final uniqueName = '${baseName}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+        final ext = rawName.contains('.')
+            ? rawName.split('.').last.toLowerCase()
+            : 'mp3';
+        final baseName = rawName.contains('.')
+            ? rawName.substring(0, rawName.lastIndexOf('.'))
+            : rawName;
+        final uniqueName =
+            '${baseName}_${DateTime.now().millisecondsSinceEpoch}.$ext';
         // Map extension to correct MIME type
         final mimeType = const {
-          'mp3': 'audio/mpeg',
-          'm4a': 'audio/mp4',
-          'aac': 'audio/aac',
-          'wav': 'audio/wav',
-          'ogg': 'audio/ogg',
-          'webm': 'audio/webm',
-          'opus': 'audio/opus',
-        }[ext] ?? 'audio/mpeg';
+              'mp3': 'audio/mpeg',
+              'm4a': 'audio/mp4',
+              'aac': 'audio/aac',
+              'wav': 'audio/wav',
+              'ogg': 'audio/ogg',
+              'webm': 'audio/webm',
+              'opus': 'audio/opus',
+            }[ext] ??
+            'audio/mpeg';
 
         final uploaded = await _supabase.uploadFileBytes(
           'question-audios',
@@ -840,7 +847,8 @@ class AppProvider extends ChangeNotifier {
         if (uploaded != null) {
           finalAudioUrl = uploaded;
         } else {
-          throw Exception(_supabase.lastError ?? 'Failed to upload audio bytes.');
+          throw Exception(
+              _supabase.lastError ?? 'Failed to upload audio bytes.');
         }
       } else if (audioUrl != null && audioUrl.isNotEmpty) {
         if (!audioUrl.startsWith('http://') &&
@@ -850,7 +858,8 @@ class AppProvider extends ChangeNotifier {
           if (uploaded != null) {
             finalAudioUrl = uploaded;
           } else {
-            throw Exception(_supabase.lastError ?? 'Failed to upload audio file.');
+            throw Exception(
+                _supabase.lastError ?? 'Failed to upload audio file.');
           }
         }
       }
@@ -860,7 +869,8 @@ class AppProvider extends ChangeNotifier {
         final uploaded = await _supabase.uploadFileBytes(
           'question-images',
           pdfBytes,
-          pdfUrl?.split('/').last.split('\\').last ?? 'voice_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf',
+          pdfUrl?.split('/').last.split('\\').last ??
+              'voice_pdf_${DateTime.now().millisecondsSinceEpoch}.pdf',
           folder: 'voice-pdfs',
           contentType: 'application/pdf',
         );
@@ -876,7 +886,8 @@ class AppProvider extends ChangeNotifier {
           if (uploaded != null) {
             finalPdfUrl = uploaded;
           } else {
-            throw Exception(_supabase.lastError ?? 'Failed to upload PDF file.');
+            throw Exception(
+                _supabase.lastError ?? 'Failed to upload PDF file.');
           }
         }
       }
@@ -923,7 +934,8 @@ class AppProvider extends ChangeNotifier {
       String? finalPdfUrl = pdfUrl;
       if (pdfUrl != null && pdfUrl.isNotEmpty) {
         if (!pdfUrl.startsWith('http://') && !pdfUrl.startsWith('https://')) {
-          final uploaded = await _supabase.uploadFile('question-images', pdfUrl);
+          final uploaded =
+              await _supabase.uploadFile('question-images', pdfUrl);
           if (uploaded != null) {
             finalPdfUrl = uploaded;
           } else {
@@ -1353,7 +1365,7 @@ class AppProvider extends ChangeNotifier {
 
   bool get isAdminOrOwner {
     if (_userRole == null) return false;
-    final r = _userRole!.toLowerCase();
+    final r = _userRole!.trim().toLowerCase();
     return r == 'admin' || r == 'owner' || r == 'manager';
   }
 
@@ -1377,7 +1389,8 @@ class AppProvider extends ChangeNotifier {
     if (isAdminOrOwner) return true;
     final subject = _subjects.firstWhere(
       (s) => s.name.toLowerCase().trim() == subjectName.toLowerCase().trim(),
-      orElse: () => Subject(id: -1, name: '', description: '', totalQuestions: 0),
+      orElse: () =>
+          Subject(id: -1, name: '', description: '', totalQuestions: 0),
     );
     if (subject.id == -1) return true;
     return _unlockedSubjectIds.contains(subject.id);
@@ -1387,7 +1400,8 @@ class AppProvider extends ChangeNotifier {
     if (isAdminOrOwner) return true;
     final subject = _clinicalSubjects.firstWhere(
       (s) => s.name.toLowerCase().trim() == subjectName.toLowerCase().trim(),
-      orElse: () => Subject(id: -1, name: '', description: '', totalQuestions: 0),
+      orElse: () =>
+          Subject(id: -1, name: '', description: '', totalQuestions: 0),
     );
     if (subject.id == -1) return true;
     return _unlockedClinicalSubjectIds.contains(subject.id);
@@ -1405,7 +1419,7 @@ class AppProvider extends ChangeNotifier {
       final scientificResponse = await _supabase.client
           .from('accessible_subjects')
           .select('subject_id');
-      
+
       _unlockedSubjectIds = List<Map<String, dynamic>>.from(scientificResponse)
           .map((row) => row['subject_id'] as int)
           .toSet();
@@ -1413,50 +1427,61 @@ class AppProvider extends ChangeNotifier {
       final clinicalResponse = await _supabase.client
           .from('accessible_clinical_subjects')
           .select('clinical_subject_id');
-      
-      _unlockedClinicalSubjectIds = List<Map<String, dynamic>>.from(clinicalResponse)
-          .map((row) => row['clinical_subject_id'] as int)
-          .toSet();
 
-      await _cache.setCache(CacheService.keyUnlockedSubjects, _unlockedSubjectIds.toList(), const Duration(days: 7));
-      await _cache.setCache(CacheService.keyUnlockedClinicalSubjects, _unlockedClinicalSubjectIds.toList(), const Duration(days: 7));
-      
+      _unlockedClinicalSubjectIds =
+          List<Map<String, dynamic>>.from(clinicalResponse)
+              .map((row) => row['clinical_subject_id'] as int)
+              .toSet();
+
+      await _cache.setCache(CacheService.keyUnlockedSubjects,
+          _unlockedSubjectIds.toList(), const Duration(days: 7));
+      await _cache.setCache(CacheService.keyUnlockedClinicalSubjects,
+          _unlockedClinicalSubjectIds.toList(), const Duration(days: 7));
+
       notifyListeners();
     } catch (e) {
       print('Error fetching unlocked subjects from network: $e');
-      final cachedUnlocked = _cache.getCache(CacheService.keyUnlockedSubjects) ??
-          _cache.getCacheAllowExpired(CacheService.keyUnlockedSubjects);
+      final cachedUnlocked =
+          _cache.getCache(CacheService.keyUnlockedSubjects) ??
+              _cache.getCacheAllowExpired(CacheService.keyUnlockedSubjects);
       if (cachedUnlocked is List) {
         _unlockedSubjectIds = List<int>.from(cachedUnlocked).toSet();
       }
 
-      final cachedUnlockedClinical = _cache.getCache(CacheService.keyUnlockedClinicalSubjects) ??
+      final cachedUnlockedClinical = _cache
+              .getCache(CacheService.keyUnlockedClinicalSubjects) ??
           _cache.getCacheAllowExpired(CacheService.keyUnlockedClinicalSubjects);
       if (cachedUnlockedClinical is List) {
-        _unlockedClinicalSubjectIds = List<int>.from(cachedUnlockedClinical).toSet();
+        _unlockedClinicalSubjectIds =
+            List<int>.from(cachedUnlockedClinical).toSet();
       }
       notifyListeners();
     }
   }
 
   // --- Admin Subscriptions Management methods ---
-  Future<List<Map<String, dynamic>>> searchUsers(String query) => _supabase.searchUsers(query);
-  Future<List<Map<String, dynamic>>> getUserSubscriptions(String userId) => _supabase.getUserSubscriptions(userId);
+  Future<List<Map<String, dynamic>>> searchUsers(String query) =>
+      _supabase.searchUsers(query);
+  Future<List<Map<String, dynamic>>> getUserSubscriptions(String userId) =>
+      _supabase.getUserSubscriptions(userId);
   Future<bool> addUserSubscription({
     required String userId,
     int? subjectId,
     int? clinicalSubjectId,
     required String status,
     DateTime? expiresAt,
-  }) => _supabase.addUserSubscription(
-    userId: userId,
-    subjectId: subjectId,
-    clinicalSubjectId: clinicalSubjectId,
-    status: status,
-    expiresAt: expiresAt,
-  );
-  Future<bool> deleteUserSubscription(String subscriptionId) => _supabase.deleteUserSubscription(subscriptionId);
-  Future<List<Map<String, dynamic>>> getUniversityAccessList() => _supabase.getUniversityAccessList();
+  }) =>
+      _supabase.addUserSubscription(
+        userId: userId,
+        subjectId: subjectId,
+        clinicalSubjectId: clinicalSubjectId,
+        status: status,
+        expiresAt: expiresAt,
+      );
+  Future<bool> deleteUserSubscription(String subscriptionId) =>
+      _supabase.deleteUserSubscription(subscriptionId);
+  Future<List<Map<String, dynamic>>> getUniversityAccessList() =>
+      _supabase.getUniversityAccessList();
   Future<bool> addUniversityAccess({
     required String university,
     int? subjectId,
@@ -1465,16 +1490,18 @@ class AppProvider extends ChangeNotifier {
     bool? allPractical,
     required String status,
     DateTime? expiresAt,
-  }) => _supabase.addUniversityAccess(
-    university: university,
-    subjectId: subjectId,
-    clinicalSubjectId: clinicalSubjectId,
-    allScientific: allScientific,
-    allPractical: allPractical,
-    status: status,
-    expiresAt: expiresAt,
-  );
-  Future<bool> deleteUniversityAccess(String accessId) => _supabase.deleteUniversityAccess(accessId);
+  }) =>
+      _supabase.addUniversityAccess(
+        university: university,
+        subjectId: subjectId,
+        clinicalSubjectId: clinicalSubjectId,
+        allScientific: allScientific,
+        allPractical: allPractical,
+        status: status,
+        expiresAt: expiresAt,
+      );
+  Future<bool> deleteUniversityAccess(String accessId) =>
+      _supabase.deleteUniversityAccess(accessId);
 
   // Supabase current user getter
   User? get currentUser => _supabase.currentUser;
@@ -1585,7 +1612,8 @@ class AppProvider extends ChangeNotifier {
 
   void _startSessionCheckTimer(String userId, String deviceId) {
     _sessionCheckTimer?.cancel();
-    _sessionCheckTimer = Timer.periodic(const Duration(seconds: 15), (timer) async {
+    _sessionCheckTimer =
+        Timer.periodic(const Duration(seconds: 15), (timer) async {
       await checkSessionValidity(userId, deviceId);
     });
   }
@@ -1620,15 +1648,18 @@ class AppProvider extends ChangeNotifier {
     try {
       _startPendingAnswerSyncTimer();
 
-      final cachedUnlocked = _cache.getCache(CacheService.keyUnlockedSubjects) ??
-          _cache.getCacheAllowExpired(CacheService.keyUnlockedSubjects);
+      final cachedUnlocked =
+          _cache.getCache(CacheService.keyUnlockedSubjects) ??
+              _cache.getCacheAllowExpired(CacheService.keyUnlockedSubjects);
       if (cachedUnlocked is List) {
         _unlockedSubjectIds = List<int>.from(cachedUnlocked).toSet();
       }
-      final cachedUnlockedClinical = _cache.getCache(CacheService.keyUnlockedClinicalSubjects) ??
+      final cachedUnlockedClinical = _cache
+              .getCache(CacheService.keyUnlockedClinicalSubjects) ??
           _cache.getCacheAllowExpired(CacheService.keyUnlockedClinicalSubjects);
       if (cachedUnlockedClinical is List) {
-        _unlockedClinicalSubjectIds = List<int>.from(cachedUnlockedClinical).toSet();
+        _unlockedClinicalSubjectIds =
+            List<int>.from(cachedUnlockedClinical).toSet();
       }
 
       final cachedPlan = _cache.getCache('study_plan_cache') ??
@@ -1646,8 +1677,9 @@ class AppProvider extends ChangeNotifier {
       if (cachedDetails is Map) {
         _userDetails = Map<String, dynamic>.from(cachedDetails);
       }
-      final cachedProgress = _cache.getCache('clinical_subject_progress_cache') ??
-          _cache.getCacheAllowExpired('clinical_subject_progress_cache');
+      final cachedProgress =
+          _cache.getCache('clinical_subject_progress_cache') ??
+              _cache.getCacheAllowExpired('clinical_subject_progress_cache');
       if (cachedProgress is Map) {
         cachedProgress.forEach((k, v) {
           _clinicalSubjectProgress[k.toString()] = (v as num).toDouble();
@@ -1716,8 +1748,11 @@ class AppProvider extends ChangeNotifier {
               ? 'Web'
               : (defaultTargetPlatform == TargetPlatform.android
                   ? 'Android'
-                  : (defaultTargetPlatform == TargetPlatform.iOS ? 'iOS' : 'Desktop'));
-          unawaited(_supabase.registerOrUpdateSession(user.id, deviceId, deviceName));
+                  : (defaultTargetPlatform == TargetPlatform.iOS
+                      ? 'iOS'
+                      : 'Desktop'));
+          unawaited(
+              _supabase.registerOrUpdateSession(user.id, deviceId, deviceName));
           _startSessionCheckTimer(user.id, deviceId);
         }
 
@@ -1739,9 +1774,11 @@ class AppProvider extends ChangeNotifier {
             _supabase.getUserProgress().then((progress) async {
               if (progress != null) {
                 _favorites = List<int>.from(progress['favorites'] ?? []);
-                await _cache.setCache('user_favorites_cache', _favorites, const Duration(days: 30));
-                
-                final remoteAnswers = Map<String, dynamic>.from(progress['answers'] ?? {});
+                await _cache.setCache('user_favorites_cache', _favorites,
+                    const Duration(days: 30));
+
+                final remoteAnswers =
+                    Map<String, dynamic>.from(progress['answers'] ?? {});
                 final pendingAnswers = _cachedMap(_pendingUserAnswersKey);
                 _userAnswers = {
                   ...remoteAnswers,
@@ -1749,14 +1786,17 @@ class AppProvider extends ChangeNotifier {
                   ...pendingAnswers,
                 };
                 await _cacheUserAnswers();
-                _highlights = Map<String, dynamic>.from(progress['highlights'] ?? {});
+                _highlights =
+                    Map<String, dynamic>.from(progress['highlights'] ?? {});
               }
             }),
             loadClinicalBookmarks(),
             _supabase.getUserLeaderboardStats().then((leaderboardStats) {
               if (leaderboardStats != null) {
-                _leaderboardTotalAnswers = leaderboardStats['total_answers'] ?? 0;
-                _leaderboardCorrectAnswers = leaderboardStats['correct_answers'] ?? 0;
+                _leaderboardTotalAnswers =
+                    leaderboardStats['total_answers'] ?? 0;
+                _leaderboardCorrectAnswers =
+                    leaderboardStats['correct_answers'] ?? 0;
                 final rawAcc = leaderboardStats['accuracy'];
                 if (rawAcc is num) {
                   _leaderboardAccuracy = rawAcc.toDouble();
@@ -1766,11 +1806,13 @@ class AppProvider extends ChangeNotifier {
               } else {
                 // Fallback to answers length if not in leaderboard yet
                 _leaderboardTotalAnswers = _userAnswers.length;
-                _leaderboardCorrectAnswers =
-                    _userAnswers.values.where((a) => a['is_correct'] == true).length;
+                _leaderboardCorrectAnswers = _userAnswers.values
+                    .where((a) => a['is_correct'] == true)
+                    .length;
                 if (_leaderboardTotalAnswers > 0) {
                   _leaderboardAccuracy =
-                      (_leaderboardCorrectAnswers / _leaderboardTotalAnswers) * 100.0;
+                      (_leaderboardCorrectAnswers / _leaderboardTotalAnswers) *
+                          100.0;
                 } else {
                   _leaderboardAccuracy = 0.0;
                 }
@@ -1779,20 +1821,23 @@ class AppProvider extends ChangeNotifier {
             _supabase.getActiveStudyPlan().then((plan) async {
               if (plan != null) {
                 _studyPlan = plan;
-                await _cache.setCache('study_plan_cache', plan, const Duration(days: 7));
+                await _cache.setCache(
+                    'study_plan_cache', plan, const Duration(days: 7));
                 await checkAndUpdateDailyPlan();
               }
             }),
             _supabase.getUserRole().then((role) async {
               if (role != null) {
                 _userRole = role;
-                await _cache.setCache('user_role_cache', role, const Duration(days: 7));
+                await _cache.setCache(
+                    'user_role_cache', role, const Duration(days: 7));
               }
             }),
             _supabase.getUserDetails().then((details) async {
               if (details != null) {
                 _userDetails = details;
-                await _cache.setCache('user_details_cache', details, const Duration(days: 7));
+                await _cache.setCache(
+                    'user_details_cache', details, const Duration(days: 7));
               }
             }),
             fetchUnlockedSubjects(),
@@ -1887,7 +1932,8 @@ class AppProvider extends ChangeNotifier {
             if (isDeleted) {
               rawQuestions.removeWhere((q) => _safeIntVal(q['id']) == id);
             } else {
-              final idx = rawQuestions.indexWhere((q) => _safeIntVal(q['id']) == id);
+              final idx =
+                  rawQuestions.indexWhere((q) => _safeIntVal(q['id']) == id);
               if (idx != -1) {
                 rawQuestions[idx] = dq;
               } else {
@@ -1898,7 +1944,8 @@ class AppProvider extends ChangeNotifier {
         }
       }
 
-      rawQuestions.sort((a, b) => _safeIntVal(a['id']).compareTo(_safeIntVal(b['id'])));
+      rawQuestions
+          .sort((a, b) => _safeIntVal(a['id']).compareTo(_safeIntVal(b['id'])));
       await _cache.setCache(
           cacheKey, rawQuestions, CacheService.questionsLifespan);
 
@@ -2121,7 +2168,8 @@ class AppProvider extends ChangeNotifier {
           return _clinicalBookmarkKey(
               row['item_type'].toString(), row['item_id'].toString());
         }));
-      await _cache.setCache('clinical_bookmarks_cache', _clinicalBookmarks.toList(), const Duration(days: 30));
+      await _cache.setCache('clinical_bookmarks_cache',
+          _clinicalBookmarks.toList(), const Duration(days: 30));
       notifyListeners();
     } catch (e) {
       print('Error loading clinical bookmarks: $e');
@@ -2155,7 +2203,8 @@ class AppProvider extends ChangeNotifier {
           'item_id': itemId,
         }, onConflict: 'user_id,item_type,item_id');
       }
-      await _cache.setCache('clinical_bookmarks_cache', _clinicalBookmarks.toList(), const Duration(days: 30));
+      await _cache.setCache('clinical_bookmarks_cache',
+          _clinicalBookmarks.toList(), const Duration(days: 30));
     } catch (e) {
       if (wasBookmarked) {
         _clinicalBookmarks.add(key);
@@ -2166,6 +2215,7 @@ class AppProvider extends ChangeNotifier {
       print('Error toggling clinical bookmark: $e');
     }
   }
+
   bool isStationCompleted(String? stationDbId) {
     if (stationDbId == null || stationDbId.isEmpty) return false;
     final station = _dbSlideStations.firstWhere(
@@ -2185,7 +2235,8 @@ class AppProvider extends ChangeNotifier {
     return station.evaluation != null || station.progress >= 1.0;
   }
 
-  Future<void> toggleStationCompletion(String? stationDbId, {int totalSlides = 10}) async {
+  Future<void> toggleStationCompletion(String? stationDbId,
+      {int totalSlides = 10}) async {
     if (stationDbId == null || stationDbId.isEmpty) return;
 
     // Find the station to get its subject name
@@ -2228,7 +2279,8 @@ class AppProvider extends ChangeNotifier {
 
     try {
       _favorites = await _supabase.toggleFavorite(questionId);
-      await _cache.setCache('user_favorites_cache', _favorites, const Duration(days: 30));
+      await _cache.setCache(
+          'user_favorites_cache', _favorites, const Duration(days: 30));
       notifyListeners();
     } catch (e) {
       print('Error syncing favorite status: $e');
@@ -2351,7 +2403,6 @@ class AppProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
-
 
   Future<bool> updateQuestionExplanationFormat(
     int questionId,
@@ -3054,15 +3105,12 @@ class AppProvider extends ChangeNotifier {
       for (var subj in _clinicalSubjects) {
         final subjectId = subj.id;
 
-        final subjStations = (stationsRes)
-            .where((s) => s['subject_id'] == subjectId)
-            .toList();
-        final subjVoices = (voicesRes)
-            .where((v) => v['subject_id'] == subjectId)
-            .toList();
-        final subjVideos = (videosRes)
-            .where((v) => v['subject_id'] == subjectId)
-            .toList();
+        final subjStations =
+            (stationsRes).where((s) => s['subject_id'] == subjectId).toList();
+        final subjVoices =
+            (voicesRes).where((v) => v['subject_id'] == subjectId).toList();
+        final subjVideos =
+            (videosRes).where((v) => v['subject_id'] == subjectId).toList();
 
         double totalCompleted = 0.0;
         final double totalItems =
@@ -3126,7 +3174,8 @@ class AppProvider extends ChangeNotifier {
           _clinicalSubjectProgress[subj.name.toLowerCase().trim()] = 0.0;
         }
       }
-      await _cache.setCache('clinical_subject_progress_cache', _clinicalSubjectProgress, const Duration(days: 30));
+      await _cache.setCache('clinical_subject_progress_cache',
+          _clinicalSubjectProgress, const Duration(days: 30));
       notifyListeners();
     } catch (e) {
       print('Error calculating clinical progress: $e');
@@ -3187,7 +3236,8 @@ class AppProvider extends ChangeNotifier {
       String? finalPdfUrl = pdfUrl;
       if (pdfUrl != null && pdfUrl.isNotEmpty) {
         if (!pdfUrl.startsWith('http://') && !pdfUrl.startsWith('https://')) {
-          final uploaded = await _supabase.uploadFile('question-images', pdfUrl);
+          final uploaded =
+              await _supabase.uploadFile('question-images', pdfUrl);
           if (uploaded != null) {
             finalPdfUrl = uploaded;
           } else {

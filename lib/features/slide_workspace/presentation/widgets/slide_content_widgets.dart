@@ -454,6 +454,7 @@ class QuestionBlock extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: promptController,
+                    enableInteractiveSelection: true,
                     maxLines: null,
                     keyboardType: TextInputType.multiline,
                     style: TextStyle(
@@ -477,6 +478,7 @@ class QuestionBlock extends StatelessWidget {
               padding: const EdgeInsets.only(left: 28.0),
               child: TextField(
                 controller: answerController,
+                enableInteractiveSelection: true,
                 maxLines: null,
                 keyboardType: TextInputType.multiline,
                 style: TextStyle(

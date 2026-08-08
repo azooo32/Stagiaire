@@ -21,6 +21,7 @@ class MobileSlidePage extends StatefulWidget {
   final double zoomScale;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onAddAfter;
   final ValueChanged<int>? onSlideTap;
 
   const MobileSlidePage({
@@ -33,6 +34,7 @@ class MobileSlidePage extends StatefulWidget {
     required this.zoomScale,
     required this.onEdit,
     required this.onDelete,
+    this.onAddAfter,
     this.onSlideTap,
   });
 
@@ -44,19 +46,29 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
   final GlobalKey _canvasKey = GlobalKey();
   int? _activePointer;
   PointerDeviceKind? _activeKind;
+  PointerDeviceKind? _lastPointerKind;
 
   SlideWorkspaceController get controller => widget.controller;
 
   @override
   Widget build(BuildContext context) {
+    if (widget.index < 0 || widget.index >= controller.slides.length) {
+      return const SizedBox.shrink();
+    }
     final slide = controller.slides[widget.index];
     final isCurrent = widget.index == controller.currentIndex;
+    final stateProvider = WorkspaceOutsideStateProvider.of(context);
+    final isEditingThisSlide = stateProvider?.editingSlideIndex == widget.index;
+    final allowSlideGestures = !isEditingThisSlide;
     final page = AspectRatio(
       aspectRatio: 1100.0 / 608.0,
       child: FittedBox(
         fit: BoxFit.contain,
         child: Listener(
-          onPointerDown: (event) => _handlePointerDown(event),
+          onPointerDown: (event) {
+            _lastPointerKind = event.kind;
+            unawaited(_handlePointerDown(event));
+          },
           onPointerMove: _handlePointerMove,
           onPointerUp: _handlePointerUp,
           onPointerCancel: _handlePointerUp,
@@ -68,20 +80,27 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
               children: [
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    widget.onSlideTap?.call(widget.index);
-                    controller.selectObject(null);
-                  },
-                  onLongPress: () {
-                    widget.onSlideTap?.call(widget.index);
-                    controller.selectObject(null);
-                  },
-                  onDoubleTap: () {
-                    final stateProvider = WorkspaceOutsideStateProvider.of(context);
-                    if (stateProvider != null && widget.canManageSlides) {
-                      stateProvider.startInPlaceEdit(widget.index);
-                    }
-                  },
+                  onTap: allowSlideGestures
+                      ? () {
+                          widget.onSlideTap?.call(widget.index);
+                          controller.selectObject(null);
+                        }
+                      : null,
+                  onLongPress: allowSlideGestures
+                      ? () {
+                          widget.onSlideTap?.call(widget.index);
+                          controller.selectObject(null);
+                        }
+                      : null,
+                  onDoubleTap: allowSlideGestures
+                      ? () {
+                          if (_canStartInPlaceEdit(stateProvider)) {
+                            unawaited(
+                              stateProvider!.startInPlaceEdit(widget.index),
+                            );
+                          }
+                        }
+                      : null,
                   child: SlidePaper(
                     slide: slide,
                     compact: widget.compact,
@@ -98,18 +117,22 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        for (final obj in ((controller.isStudyMode ? slide.strokes : slide.examStrokes)
-                            .toList()
-                          ..sort((a, b) {
-                            final cmp = a.zIndex.compareTo(b.zIndex);
-                            if (cmp != 0) return cmp;
-                            return a.creationTime.compareTo(b.creationTime);
-                          })))
+                        for (final obj
+                            in ((controller.isStudyMode
+                                    ? slide.strokes
+                                    : slide.examStrokes)
+                                .toList()
+                              ..sort((a, b) {
+                                final cmp = a.zIndex.compareTo(b.zIndex);
+                                if (cmp != 0) return cmp;
+                                return a.creationTime.compareTo(b.creationTime);
+                              })))
                           WorkspaceRendererRegistry.render(
                             context: context,
                             object: obj,
                             controller: controller,
-                            isSelected: isCurrent && controller.selectedObjectId == obj.id,
+                            isSelected: isCurrent &&
+                                controller.selectedObjectId == obj.id,
                             onSelected: () {
                               widget.onSlideTap?.call(widget.index);
                               controller.selectObject(obj.id);
@@ -155,6 +178,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
               index: widget.index,
               total: controller.slides.length,
               onEdit: widget.onEdit,
+              onAddAfter: widget.onAddAfter,
               onDuplicate: () => controller.duplicateSlideAt(widget.index),
               onDelete: widget.onDelete,
               onMoveUp: () => controller.moveSlideUp(widget.index),
@@ -170,7 +194,17 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
     );
   }
 
+  bool _canStartInPlaceEdit(WorkspaceOutsideStateProvider? stateProvider) {
+    if (stateProvider == null || !widget.canManageSlides) return false;
+    if (controller.selectedTool != WorkspaceTool.pan) return false;
+    return _lastPointerKind == PointerDeviceKind.touch ||
+        _lastPointerKind == PointerDeviceKind.mouse;
+  }
+
   Future<void> _handlePointerDown(PointerDownEvent event) async {
+    if (WorkspaceOutsideStateProvider.of(context)?.editingSlideIndex != null) {
+      return;
+    }
     if (!_canDraw || !_isPrimaryMouseButton(event)) return;
     final fingerDrawing = MediaQuery.sizeOf(context).width < 600 &&
         event.kind == PointerDeviceKind.touch;
@@ -211,7 +245,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
     if (event.pointer != _activePointer) return;
     _activePointer = null;
     _activeKind = null;
-    controller.endStroke();
+    unawaited(controller.endStroke());
   }
 
   bool get _canDraw =>
@@ -237,6 +271,7 @@ class ObjectControls extends StatelessWidget {
   final int index;
   final int total;
   final VoidCallback onEdit;
+  final VoidCallback? onAddAfter;
   final VoidCallback onDuplicate;
   final VoidCallback onDelete;
   final VoidCallback onMoveUp;
@@ -251,6 +286,7 @@ class ObjectControls extends StatelessWidget {
     required this.index,
     required this.total,
     required this.onEdit,
+    this.onAddAfter,
     required this.onDuplicate,
     required this.onDelete,
     required this.onMoveUp,
@@ -270,9 +306,10 @@ class ObjectControls extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stateProvider = WorkspaceOutsideStateProvider.of(context);
-    final slide = controller != null && index >= 0 && index < controller!.slides.length
-        ? controller!.slides[index]
-        : null;
+    final slide =
+        controller != null && index >= 0 && index < controller!.slides.length
+            ? controller!.slides[index]
+            : null;
 
     final isRecordingThisSlide = stateProvider != null &&
         slide != null &&
@@ -354,14 +391,16 @@ class ObjectControls extends StatelessWidget {
                 context: context,
                 builder: (dialogContext) => AlertDialog(
                   title: const Text('Delete audio?'),
-                  content: const Text('Are you sure you want to delete the audio explanation for this slide?'),
+                  content: const Text(
+                      'Are you sure you want to delete the audio explanation for this slide?'),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(dialogContext, false),
                       child: const Text('Cancel'),
                     ),
                     FilledButton(
-                      style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                      style:
+                          FilledButton.styleFrom(backgroundColor: Colors.red),
                       onPressed: () => Navigator.pop(dialogContext, true),
                       child: const Text('Delete'),
                     ),
@@ -388,6 +427,12 @@ class ObjectControls extends StatelessWidget {
         ),
       ],
       (Icons.edit_outlined, 'Edit', onEdit, true),
+      (
+        Icons.add_box_outlined,
+        'Add slide below',
+        onAddAfter,
+        onAddAfter != null
+      ),
       (Icons.control_point_duplicate_rounded, 'Duplicate', onDuplicate, true),
       (Icons.delete_outline_rounded, 'Delete', onDelete, true),
     ];

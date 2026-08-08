@@ -15,12 +15,15 @@ import '../../domain/entities/slide_workspace_models.dart';
 import '../../../../core/services/image_cache_service.dart';
 
 abstract class WorkspaceCommand {
+  String get slideId;
+
   FutureOr<void> execute();
   FutureOr<void> undo();
 }
 
 class MoveObjectCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final String objectId;
   final bool isExam;
@@ -65,6 +68,7 @@ class MoveObjectCommand extends WorkspaceCommand {
 
 class ResizeObjectCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final String objectId;
   final bool isExam;
@@ -125,6 +129,7 @@ class ResizeObjectCommand extends WorkspaceCommand {
 
 class DeleteObjectCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final bool isExam;
   final WorkspaceObject object;
@@ -151,6 +156,7 @@ class DeleteObjectCommand extends WorkspaceCommand {
 
 class DeleteMultipleObjectsCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final bool isExam;
   final List<MapEntry<int, WorkspaceObject>> objectsWithIndices;
@@ -179,6 +185,7 @@ class DeleteMultipleObjectsCommand extends WorkspaceCommand {
 
 class InsertObjectCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final bool isExam;
   final WorkspaceObject object;
@@ -203,6 +210,7 @@ class InsertObjectCommand extends WorkspaceCommand {
 
 class DuplicateObjectCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final bool isExam;
   final WorkspaceObject original;
@@ -297,6 +305,7 @@ class DuplicateObjectCommand extends WorkspaceCommand {
 
 class ArrangeLayerCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final String objectId;
   final bool isExam;
@@ -335,6 +344,7 @@ class ArrangeLayerCommand extends WorkspaceCommand {
 
 class LockObjectCommand extends WorkspaceCommand {
   final SlideWorkspaceController controller;
+  @override
   final String slideId;
   final String objectId;
   final bool isExam;
@@ -429,8 +439,7 @@ class SlideWorkspaceController extends ChangeNotifier {
   bool get canRedo => _redoStack.isNotEmpty;
 
   Future<void> load() async {
-    final synchronousCachedSlides =
-        _repository.getCachedSlidesSync(stationId);
+    final synchronousCachedSlides = _repository.getCachedSlidesSync(stationId);
     if (synchronousCachedSlides.isNotEmpty) {
       slides = synchronousCachedSlides;
       currentIndex = min(currentIndex, slides.length - 1);
@@ -595,6 +604,39 @@ class SlideWorkspaceController extends ChangeNotifier {
     );
     slides = [...slides, slide];
     currentIndex = slides.length - 1;
+    notifyListeners();
+  }
+
+  Future<void> addSlideAfter(
+    int index, {
+    required String title,
+    required String subtitle,
+    required List<WorkspaceQuestion> questions,
+    String? imagePath,
+    Uint8List? imageBytes,
+    String? imageFileName,
+    String? imageContentType,
+    String? audioPath,
+  }) async {
+    final id = stationId;
+    if (id == null || id.trim().isEmpty) return;
+    if (index < 0 || index >= slides.length) return;
+
+    final slide = await _repository.createSlide(
+      stationId: id,
+      title: title,
+      subtitle: subtitle,
+      questions: questions,
+      insertAfterSlideIndex: slides[index].index,
+      imagePath: imagePath,
+      imageBytes: imageBytes,
+      imageFileName: imageFileName,
+      imageContentType: imageContentType,
+      audioPath: audioPath,
+    );
+    final nextSlides = [...slides]..insert(index + 1, slide);
+    slides = _renumber(nextSlides);
+    currentIndex = index + 1;
     notifyListeners();
   }
 
@@ -818,19 +860,20 @@ class SlideWorkspaceController extends ChangeNotifier {
   }
 
   void executeCommand(WorkspaceCommand command) {
+    final commandSlideId = command.slideId;
     final res = command.execute();
     if (res is Future) {
       res.then((_) {
         _undoStack.add(command);
         _redoStack.clear();
         notifyListeners();
-        scheduleSave(currentSlide.id);
+        scheduleSave(commandSlideId);
       });
     } else {
       _undoStack.add(command);
       _redoStack.clear();
       notifyListeners();
-      scheduleSave(currentSlide.id);
+      scheduleSave(commandSlideId);
     }
   }
 

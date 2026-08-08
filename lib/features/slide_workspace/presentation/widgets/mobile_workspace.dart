@@ -13,6 +13,7 @@ class MobileWorkspace extends StatelessWidget {
   final double zoomScale;
   final ValueChanged<int> onEditSlide;
   final ValueChanged<int> onDeleteSlide;
+  final ValueChanged<int>? onAddSlideAfter;
 
   const MobileWorkspace({
     super.key,
@@ -22,6 +23,7 @@ class MobileWorkspace extends StatelessWidget {
     required this.zoomScale,
     required this.onEditSlide,
     required this.onDeleteSlide,
+    this.onAddSlideAfter,
   });
 
   @override
@@ -34,6 +36,7 @@ class MobileWorkspace extends StatelessWidget {
       zoomScale: zoomScale,
       onEditSlide: onEditSlide,
       onDeleteSlide: onDeleteSlide,
+      onAddSlideAfter: onAddSlideAfter,
     );
   }
 }
@@ -46,6 +49,7 @@ class CollapsibleSlideWorkspace extends StatefulWidget {
   final double zoomScale;
   final ValueChanged<int> onEditSlide;
   final ValueChanged<int> onDeleteSlide;
+  final ValueChanged<int>? onAddSlideAfter;
 
   const CollapsibleSlideWorkspace({
     super.key,
@@ -56,6 +60,7 @@ class CollapsibleSlideWorkspace extends StatefulWidget {
     required this.zoomScale,
     required this.onEditSlide,
     required this.onDeleteSlide,
+    this.onAddSlideAfter,
   });
 
   @override
@@ -63,8 +68,7 @@ class CollapsibleSlideWorkspace extends StatefulWidget {
       _CollapsibleSlideWorkspaceState();
 }
 
-class _CollapsibleSlideWorkspaceState
-    extends State<CollapsibleSlideWorkspace> {
+class _CollapsibleSlideWorkspaceState extends State<CollapsibleSlideWorkspace> {
   bool _showThumbnails = false;
   late final TransformationController _transformationController;
 
@@ -72,7 +76,8 @@ class _CollapsibleSlideWorkspaceState
   void initState() {
     super.initState();
     _transformationController = TransformationController();
-    _transformationController.value = Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
+    _transformationController.value =
+        Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
   }
 
   @override
@@ -88,8 +93,7 @@ class _CollapsibleSlideWorkspaceState
               currentTranslation.y,
               currentTranslation.z,
             ) *
-            Matrix4.diagonal3Values(
-                widget.zoomScale, widget.zoomScale, 1.0);
+            Matrix4.diagonal3Values(widget.zoomScale, widget.zoomScale, 1.0);
       }
     }
   }
@@ -102,7 +106,9 @@ class _CollapsibleSlideWorkspaceState
 
   void _selectSlideWithoutScroll(int index) {
     final stateProvider = WorkspaceOutsideStateProvider.of(context);
-    if (stateProvider != null && stateProvider.editingSlideIndex != null && stateProvider.editingSlideIndex != index) {
+    if (stateProvider != null &&
+        stateProvider.editingSlideIndex != null &&
+        stateProvider.editingSlideIndex != index) {
       stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
     }
     if (index != widget.controller.currentIndex) {
@@ -112,7 +118,9 @@ class _CollapsibleSlideWorkspaceState
 
   void _goToSlide(int index) {
     final stateProvider = WorkspaceOutsideStateProvider.of(context);
-    if (stateProvider != null && stateProvider.editingSlideIndex != null && stateProvider.editingSlideIndex != index) {
+    if (stateProvider != null &&
+        stateProvider.editingSlideIndex != null &&
+        stateProvider.editingSlideIndex != index) {
       stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
     }
     widget.controller.goToSlide(index);
@@ -139,6 +147,7 @@ class _CollapsibleSlideWorkspaceState
           transformationController: _transformationController,
           onEditSlide: widget.onEditSlide,
           onDeleteSlide: widget.onDeleteSlide,
+          onAddSlideAfter: widget.onAddSlideAfter,
           onSlideTap: _selectSlideWithoutScroll,
         ),
         Positioned(
