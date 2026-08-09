@@ -496,6 +496,7 @@ class _SlidePagesListState extends State<SlidePagesList>
   @override
   Widget build(BuildContext context) {
     final entries = workspaceEntries(widget.controller.slides);
+    final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
@@ -511,16 +512,23 @@ class _SlidePagesListState extends State<SlidePagesList>
           const topPad = 10.0;
           const bottomPad = 10.0;
 
+          // Keep the geometry used for transforms stable while the keyboard
+          // animates. The scaffold normally keeps this stable as well, but
+          // this guard also covers Android window-mode differences.
+          final viewportHeight = keyboardVisible && _lastViewportHeight > 0
+              ? _lastViewportHeight
+              : constraints.maxHeight;
+
           final pageWidth =
               constraints.maxWidth.clamp(280.0, double.infinity).toDouble();
 
           final oldHeight = _lastViewportHeight;
           final oldWidth = _lastPageWidth;
 
-          _lastViewportHeight = constraints.maxHeight;
+          _lastViewportHeight = viewportHeight;
           _lastPageWidth = pageWidth;
 
-          final double deltaH = (oldHeight - constraints.maxHeight).abs();
+          final double deltaH = (oldHeight - viewportHeight).abs();
           final double deltaW = (oldWidth - pageWidth).abs();
           if (oldHeight > 0 && oldWidth > 0 && (deltaH > 2.0 || deltaW > 2.0)) {
             _initialScrollAligned = false;
@@ -548,7 +556,7 @@ class _SlidePagesListState extends State<SlidePagesList>
                     final scale = currentMatrix.getMaxScaleOnAxis();
 
                     final double viewportWidth = constraints.maxWidth;
-                    final double viewportHeight = constraints.maxHeight;
+                    final double panViewportHeight = viewportHeight;
 
                     final double totalContentWidth = pageWidth + sidePad * 2;
                     final box = _contentKey.currentContext?.findRenderObject()
@@ -559,7 +567,7 @@ class _SlidePagesListState extends State<SlidePagesList>
 
                     final verticalBounds = _translationBounds(
                       contentHeight,
-                      viewportHeight,
+                      panViewportHeight,
                       scale,
                     );
                     final horizontalBounds = _translationBounds(
@@ -637,7 +645,7 @@ class _SlidePagesListState extends State<SlidePagesList>
                         final scale = currentMatrix.getMaxScaleOnAxis();
 
                         final double viewportWidth = constraints.maxWidth;
-                        final double viewportHeight = constraints.maxHeight;
+                        final double scrollViewportHeight = viewportHeight;
 
                         final double totalContentWidth =
                             pageWidth + sidePad * 2;
@@ -649,7 +657,7 @@ class _SlidePagesListState extends State<SlidePagesList>
 
                         final verticalBounds = _translationBounds(
                           contentHeight,
-                          viewportHeight,
+                          scrollViewportHeight,
                           scale,
                         );
                         final horizontalBounds = _translationBounds(

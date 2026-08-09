@@ -584,9 +584,14 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
               final tablet = width >= 760 && width < 1100;
 
               return Scaffold(
+                // The slide canvas must not be resized when the IME opens.
+                // Text fields still receive the keyboard insets, while the
+                // workspace keeps its viewport and transform unchanged.
+                resizeToAvoidBottomInset: false,
                 backgroundColor:
                     isDark ? const Color(0xFF171428) : const Color(0xFFF9F8FD),
                 body: SafeArea(
+                  maintainBottomViewPadding: true,
                   child: Column(
                     children: [
                       WorkspaceTopToolbar(
