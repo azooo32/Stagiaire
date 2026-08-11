@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/services/supabase_service.dart';
+import '../../../../core/services/app_update_service.dart';
+import '../../../../core/constants/app_config.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
@@ -218,6 +220,32 @@ class ProfileScreen extends StatelessWidget {
                                         print('Could not launch Telegram URL: $e');
                                       }
                                     },
+                                  ),
+                                  _buildOptionTile(
+                                    icon: Icons.system_update_rounded,
+                                    title: 'التحقق من التحديثات',
+                                    isDark: provider.isDarkTheme,
+                                    isTablet: isTablet,
+                                    trailing: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF6B4EFF).withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text(
+                                        'v${AppConfig.currentVersionName}',
+                                        style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF6B4EFF),
+                                        ),
+                                      ),
+                                    ),
+                                    onTap: () => AppUpdateService().checkForUpdates(
+                                      context,
+                                      isManualCheck: true,
+                                    ),
                                   ),
                                   const SizedBox(height: 24),
 

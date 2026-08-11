@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'core/providers/app_provider.dart';
 import 'core/theme/colors.dart';
+import 'core/services/app_update_service.dart';
 import 'features/home/presentation/screens/home_screen.dart';
 import 'features/subjects/presentation/screens/subjects_screen.dart';
 import 'features/favorites/presentation/screens/favorites_screen.dart';
@@ -34,6 +35,13 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
       final provider = Provider.of<AppProvider>(context, listen: false);
       provider.initializeData();
       provider.addListener(_onProviderUpdate);
+
+      // Check for app updates silently in background
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted) {
+          AppUpdateService().checkForUpdates(context);
+        }
+      });
     });
   }
 
