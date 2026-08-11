@@ -107,7 +107,9 @@ class _VideoScreenState extends State<VideoScreen>
         videoPlayerController: _videoPlayerController!,
         autoPlay: true,
         looping: false,
-        aspectRatio: 16 / 9,
+        aspectRatio: _videoPlayerController!.value.aspectRatio > 0
+            ? _videoPlayerController!.value.aspectRatio
+            : 16 / 9,
         allowPlaybackSpeedChanging: false,
         deviceOrientationsOnEnterFullScreen: [
           DeviceOrientation.landscapeLeft,
@@ -150,6 +152,15 @@ class _VideoScreenState extends State<VideoScreen>
         });
       }
     }
+  }
+
+  double get _currentAspectRatio {
+    if (_videoPlayerController != null &&
+        _videoPlayerController!.value.isInitialized) {
+      final ratio = _videoPlayerController!.value.aspectRatio;
+      return ratio > 0 ? ratio : 16 / 9;
+    }
+    return 16 / 9;
   }
 
   double _speedValue(String speed) {
@@ -670,10 +681,15 @@ class _VideoScreenState extends State<VideoScreen>
                           child: Center(
                             child: Padding(
                               padding: const EdgeInsets.all(16.0),
-                              child: AspectRatio(
-                                aspectRatio: 16 / 9,
-                                child:
-                                    _buildPlayerWidget(activeVideo, brandColor),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: MediaQuery.of(context).size.height * 0.75,
+                                ),
+                                child: AspectRatio(
+                                  aspectRatio: _currentAspectRatio,
+                                  child:
+                                      _buildPlayerWidget(activeVideo, brandColor),
+                                ),
                               ),
                             ),
                           ),
@@ -721,10 +737,12 @@ class _VideoScreenState extends State<VideoScreen>
                                 const EdgeInsets.symmetric(horizontal: 16.0),
                             child: Center(
                               child: ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxWidth: 1100),
+                                constraints: BoxConstraints(
+                                  maxWidth: 1100,
+                                  maxHeight: MediaQuery.of(context).size.height * 0.75,
+                                ),
                                 child: AspectRatio(
-                                  aspectRatio: 16 / 9,
+                                  aspectRatio: _currentAspectRatio,
                                   child: _buildPlayerWidget(
                                       activeVideo, brandColor),
                                 ),
