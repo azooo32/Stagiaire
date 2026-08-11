@@ -308,8 +308,23 @@ class _VideoScreenState extends State<VideoScreen>
     SecurityService.disableSecure();
     _videoSpeedHideTimer?.cancel();
     _spinnerController.dispose();
-    _chewieController?.dispose();
-    _videoPlayerController?.dispose();
+
+    // Pause player immediately to stop native media rendering/callbacks
+    _videoPlayerController?.pause();
+
+    // Store references locally to dispose them after the frame
+    final chewieToDispose = _chewieController;
+    final playerToDispose = _videoPlayerController;
+
+    // Remove references immediately to prevent UI from accessing them
+    _chewieController = null;
+    _videoPlayerController = null;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      chewieToDispose?.dispose();
+      playerToDispose?.dispose();
+    });
+
     super.dispose();
   }
 
@@ -481,6 +496,15 @@ class _VideoScreenState extends State<VideoScreen>
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
+        // Pause the player before exiting the screen to avoid native iOS threading crashes
+        if (_videoPlayerController != null &&
+            _videoPlayerController!.value.isPlaying) {
+          try {
+            await _videoPlayerController!.pause();
+          } catch (e) {
+            debugPrint("Error pausing video during pop: $e");
+          }
+        }
         await SecurityService.disableSecure();
         if (context.mounted) {
           Navigator.of(context).pop();
