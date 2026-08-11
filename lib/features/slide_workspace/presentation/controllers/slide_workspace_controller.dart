@@ -405,7 +405,7 @@ class SlideWorkspaceController extends ChangeNotifier {
   final String? stationId;
 
   List<WorkspaceSlide> slides = const [];
-  int currentIndex = 11;
+  int currentIndex = 0;
   WorkspaceTool selectedTool = WorkspaceTool.pan;
   Color selectedColor = const Color(0xFF5B35F5);
   double strokeWidth = 2;
@@ -504,7 +504,15 @@ class SlideWorkspaceController extends ChangeNotifier {
           }
         }
         return fresh;
-      }).toList();
+      }).toList()
+        ..sort((a, b) {
+            final cmpSubtitle = a.subtitleIndex.compareTo(b.subtitleIndex);
+            if (cmpSubtitle != 0) return cmpSubtitle;
+            final cmpSubtitleSlide =
+                a.subtitleSlideIndex.compareTo(b.subtitleSlideIndex);
+            if (cmpSubtitleSlide != 0) return cmpSubtitleSlide;
+            return a.index.compareTo(b.index);
+          });
 
       await _preloadSlideImages(mergedSlides);
       slides = mergedSlides;

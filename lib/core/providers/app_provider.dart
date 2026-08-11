@@ -1369,6 +1369,11 @@ class AppProvider extends ChangeNotifier {
     return r == 'admin' || r == 'owner' || r == 'manager';
   }
 
+  bool get isOwner {
+    if (_userRole == null) return false;
+    return _userRole!.trim().toLowerCase() == 'owner';
+  }
+
   Set<int> _unlockedSubjectIds = {};
   Set<int> get unlockedSubjectIds => _unlockedSubjectIds;
 

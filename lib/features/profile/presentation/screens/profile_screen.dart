@@ -170,7 +170,7 @@ class ProfileScreen extends StatelessWidget {
                                   const SizedBox(height: 24),
 
                                   // ─── Settings Options List ───
-                                  if (provider.isAdminOrOwner) ...[
+                                  if (provider.isOwner) ...[
                                     _buildOptionTile(
                                       icon: Icons.admin_panel_settings_outlined,
                                       title: 'إدارة الاشتراكات والمستفيدين',

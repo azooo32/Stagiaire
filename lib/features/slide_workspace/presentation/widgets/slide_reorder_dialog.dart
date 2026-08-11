@@ -7,6 +7,17 @@ import '../../../../core/services/image_cache_service.dart';
 import '../../domain/entities/slide_workspace_models.dart';
 import '../controllers/slide_workspace_controller.dart';
 import 'slide_workspace_chrome.dart';
+import 'slide_pages_list.dart';
+
+class _ReorderEntry {
+  final String subtitle;
+  final WorkspaceSlide? slide;
+
+  _ReorderEntry({required this.subtitle, this.slide});
+
+  bool get isHeader => slide == null;
+}
+
 
 class SlideReorderDialog extends StatefulWidget {
   final SlideWorkspaceController controller;
@@ -39,12 +50,46 @@ class SlideReorderDialog extends StatefulWidget {
 
 class _SlideReorderDialogState extends State<SlideReorderDialog> {
   late List<WorkspaceSlide> _slides;
+  late List<_ReorderEntry> _entries;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     _slides = List<WorkspaceSlide>.from(widget.controller.slides);
+    _buildEntries();
+  }
+
+  void _buildEntries() {
+    _entries = [];
+    String? previousSubtitle;
+    for (final slide in _slides) {
+      final subtitle = slide.subtitle.trim().isEmpty ? 'Untitled' : slide.subtitle.trim();
+      if (previousSubtitle == null || previousSubtitle.toLowerCase() != subtitle.toLowerCase()) {
+        _entries.add(_ReorderEntry(subtitle: subtitle));
+        previousSubtitle = subtitle;
+      }
+      _entries.add(_ReorderEntry(subtitle: subtitle, slide: slide));
+    }
+  }
+
+  void _updateSlidesFromEntries() {
+    final newSlides = <WorkspaceSlide>[];
+    String currentSubtitle = '';
+    
+    for (final entry in _entries) {
+      if (entry.isHeader) {
+        currentSubtitle = entry.subtitle;
+      } else {
+        final slide = entry.slide!;
+        newSlides.add(slide.copyWith(
+          subtitle: currentSubtitle == 'Untitled' ? '' : currentSubtitle,
+        ));
+      }
+    }
+    
+    _slides = newSlides;
+    _buildEntries();
   }
 
   Future<void> _handleSave() async {
@@ -146,22 +191,39 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
             const Divider(height: 1),
             const SizedBox(height: 12),
 
-            // Reorderable List of Slide Thumbnails
+            // Reorderable List of Slide Thumbnails and Subtitle Headers
             Expanded(
               child: ReorderableListView.builder(
                 padding: const EdgeInsets.only(bottom: 12),
-                itemCount: _slides.length,
+                itemCount: _entries.length,
+                buildDefaultDragHandles: false,
                 onReorder: (oldIndex, newIndex) {
                   setState(() {
                     if (oldIndex < newIndex) {
                       newIndex -= 1;
                     }
-                    final item = _slides.removeAt(oldIndex);
-                    _slides.insert(newIndex, item);
+                    final item = _entries.removeAt(oldIndex);
+                    _entries.insert(newIndex, item);
+                    _updateSlidesFromEntries();
                   });
                 },
                 itemBuilder: (context, index) {
-                  final slide = _slides[index];
+                  final entry = _entries[index];
+                  if (entry.isHeader) {
+                    return KeyedSubtree(
+                      key: ValueKey('header_${entry.subtitle}_$index'),
+                      child: Container(
+                        margin: const EdgeInsets.only(top: 14, bottom: 8),
+                        child: SubtitleHeader(
+                          subtitle: entry.subtitle,
+                          isDark: isDark,
+                          compact: true,
+                        ),
+                      ),
+                    );
+                  }
+
+                  final slide = entry.slide!;
                   return KeyedSubtree(
                     key: ValueKey(slide.id),
                     child: Container(
@@ -199,7 +261,7 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              '${index + 1}',
+                              '${_slides.indexOf(slide) + 1}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,

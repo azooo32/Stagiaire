@@ -4,6 +4,8 @@
 *.pyc
 *.swp
 .DS_Store
+Untitled*
+*.tmp
 .atom/
 .build/
 .buildlog/
@@ -43,6 +45,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/build/
+*.zip
 
 # Local run logs
 flutter_run_log.txt

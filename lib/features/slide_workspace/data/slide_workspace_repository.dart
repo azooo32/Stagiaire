@@ -83,7 +83,15 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     final slides = items
         .whereType<Map>()
         .map((item) => _slideFromCache(Map<String, dynamic>.from(item)))
-        .toList();
+        .toList()
+      ..sort((a, b) {
+          final cmpSubtitle = a.subtitleIndex.compareTo(b.subtitleIndex);
+          if (cmpSubtitle != 0) return cmpSubtitle;
+          final cmpSubtitleSlide =
+              a.subtitleSlideIndex.compareTo(b.subtitleSlideIndex);
+          if (cmpSubtitleSlide != 0) return cmpSubtitleSlide;
+          return a.index.compareTo(b.index);
+        });
     _memorySlidesCache[stationId] = slides;
     return slides;
   }
@@ -158,7 +166,14 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
               examDrawingBySlide[slide.id] ??
               slide.examStrokes,
         ),
-    ];
+    ]..sort((a, b) {
+        final cmpSubtitle = a.subtitleIndex.compareTo(b.subtitleIndex);
+        if (cmpSubtitle != 0) return cmpSubtitle;
+        final cmpSubtitleSlide =
+            a.subtitleSlideIndex.compareTo(b.subtitleSlideIndex);
+        if (cmpSubtitleSlide != 0) return cmpSubtitleSlide;
+        return a.index.compareTo(b.index);
+      });
     await _cacheSlides(stationId, merged);
     return merged;
   }
@@ -270,7 +285,6 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
           'image_url': uploadedImageUrl,
           'voice_url': uploadedAudioUrl,
           'questions': qaItems,
-          'answers': _answersFromQa(qaItems),
           'metadata': {
             if (uploadedAudioUrl != null) 'audio_url': uploadedAudioUrl,
             if (uploadedImageUrl != null) 'image_url': uploadedImageUrl,
@@ -359,7 +373,6 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       'title': title,
       'subtitle': subtitle,
       'questions': qaItems,
-      'answers': _answersFromQa(qaItems),
       if (uploadedImageUrl != null) 'image_url': uploadedImageUrl,
       if (uploadedAudioUrl != null)
         'voice_url':
@@ -476,7 +489,6 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
           'image_url': slide.imageAsset.isEmpty ? null : slide.imageAsset,
           'voice_url': slide.audioUrl.isEmpty ? null : slide.audioUrl,
           'questions': qaItems,
-          'answers': _answersFromQa(qaItems),
           'metadata': {
             ...slide.metadata,
             'station_id': stationId,
@@ -891,7 +903,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   }
 
   WorkspaceSlide _slideFromRow(Map<String, dynamic> row) {
-    final questions = _questionsFromJson(row['questions'], row['answers']);
+    final questions = _questionsFromJson(row['questions']);
     return WorkspaceSlide(
       id: row['id'].toString(),
       index: ((row['slide_index'] ?? row['index'] ?? 1) as num).toInt(),
@@ -940,43 +952,29 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
               })
           .toList();
 
-  List<Map<String, dynamic>> _answersFromQa(
-    List<Map<String, dynamic>> qaItems,
-  ) =>
-      qaItems
-          .map((item) => {
-                'question': item['question'],
-                'answer': item['answer'],
-              })
-          .toList();
-  List<WorkspaceQuestion> _questionsFromJson(dynamic raw, dynamic rawAnswers) {
+  List<WorkspaceQuestion> _questionsFromJson(dynamic raw) {
     if (raw is! List) return const [];
-    final answers = rawAnswers is List ? rawAnswers : const [];
     return raw
-        .asMap()
-        .entries
-        .map((entry) {
-          final item = entry.value;
-          final answerItem =
-              entry.key < answers.length ? answers[entry.key] : null;
-          final answerMap = answerItem is Map
-              ? Map<String, dynamic>.from(answerItem)
-              : const <String, dynamic>{};
+        .map((item) {
           if (item is String) {
             return WorkspaceQuestion(
               prompt: item,
-              answer: (answerMap['answer'] ?? '').toString(),
+              answer: '',
             );
           }
-          final map = Map<String, dynamic>.from(item as Map);
-          return WorkspaceQuestion(
-            prompt: (map['prompt'] ?? map['question'] ?? '').toString(),
-            answer: (map['answer'] ?? answerMap['answer'] ?? '').toString(),
-            answerLines:
-                ((map['answer_lines'] ?? map['answerLines'] ?? 4) as num)
-                    .toInt(),
-          );
+          if (item is Map) {
+            final map = Map<String, dynamic>.from(item);
+            return WorkspaceQuestion(
+              prompt: (map['prompt'] ?? map['question'] ?? '').toString(),
+              answer: (map['answer'] ?? '').toString(),
+              answerLines:
+                  ((map['answer_lines'] ?? map['answerLines'] ?? 4) as num)
+                      .toInt(),
+            );
+          }
+          return null;
         })
+        .whereType<WorkspaceQuestion>()
         .where((question) => question.prompt.trim().isNotEmpty)
         .toList();
   }

@@ -24,6 +24,25 @@ class _SubscriptionsManagementScreenState
   List<Map<String, dynamic>> _userSubscriptions = [];
   bool _isLoadingUserSubs = false;
 
+  Set<int> _selectedScientificSubjectIds = {};
+  Set<int> _selectedClinicalSubjectIds = {};
+
+  static const List<String> _universitiesList = [
+    'كلية طب الموصل',
+    'كلية طب نينوى',
+    'كلية طب بغداد',
+    'كلية طب الكندي',
+    'كلية طب المستنصرية',
+    'كلية طب النهرين',
+    'كلية طب البصرة',
+    'كلية طب الكوفة',
+    'كلية طب كربلاء',
+    'كلية طب بابل',
+    'كلية طب ديالى',
+    'كلية طب كركوك',
+    'كلية طب الأنبار'
+  ];
+
   List<Map<String, dynamic>> _universityRules = [];
   bool _isLoadingUnivRules = false;
 
@@ -68,13 +87,28 @@ class _SubscriptionsManagementScreenState
       _selectedUser = user;
       _isLoadingUserSubs = true;
       _userSubscriptions = [];
+      _selectedScientificSubjectIds = {};
+      _selectedClinicalSubjectIds = {};
     });
 
     final provider = Provider.of<AppProvider>(context, listen: false);
     final subs = await provider.getUserSubscriptions(user['id']);
 
+    final Set<int> scientificIds = {};
+    final Set<int> clinicalIds = {};
+
+    for (var sub in subs) {
+      if (sub['subject_id'] != null) {
+        scientificIds.add(sub['subject_id'] as int);
+      } else if (sub['clinical_subject_id'] != null) {
+        clinicalIds.add(sub['clinical_subject_id'] as int);
+      }
+    }
+
     setState(() {
       _userSubscriptions = subs;
+      _selectedScientificSubjectIds = scientificIds;
+      _selectedClinicalSubjectIds = clinicalIds;
       _isLoadingUserSubs = false;
     });
   }
@@ -299,7 +333,7 @@ class _SubscriptionsManagementScreenState
 
   void _showAddUniversityRuleDialog() {
     final provider = Provider.of<AppProvider>(context, listen: false);
-    final TextEditingController univNameController = TextEditingController();
+    String? selectedUniv = _universitiesList.first;
     bool allScientific = false;
     bool allPractical = false;
     int? selectedSubId;
@@ -327,14 +361,24 @@ class _SubscriptionsManagementScreenState
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    TextField(
-                      controller: univNameController,
+                    DropdownButtonFormField<String>(
+                      value: selectedUniv,
                       decoration: InputDecoration(
-                        labelText: 'اسم الجامعة',
+                        labelText: 'اختر الجامعة',
                         labelStyle: const TextStyle(fontFamily: 'Cairo'),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                      items: _universitiesList.map((univ) {
+                        return DropdownMenuItem<String>(
+                          value: univ,
+                          child: Text(univ, style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        setDialogState(() {
+                          selectedUniv = val;
+                        });
+                      },
                     ),
                     const SizedBox(height: 16),
 
@@ -446,12 +490,11 @@ class _SubscriptionsManagementScreenState
                 ),
                 ElevatedButton(
                   onPressed: () async {
-                    final name = univNameController.text.trim();
-                    if (name.isEmpty) return;
+                    if (selectedUniv == null) return;
                     Navigator.pop(context);
 
                     final success = await provider.addUniversityAccess(
-                      university: name,
+                      university: selectedUniv!,
                       subjectId: selectedSubId,
                       clinicalSubjectId: selectedClinicalSubId,
                       allScientific: allScientific ? true : null,
@@ -617,6 +660,105 @@ class _SubscriptionsManagementScreenState
     );
   }
 
+  Future<void> _saveChanges() async {
+    if (_selectedUser == null) return;
+
+    setState(() {
+      _isLoadingUserSubs = true;
+    });
+
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final String userId = _selectedUser!['id'];
+
+    // Identify subscriptions to delete
+    final List<String> toDeleteIds = [];
+    for (var sub in _userSubscriptions) {
+      if (sub['subject_id'] != null) {
+        if (!_selectedScientificSubjectIds.contains(sub['subject_id'])) {
+          toDeleteIds.add(sub['id'] as String);
+        }
+      } else if (sub['clinical_subject_id'] != null) {
+        if (!_selectedClinicalSubjectIds.contains(sub['clinical_subject_id'])) {
+          toDeleteIds.add(sub['id'] as String);
+        }
+      }
+    }
+
+    // Identify scientific subjects to add
+    final List<int> toAddScientific = [];
+    for (var id in _selectedScientificSubjectIds) {
+      final alreadyExists = _userSubscriptions.any((sub) => sub['subject_id'] == id);
+      if (!alreadyExists) {
+        toAddScientific.add(id);
+      }
+    }
+
+    // Identify clinical subjects to add
+    final List<int> toAddClinical = [];
+    for (var id in _selectedClinicalSubjectIds) {
+      final alreadyExists = _userSubscriptions.any((sub) => sub['clinical_subject_id'] == id);
+      if (!alreadyExists) {
+        toAddClinical.add(id);
+      }
+    }
+
+    try {
+      final List<Future> operations = [];
+
+      // Add deletes
+      for (var subId in toDeleteIds) {
+        operations.add(provider.deleteUserSubscription(subId));
+      }
+
+      // Add adds (scientific)
+      for (var id in toAddScientific) {
+        operations.add(provider.addUserSubscription(
+          userId: userId,
+          subjectId: id,
+          status: 'active',
+        ));
+      }
+
+      // Add adds (clinical)
+      for (var id in toAddClinical) {
+        operations.add(provider.addUserSubscription(
+          userId: userId,
+          clinicalSubjectId: id,
+          status: 'active',
+        ));
+      }
+
+      await Future.wait(operations);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تم حفظ التعديلات بنجاح',
+            style: TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      // Reload user data
+      await _selectUser(_selectedUser!);
+      provider.fetchUnlockedSubjects();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'حدث خطأ أثناء حفظ التعديلات: $e',
+            style: const TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      setState(() {
+        _isLoadingUserSubs = false;
+      });
+    }
+  }
+
   Widget _buildUserSubscriptionsDetails(bool isDark, AppProvider provider) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -640,125 +782,194 @@ class _SubscriptionsManagementScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(_selectedUser!['name'] ?? '', style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 15)),
-                    Text(_selectedUser!['email'] ?? '', style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, color: Colors.grey)),
+                    Text(
+                      _selectedUser!['name'] ?? '',
+                      style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                    Text(
+                      '${_selectedUser!['email'] ?? ''} • ${_selectedUser!['university'] ?? ''}',
+                      style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, color: Colors.grey),
+                    ),
                   ],
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: _showAddSubscriptionDialog,
-                icon: const Icon(Icons.add, size: 16, color: Colors.white),
-                label: const Text('تفعيل مادة', style: TextStyle(fontFamily: 'Cairo', color: Colors.white, fontSize: 12)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF6B4EFF),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
             ],
           ),
         ),
 
-        // Subscriptions List
+        // Expandable Toggles List
         Expanded(
           child: _isLoadingUserSubs
               ? const Center(child: LogoSpinner())
-              : _userSubscriptions.isEmpty
-                  ? Center(
-                      child: Text('لا يوجد اشتراكات نشطة لهذا الطالب', style: TextStyle(fontFamily: 'Cairo', color: isDark ? AppColors.textMuted : Colors.grey, fontSize: 13)),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _userSubscriptions.length,
-                      itemBuilder: (context, index) {
-                        final sub = _userSubscriptions[index];
-                        String subjectName = 'مادة غير معروفة';
-                        
-                        if (sub['subject_id'] != null) {
-                          final matching = provider.subjects.firstWhere(
-                            (s) => s.id == sub['subject_id'],
-                            orElse: () => Subject(id: -1, name: 'علمي (ID: ${sub['subject_id']})', description: '', totalQuestions: 0),
-                          );
-                          subjectName = matching.name;
-                        } else if (sub['clinical_subject_id'] != null) {
-                          final matching = provider.clinicalSubjects.firstWhere(
-                            (s) => s.id == sub['clinical_subject_id'],
-                            orElse: () => Subject(id: -1, name: 'عملي (ID: ${sub['clinical_subject_id']})', description: '', totalQuestions: 0),
-                          );
-                          subjectName = matching.name;
-                        }
-
-                        final String typeLabel = sub['subject_id'] != null ? 'علمي' : 'عملي';
-                        final expiry = sub['expires_at'] != null 
-                            ? DateTime.parse(sub['expires_at']) 
-                            : null;
-                        final expiryText = expiry != null 
-                            ? 'ينتهي في: ${expiry.year}-${expiry.month}-${expiry.day}'
-                            : 'اشتراك دائم';
-
-                        return Card(
-                          color: isDark ? AppColors.surface : Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: (sub['subject_id'] != null ? Colors.blue : Colors.green).withValues(alpha: 0.1),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    sub['subject_id'] != null ? Icons.book : Icons.local_hospital,
-                                    color: sub['subject_id'] != null ? Colors.blue : Colors.green,
-                                    size: 20,
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(subjectName, style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 13)),
-                                      Text('$typeLabel • $expiryText', style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, color: Colors.grey)),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
-                                  onPressed: () {
-                                    showDialog(
-                                      context: context,
-                                      builder: (context) => AlertDialog(
-                                        backgroundColor: isDark ? AppColors.surface : Colors.white,
-                                        title: const Text('تأكيد الحذف', style: TextStyle(fontFamily: 'Cairo')),
-                                        content: const Text('هل أنت متأكد من رغبتك في حذف هذا الاشتراك؟', style: TextStyle(fontFamily: 'Cairo')),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.pop(context),
-                                            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
-                                          ),
-                                          ElevatedButton(
-                                            onPressed: () {
-                                              Navigator.pop(context);
-                                              _deleteSubscription(sub['id']);
-                                            },
-                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                            child: const Text('حذف', style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    children: [
+                      // 1. Scientific Subjects Accordion
+                      Card(
+                        color: isDark ? AppColors.surface : Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        child: Theme(
+                          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                            initiallyExpanded: true,
+                            title: const Text(
+                              'المواد العلمية (العلمي)',
+                              style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 14),
                             ),
+                            leading: Icon(Icons.book, color: isDark ? Colors.blue : Colors.blue.shade700),
+                            children: provider.subjects.isEmpty
+                                ? [
+                                    const Padding(
+                                      padding: EdgeInsets.all(16.0),
+                                      child: Text(
+                                        'لا توجد مواد علمية متاحة',
+                                        style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: Colors.grey),
+                                      ),
+                                    )
+                                  ]
+                                : provider.subjects.map((sub) {
+                                    final isSubscribed = _selectedScientificSubjectIds.contains(sub.id);
+                                    return SwitchListTile(
+                                      title: Text(
+                                        sub.name,
+                                        style: const TextStyle(fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.w600),
+                                      ),
+                                      subtitle: sub.description.isNotEmpty
+                                          ? Text(
+                                              sub.description,
+                                              style: const TextStyle(fontFamily: 'Cairo', fontSize: 10, color: Colors.grey),
+                                            )
+                                          : null,
+                                      value: isSubscribed,
+                                      activeColor: const Color(0xFF6B4EFF),
+                                      onChanged: (bool val) {
+                                        setState(() {
+                                          if (val) {
+                                            _selectedScientificSubjectIds.add(sub.id);
+                                          } else {
+                                            _selectedScientificSubjectIds.remove(sub.id);
+                                          }
+                                        });
+                                      },
+                                    );
+                                  }).toList(),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      ),
+
+                      // 2. Practical/Clinical Subjects Accordion
+                      Card(
+                        color: isDark ? AppColors.surface : Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                        margin: const EdgeInsets.only(bottom: 24),
+                        child: Theme(
+                          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                          child: ExpansionTile(
+                            initiallyExpanded: true,
+                            title: const Text(
+                              'المواد العملية (العملي)',
+                              style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 14),
+                            ),
+                            leading: Icon(Icons.local_hospital, color: isDark ? Colors.green : Colors.green.shade700),
+                            children: provider.clinicalSubjects.isEmpty
+                                ? [
+                                    const Padding(
+                                      padding: EdgeInsets.all(16.0),
+                                      child: Text(
+                                        'لا توجد مواد عملية متاحة',
+                                        style: TextStyle(fontFamily: 'Cairo', fontSize: 12, color: Colors.grey),
+                                      ),
+                                    )
+                                  ]
+                                : provider.clinicalSubjects.map((sub) {
+                                    final isSubscribed = _selectedClinicalSubjectIds.contains(sub.id);
+                                    return SwitchListTile(
+                                      title: Text(
+                                        sub.name,
+                                        style: const TextStyle(fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.w600),
+                                      ),
+                                      subtitle: sub.description.isNotEmpty
+                                          ? Text(
+                                              sub.description,
+                                              style: const TextStyle(fontFamily: 'Cairo', fontSize: 10, color: Colors.grey),
+                                            )
+                                          : null,
+                                      value: isSubscribed,
+                                      activeColor: const Color(0xFF6B4EFF),
+                                      onChanged: (bool val) {
+                                        setState(() {
+                                          if (val) {
+                                            _selectedClinicalSubjectIds.add(sub.id);
+                                          } else {
+                                            _selectedClinicalSubjectIds.remove(sub.id);
+                                          }
+                                        });
+                                      },
+                                    );
+                                  }).toList(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
         ),
+
+        // Action Buttons Bar
+        if (!_isLoadingUserSubs)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.surface : Colors.white,
+              border: Border(
+                top: BorderSide(
+                  color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedUser = null;
+                      });
+                    },
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      side: BorderSide(color: Colors.red.withValues(alpha: 0.5)),
+                    ),
+                    child: const Text(
+                      'إلغاء التعديل',
+                      style: TextStyle(fontFamily: 'Cairo', color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _saveChanges,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6B4EFF),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text(
+                      'حفظ التعديلات',
+                      style: TextStyle(fontFamily: 'Cairo', color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }
