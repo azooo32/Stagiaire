@@ -96,6 +96,22 @@ class SupabaseService {
     }
   }
 
+  /// Update the user's stage in the 'users' table
+  Future<bool> updateStage(String newStage) async {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      await client.from('users').update({
+        'stage': newStage,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', user.id);
+      return true;
+    } catch (e) {
+      print('Error updating stage: $e');
+      return false;
+    }
+  }
+
   // Sign Up with email, password and user metadata
   Future<AuthResponse> signUp({
     required String email,
@@ -113,16 +129,10 @@ class SupabaseService {
         'stage': stage,
       },
     );
-
-    if (response.user != null) {
-      await createUserRecord(
-        userId: response.user!.id,
-        email: email,
-        name: name,
-        university: university,
-        stage: stage,
-      );
-    }
+    // Note: createUserRecord is intentionally NOT called here.
+    // When email confirmation is enabled, the user has no active session
+    // at this point, so any DB writes would fail silently due to RLS.
+    // createUserRecord is called in verify_screen.dart after OTP confirmation.
     return response;
   }
 

@@ -95,8 +95,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
           university: _selectedUniversity!,
           stage: _selectedStage!);
       if (response.user != null) {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => VerifyScreen(email: email)));
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VerifyScreen(
+              email: email,
+              name: name,
+              university: _selectedUniversity!,
+              stage: _selectedStage!,
+            ),
+          ),
+        );
       } else {
         _showError('فشل تسجيل الحساب، يرجى المحاولة مرة أخرى');
       }

@@ -1363,6 +1363,12 @@ class AppProvider extends ChangeNotifier {
   Map<String, dynamic>? _userDetails;
   Map<String, dynamic>? get userDetails => _userDetails;
 
+  /// Update cached user details and notify listeners (e.g. after stage change)
+  void refreshUserDetails(Map<String, dynamic> details) {
+    _userDetails = details;
+    notifyListeners();
+  }
+
   bool get isAdminOrOwner {
     if (_userRole == null) return false;
     final r = _userRole!.trim().toLowerCase();

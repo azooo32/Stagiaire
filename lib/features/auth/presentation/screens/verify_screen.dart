@@ -8,7 +8,17 @@ import '../../../../main_navigation_shell.dart';
 
 class VerifyScreen extends StatefulWidget {
   final String email;
-  const VerifyScreen({super.key, required this.email});
+  final String name;
+  final String university;
+  final String stage;
+
+  const VerifyScreen({
+    super.key,
+    required this.email,
+    required this.name,
+    required this.university,
+    required this.stage,
+  });
 
   @override
   State<VerifyScreen> createState() => _VerifyScreenState();
@@ -93,6 +103,14 @@ class _VerifyScreenState extends State<VerifyScreen>
       }
 
       if (response.user != null) {
+        // Save user profile data now that the user has an active session
+        await SupabaseService().createUserRecord(
+          userId: response.user!.id,
+          email: widget.email,
+          name: widget.name,
+          university: widget.university,
+          stage: widget.stage,
+        );
         // Navigate to the main application shell
         Navigator.of(context).popUntil((route) => route.isFirst);
         Navigator.pushReplacement(
