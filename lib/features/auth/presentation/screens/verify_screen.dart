@@ -304,11 +304,11 @@ class _VerifyScreenState extends State<VerifyScreen>
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      width: 48,
+      width: 52,
       height: 56,
       decoration: BoxDecoration(
         color: _fieldBg,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: hasFocus ? const Color(0xFF6B4EFF) : Colors.transparent,
           width: 2,
@@ -318,8 +318,8 @@ class _VerifyScreenState extends State<VerifyScreen>
             color: hasFocus
                 ? const Color(0xFF6B4EFF).withValues(alpha: 0.15)
                 : Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -335,7 +335,7 @@ class _VerifyScreenState extends State<VerifyScreen>
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: const TextStyle(
             color: Color(0xFF333355),
-            fontSize: 22,
+            fontSize: 26,
             fontWeight: FontWeight.w800,
           ),
           decoration: const InputDecoration(
