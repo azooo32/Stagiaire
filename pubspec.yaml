@@ -31,6 +31,7 @@ dependencies:
   image_picker: ^1.2.3
   crop_your_image: ^2.0.0
   screen_protector: ^1.5.1
+  package_info_plus: ^8.0.0
 
 dev_dependencies:
   flutter_test:

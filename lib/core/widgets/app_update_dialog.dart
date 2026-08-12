@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 import '../models/app_update_info.dart';
 import '../services/app_update_service.dart';
 import '../theme/colors.dart';
@@ -17,6 +18,8 @@ class AppUpdateDialog extends StatefulWidget {
 
 class _AppUpdateDialogState extends State<AppUpdateDialog> {
   bool _isDownloading = false;
+  bool _isDownloaded = false;
+  String? _localApkPath;
   double _progress = 0.0;
   String _statusText = '';
   String? _errorMessage;
@@ -24,6 +27,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
   void _startUpdate() {
     setState(() {
       _isDownloading = true;
+      _isDownloaded = false;
       _progress = 0.0;
       _statusText = 'جاري بدء التحميل...';
       _errorMessage = null;
@@ -47,16 +51,26 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
           });
         }
       },
-      onComplete: () {
+      onComplete: (localPath) {
         if (mounted) {
           setState(() {
             _isDownloading = false;
+            _isDownloaded = true;
+            _localApkPath = localPath;
             _progress = 1.0;
             _statusText = 'اكتمل التحميل!';
           });
         }
       },
     );
+  }
+
+  void _handleButtonClick() {
+    if (_isDownloaded && _localApkPath != null && _localApkPath!.isNotEmpty) {
+      OpenFilex.open(_localApkPath!, type: 'application/vnd.android.package-archive');
+    } else {
+      _startUpdate();
+    }
   }
 
   @override
@@ -292,7 +306,7 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
                   Expanded(
                     flex: 2,
                     child: ElevatedButton(
-                      onPressed: _isDownloading ? null : _startUpdate,
+                      onPressed: _isDownloading ? null : _handleButtonClick,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF6B4EFF),
                         foregroundColor: Colors.white,
@@ -316,15 +330,19 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
                                 color: Colors.white,
                               ),
                             )
+                          else if (_isDownloaded)
+                            const Icon(Icons.install_mobile_rounded, size: 20)
                           else
                             const Icon(Icons.download_rounded, size: 20),
                           const SizedBox(width: 8),
                           Text(
                             _isDownloading
                                 ? 'جاري التحديث...'
-                                : (_errorMessage != null
-                                    ? 'إعادة المحاولة'
-                                    : 'تحديث الآن'),
+                                : (_isDownloaded
+                                    ? 'تثبيت التحديث'
+                                    : (_errorMessage != null
+                                        ? 'إعادة المحاولة'
+                                        : 'تحديث الآن')),
                             style: const TextStyle(
                               fontFamily: 'Cairo',
                               fontWeight: FontWeight.bold,

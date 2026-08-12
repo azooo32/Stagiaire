@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -18,6 +19,25 @@ class AppUpdateService {
   final _supabase = Supabase.instance.client;
   bool _isChecking = false;
   bool _dialogShownInSession = false;
+
+  int currentVersionCode = AppConfig.currentVersionCode;
+  String currentVersionName = AppConfig.currentVersionName;
+
+  /// Initialize package info to get real application version code and name
+  Future<void> initialize() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      currentVersionCode = int.tryParse(packageInfo.buildNumber) ?? AppConfig.currentVersionCode;
+      currentVersionName = '${packageInfo.version}+${packageInfo.buildNumber}';
+      if (kDebugMode) {
+        print('AppUpdateService Initialized. Version: $currentVersionName, Code: $currentVersionCode');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to initialize PackageInfo: $e');
+      }
+    }
+  }
 
   /// Check Supabase for the latest app update
   Future<AppUpdateInfo?> fetchLatestUpdate() async {
@@ -41,7 +61,7 @@ class AppUpdateService {
 
   /// Check if the latest update on the server is newer than current app version
   bool isUpdateAvailable(AppUpdateInfo info) {
-    return info.versionCode > AppConfig.currentVersionCode;
+    return info.versionCode > currentVersionCode;
   }
 
   /// Automatically or manually check and present the update dialog
@@ -49,12 +69,42 @@ class AppUpdateService {
     BuildContext context, {
     bool isManualCheck = false,
   }) async {
+    if (Platform.isIOS || Platform.isMacOS) {
+      if (isManualCheck && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Colors.blueAccent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'تحديثات iOS متوفرة عبر TestFlight تلقائياً ($currentVersionName)',
+                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1E1E2C),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+      return;
+    }
+
     if (_isChecking) return;
     if (!isManualCheck && _dialogShownInSession) return;
 
     _isChecking = true;
 
     try {
+      // Ensure we have current version info initialized
+      if (currentVersionCode == AppConfig.currentVersionCode) {
+        await initialize();
+      }
+
       final latest = await fetchLatestUpdate();
 
       if (latest != null && isUpdateAvailable(latest)) {
@@ -69,14 +119,14 @@ class AppUpdateService {
       } else if (isManualCheck && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
-                SizedBox(width: 10),
+                const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'أنت تستخدم أحدث إصدار من التطبيق (${AppConfig.currentVersionName})',
-                    style: TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                    'أنت تستخدم أحدث إصدار من التطبيق ($currentVersionName)',
+                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
                   ),
                 ),
               ],
@@ -111,7 +161,7 @@ class AppUpdateService {
     AppUpdateInfo info, {
     required void Function(double progress, String statusText) onProgress,
     required void Function(String errorMessage) onError,
-    required VoidCallback onComplete,
+    required void Function(String localPath) onComplete,
   }) async {
     try {
       // If it's a web/store link instead of direct APK, open directly
@@ -119,7 +169,7 @@ class AppUpdateService {
         final uri = Uri.parse(info.apkUrl);
         if (await canLaunchUrl(uri)) {
           await launchUrl(uri, mode: LaunchMode.externalApplication);
-          onComplete();
+          onComplete('');
           return;
         }
       }
@@ -169,7 +219,7 @@ class AppUpdateService {
       client.close();
 
       onProgress(1.0, 'اكتمل التحميل! جاري فتح المثبت...');
-      onComplete();
+      onComplete(apkFile.path);
 
       // Launch Android Package Installer
       final result = await OpenFilex.open(
