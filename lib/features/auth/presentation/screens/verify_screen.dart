@@ -17,8 +17,8 @@ class VerifyScreen extends StatefulWidget {
 class _VerifyScreenState extends State<VerifyScreen>
     with TickerProviderStateMixin {
   final List<TextEditingController> _controllers =
-      List.generate(4, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
+      List.generate(6, (_) => TextEditingController());
+  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   late AnimationController _shieldController;
   late Animation<double> _shieldScale;
   bool _loading = false;
@@ -54,7 +54,7 @@ class _VerifyScreenState extends State<VerifyScreen>
   }
 
   void _onOtpInput(String value, int index) {
-    if (value.length == 1 && index < 3) {
+    if (value.length == 1 && index < 5) {
       _focusNodes[index + 1].requestFocus();
     } else if (value.isEmpty && index > 0) {
       _focusNodes[index - 1].requestFocus();
@@ -64,8 +64,8 @@ class _VerifyScreenState extends State<VerifyScreen>
 
   Future<void> _handleVerifyOTP() async {
     final token = _controllers.map((o) => o.text).join().trim();
-    if (token.length < 4) {
-      _showError('يرجى إدخال رمز التحقق المكون من 4 أرقام');
+    if (token.length < 6) {
+      _showError('يرجى إدخال رمز التحقق المكون من 6 أرقام');
       return;
     }
 
@@ -224,7 +224,7 @@ class _VerifyScreenState extends State<VerifyScreen>
                 // OTP Input Row
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(4, (index) => _buildOtpBox(index)),
+                  children: List.generate(6, (index) => _buildOtpBox(index)),
                 ),
 
                 const SizedBox(height: 36),
@@ -304,11 +304,11 @@ class _VerifyScreenState extends State<VerifyScreen>
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
-      width: 72,
-      height: 72,
+      width: 48,
+      height: 56,
       decoration: BoxDecoration(
         color: _fieldBg,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: hasFocus ? const Color(0xFF6B4EFF) : Colors.transparent,
           width: 2,
@@ -318,8 +318,8 @@ class _VerifyScreenState extends State<VerifyScreen>
             color: hasFocus
                 ? const Color(0xFF6B4EFF).withValues(alpha: 0.15)
                 : Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -335,7 +335,7 @@ class _VerifyScreenState extends State<VerifyScreen>
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: const TextStyle(
             color: Color(0xFF333355),
-            fontSize: 26,
+            fontSize: 22,
             fontWeight: FontWeight.w800,
           ),
           decoration: const InputDecoration(
