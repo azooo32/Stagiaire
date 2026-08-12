@@ -42,6 +42,7 @@ class _VideoScreenState extends State<VideoScreen>
   bool _showVideoSpeedButton = false;
   Timer? _videoSpeedHideTimer;
   String _videoSpeed = '1.0x';
+  String _currentResolution = 'Auto';
   Orientation? _lastOrientation;
   late final AnimationController _spinnerController;
 
@@ -111,6 +112,9 @@ class _VideoScreenState extends State<VideoScreen>
             ? _videoPlayerController!.value.aspectRatio
             : 16 / 9,
         allowPlaybackSpeedChanging: false,
+        additionalOptions: (context) {
+          return _buildQualityOptions();
+        },
         deviceOrientationsOnEnterFullScreen: [
           DeviceOrientation.landscapeLeft,
           DeviceOrientation.landscapeRight,
@@ -195,6 +199,151 @@ class _VideoScreenState extends State<VideoScreen>
     _showVideoSpeedButtonTemporarily();
   }
 
+  void _changeResolution(String resolutionName) async {
+    if (_videoPlayerController == null) return;
+
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final videos = _sectionVideos(provider);
+    if (_activeVideoIndex >= videos.length || videos.isEmpty) return;
+
+    final currentVideo = videos[_activeVideoIndex];
+    final originalUrl = currentVideo.videoUrl;
+    if (originalUrl == null || originalUrl.isEmpty) return;
+
+    setState(() {
+      _currentResolution = resolutionName;
+      _isPlayerLoading = true;
+    });
+
+    final position = _videoPlayerController!.value.position;
+    final isPlaying = _videoPlayerController!.value.isPlaying;
+    final speed = _videoSpeed;
+
+    // Get URL for the selected resolution
+    String url = originalUrl;
+    if (resolutionName != 'Auto' && originalUrl.endsWith('/playlist.m3u8')) {
+      final baseUrl = originalUrl.replaceAll('/playlist.m3u8', '');
+      url = '$baseUrl/$resolutionName/video.m3u8';
+    }
+
+    try {
+      _chewieController?.dispose();
+      await _videoPlayerController?.dispose();
+
+      if (url.startsWith('http') || url.startsWith('https')) {
+        _videoPlayerController = VideoPlayerController.networkUrl(
+          Uri.parse(url),
+          httpHeaders: const {
+            'Referer': 'https://stagiaire.site/',
+            'Origin': 'https://stagiaire.site',
+          },
+        );
+      } else {
+        _videoPlayerController = VideoPlayerController.file(File(url));
+      }
+
+      await _videoPlayerController!.initialize();
+      await _videoPlayerController!.seekTo(position);
+      await _videoPlayerController!.setPlaybackSpeed(_speedValue(speed));
+
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        autoPlay: isPlaying,
+        looping: false,
+        aspectRatio: _videoPlayerController!.value.aspectRatio > 0
+            ? _videoPlayerController!.value.aspectRatio
+            : 16 / 9,
+        allowPlaybackSpeedChanging: false,
+        additionalOptions: (context) {
+          return _buildQualityOptions();
+        },
+        deviceOrientationsOnEnterFullScreen: [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ],
+        deviceOrientationsAfterFullScreen: [
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ],
+        materialProgressColors: ChewieProgressColors(
+          playedColor: const Color(0xFF6B4EFF),
+          handleColor: const Color(0xFF6B4EFF),
+          backgroundColor: Colors.white24,
+          bufferedColor: Colors.white30,
+        ),
+        placeholder: Container(
+          color: Colors.black,
+          child: Center(child: _buildLogoSpinner()),
+        ),
+        errorBuilder: (context, errorMessage) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                'Error playing video: $errorMessage',
+                style: const TextStyle(
+                    color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      debugPrint("Error changing resolution: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPlayerLoading = false;
+        });
+      }
+    }
+  }
+
+  List<OptionItem> _buildQualityOptions() {
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final videos = _sectionVideos(provider);
+    if (_activeVideoIndex >= videos.length || videos.isEmpty) {
+      return [
+        OptionItem(
+          onTap: () {},
+          iconData: Icons.check,
+          title: 'Auto',
+        )
+      ];
+    }
+
+    final currentVideo = videos[_activeVideoIndex];
+    final originalUrl = currentVideo.videoUrl;
+
+    if (originalUrl == null || !originalUrl.endsWith('/playlist.m3u8')) {
+      return [
+        OptionItem(
+          onTap: () {},
+          iconData: Icons.check_circle_rounded,
+          title: 'Auto',
+        )
+      ];
+    }
+
+    final resolutions = ['Auto', '1080p', '720p', '480p', '360p', '240p'];
+
+    return resolutions.map((res) {
+      final isSelected = _currentResolution == res;
+      return OptionItem(
+        onTap: () {
+          // Close option sheets of Chewie
+          Navigator.pop(context);
+          if (!isSelected) {
+            _changeResolution(res);
+          }
+        },
+        iconData: isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+        title: res,
+      );
+    }).toList();
+  }
+
   void _showVideoSpeedButtonTemporarily() {
     if (!mounted) return;
     _videoSpeedHideTimer?.cancel();
@@ -208,31 +357,31 @@ class _VideoScreenState extends State<VideoScreen>
 
   Widget _buildVideoSpeedButton(Color brandColor) {
     return Positioned(
-      right: 10,
-      top: 10,
+      right: 96,
+      bottom: 6,
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: _videoPlayerController == null ? null : _cycleVideoSpeed,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(8),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.46),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+              color: Colors.black.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.speed_rounded, color: Colors.white, size: 14),
-                const SizedBox(width: 5),
+                const Icon(Icons.speed_rounded, color: Colors.white, size: 12),
+                const SizedBox(width: 4),
                 Text(
                   _videoSpeed,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 10,
                     fontFamily: 'Inter',
                   ),
                 ),
@@ -851,6 +1000,7 @@ class _VideoScreenState extends State<VideoScreen>
           onTap: () {
             setState(() {
               _activeVideoIndex = index;
+              _currentResolution = 'Auto'; // Reset resolution to Auto when changing video
             });
             _initVideo(item.videoUrl);
           },
