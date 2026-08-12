@@ -306,7 +306,7 @@ class _VideoScreenState extends State<VideoScreen>
     if (_activeVideoIndex >= videos.length || videos.isEmpty) {
       return [
         OptionItem(
-          onTap: () {},
+          onTap: (optContext) {},
           iconData: Icons.check,
           title: 'Auto',
         )
@@ -319,7 +319,7 @@ class _VideoScreenState extends State<VideoScreen>
     if (originalUrl == null || !originalUrl.endsWith('/playlist.m3u8')) {
       return [
         OptionItem(
-          onTap: () {},
+          onTap: (optContext) {},
           iconData: Icons.check_circle_rounded,
           title: 'Auto',
         )
@@ -331,9 +331,9 @@ class _VideoScreenState extends State<VideoScreen>
     return resolutions.map((res) {
       final isSelected = _currentResolution == res;
       return OptionItem(
-        onTap: () {
+        onTap: (optContext) {
           // Close option sheets of Chewie
-          Navigator.pop(context);
+          Navigator.pop(optContext);
           if (!isSelected) {
             _changeResolution(res);
           }
