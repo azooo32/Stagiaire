@@ -258,6 +258,25 @@ class _VoiceScreenState extends State<VoiceScreen> {
       _audioPlayer?.stop();
       await _audioPlayer?.dispose();
       _audioPlayer = AudioPlayer();
+      _audioPlayer!.setAudioContext(
+        AudioContext(
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: const {
+              AVAudioSessionOptions.defaultToSpeaker,
+              AVAudioSessionOptions.allowBluetooth,
+              AVAudioSessionOptions.allowBluetoothA2DP,
+            },
+          ),
+          android: const AudioContextAndroid(
+            isSpeakerphoneOn: true,
+            stayAwake: true,
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.media,
+            audioFocus: AndroidAudioFocus.gain,
+          ),
+        ),
+      );
       _activeAudioIndex = index;
 
       _audioPlayer!.onDurationChanged.listen((duration) {

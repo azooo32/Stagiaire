@@ -11,6 +11,8 @@ import '../../../../core/widgets/app_loader.dart';
 import '../../../practice/presentation/screens/question_viewer_screen.dart';
 import '../../../subjects/presentation/screens/subject_topics_screen.dart';
 import '../../../profile/presentation/screens/profile_screen.dart';
+import '../../../reports/presentation/widgets/admin_reports_card.dart';
+
 
 class _HomePalette {
   static const Color lightBg = Color(0xFFF8F9FE);
@@ -165,7 +167,14 @@ class HomeScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ─── Admin Reports Card (Scrollable box for Admins & Owners) ───
+                    if (provider.isAdminOrOwner) ...[
+                      const AdminReportsCard(),
+                      const SizedBox(height: 12),
+                    ],
+
                     // ─── Your Subjects Title ───
+
                     _buildSectionHeader(
                       title: 'Your Subjects',
                       actionText: 'View All',

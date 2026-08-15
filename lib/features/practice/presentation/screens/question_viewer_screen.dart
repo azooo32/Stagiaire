@@ -19,6 +19,7 @@ import '../../../../core/services/audio_cache_service.dart';
 import '../../../../core/services/image_cache_service.dart';
 import '../../../../core/services/cache_service.dart';
 import '../widgets/audio_explanation_player.dart';
+import '../../../reports/presentation/widgets/submit_report_dialog.dart';
 
 class CachedQuestionImage extends StatefulWidget {
   final String url;
@@ -1403,6 +1404,24 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                 ),
                               ),
                             ),
+                            // Report Button
+                            GestureDetector(
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => SubmitReportDialog(questionId: q.id),
+                                );
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 12.0),
+                                child: Icon(
+                                  Icons.outlined_flag_rounded,
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  size: 22,
+                                ),
+                              ),
+                            ),
+
                             if (provider.isAdminOrOwner) ...[
                               if (_isHeaderRecordingAudio) ...[
                                 Container(

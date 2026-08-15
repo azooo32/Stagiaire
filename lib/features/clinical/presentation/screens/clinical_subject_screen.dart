@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/widgets/app_loader.dart';
-import '../../../slide_workspace/presentation/screens/slide_workspace_screen.dart';
+import '../../../slide_workspace/presentation/screens/station_subtitles_screen.dart';
 import 'voice_screen.dart';
 import 'video_screen.dart';
 
@@ -390,6 +390,7 @@ void showAddStationDialog(BuildContext context, AppProvider provider,
     {required String subject, required String sectionId}) {
   final titleController = TextEditingController();
   String selectedIconType = 'scalpel';
+  String selectedStationType = 'slides';
   final isDark = provider.isDarkTheme;
   final titleColor = isDark ? Colors.white : const Color(0xFF1E1E50);
 
@@ -500,6 +501,39 @@ void showAddStationDialog(BuildContext context, AppProvider provider,
                     }
                   },
                 ),
+                const SizedBox(height: 16),
+
+                // Station Type Selection (Slides vs PDF)
+                Text(
+                  'نوع المحطة / Station Type',
+                  style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      fontFamily: 'Cairo'),
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedStationType,
+                  dropdownColor: isDark ? AppColors.surface : Colors.white,
+                  decoration: _buildInputDecoration('', isDark: isDark),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'slides',
+                      child: Text('🖼️ شرائح تفاعلية (Slides)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'pdf',
+                      child: Text('📄 مستندات (PDF Workspace)'),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setModalState(() => selectedStationType = val);
+                    }
+                  },
+                ),
                 const SizedBox(height: 24),
 
                 ElevatedButton(
@@ -520,6 +554,7 @@ void showAddStationDialog(BuildContext context, AppProvider provider,
                       10, // default slides count
                       selectedIconType,
                       sectionId: sectionId,
+                      stationType: selectedStationType,
                     );
 
                     Navigator.pop(context);
@@ -1850,8 +1885,11 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => SlideWorkspaceScreen(
-                stationName: station.title, stationDbId: station.dbId),
+            builder: (context) => StationSubtitlesScreen(
+              stationName: station.title,
+              stationDbId: station.dbId,
+              stationType: station.stationType,
+            ),
           ),
         );
       },

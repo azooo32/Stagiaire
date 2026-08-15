@@ -733,8 +733,12 @@ class SupabaseService {
   }
 
   // Upload a local file to a Supabase storage bucket
-  Future<String?> uploadFile(String bucketName, String localPath,
-      {String? folder}) async {
+  Future<String?> uploadFile(
+    String bucketName,
+    String localPath, {
+    String? folder,
+    void Function(double progress)? onProgress,
+  }) async {
     try {
       lastError = null;
       final file = File(localPath);
@@ -750,11 +754,15 @@ class SupabaseService {
           ? '${folder.trim().replaceAll(RegExp(r'^/+|/+$'), '')}/$fileName'
           : fileName;
 
+      onProgress?.call(0.1);
+
       await client.storage.from(bucketName).upload(
             storagePath,
             file,
             fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
           );
+
+      onProgress?.call(1.0);
 
       final String publicUrl =
           client.storage.from(bucketName).getPublicUrl(storagePath);

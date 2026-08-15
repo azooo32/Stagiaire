@@ -87,6 +87,26 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
     _durationPollTimer?.cancel();
     _audioPlayer = AudioPlayer();
 
+    _audioPlayer!.setAudioContext(
+      AudioContext(
+        iOS: AudioContextIOS(
+          category: AVAudioSessionCategory.playback,
+          options: const {
+            AVAudioSessionOptions.defaultToSpeaker,
+            AVAudioSessionOptions.allowBluetooth,
+            AVAudioSessionOptions.allowBluetoothA2DP,
+          },
+        ),
+        android: const AudioContextAndroid(
+          isSpeakerphoneOn: true,
+          stayAwake: true,
+          contentType: AndroidContentType.music,
+          usageType: AndroidUsageType.media,
+          audioFocus: AndroidAudioFocus.gain,
+        ),
+      ),
+    );
+
     _audioPlayer!.onPlayerStateChanged.listen((state) {
       if (mounted) {
         setState(() => _playerState = state);
@@ -111,6 +131,12 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
 
     _audioPlayer!.onPlayerComplete.listen((_) {
       widget.onPlaybackCompleted?.call();
+      if (mounted) {
+        setState(() {
+          _playerState = PlayerState.completed;
+          _position = _duration;
+        });
+      }
     });
   }
 
@@ -235,29 +261,33 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
 
     if (_playerState == PlayerState.playing) {
       await _audioPlayer!.pause();
-    } else {
+      return;
+    }
+
+    if (_playerState == PlayerState.paused) {
+      await _audioPlayer!.setPlaybackRate(_playbackSpeed);
+      await _audioPlayer!.resume();
+      return;
+    }
+
+    try {
       if (_source == null) {
         _source = await _resolveAudioSource();
         await _audioPlayer!.setSource(_source!);
+      } else if (_playerState == PlayerState.completed) {
+        await _audioPlayer!.seek(Duration.zero);
       }
+
       _log(
           'play questionId=${widget.questionId} source=${_resolvedAudioPath ?? widget.audioUrl}');
-      try {
-        if (kIsWeb) {
-          if (_playerState == PlayerState.completed) {
-            await _audioPlayer!.seek(Duration.zero);
-          }
-          await _audioPlayer!.resume();
-        } else {
-          await _audioPlayer!.play(_source!);
-        }
-        await _audioPlayer!.setPlaybackRate(_playbackSpeed);
-      } catch (e) {
-        _log('Error playing audio: $e');
-      }
-      await _refreshDuration();
-      _startDurationPolling();
+
+      await _audioPlayer!.setPlaybackRate(_playbackSpeed);
+      await _audioPlayer!.resume();
+    } catch (e) {
+      _log('Error playing audio: $e');
     }
+    await _refreshDuration();
+    _startDurationPolling();
   }
 
   void _toggleSpeed() async {
@@ -272,8 +302,10 @@ class _AudioExplanationPlayerState extends State<AudioExplanationPlayer> {
 
     setState(() => _playbackSpeed = nextSpeed);
 
-    if (_playerState == PlayerState.playing) {
-      await _audioPlayer?.setPlaybackRate(nextSpeed);
+    if (_audioPlayer != null &&
+        (_playerState == PlayerState.playing ||
+            _playerState == PlayerState.paused)) {
+      await _audioPlayer!.setPlaybackRate(nextSpeed);
     }
   }
 

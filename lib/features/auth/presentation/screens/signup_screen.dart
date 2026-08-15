@@ -66,26 +66,51 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
+  bool _isValidEmail(String email) {
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
+    return emailRegex.hasMatch(email);
+  }
+
   Future<void> _handleSignUp() async {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
-    if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      _showError('يرجى ملء جميع الحقول المطلوبة');
+
+    if (name.isEmpty) {
+      _showError('يرجى إدخال الاسم الكامل');
+      return;
+    }
+    if (email.isEmpty) {
+      _showError('يرجى إدخال البريد الإلكتروني');
+      return;
+    }
+    if (!_isValidEmail(email)) {
+      _showError('البريد الإلكتروني غير صالح أو مكتوب بشكل خاطئ، يرجى التأكد منه');
+      return;
+    }
+    if (_selectedStage == null || _selectedStage!.isEmpty) {
+      _showError('اختيار المرحلة إجباري، يرجى تحديد مرحلتك الدراسية');
+      return;
+    }
+    if (_selectedUniversity == null || _selectedUniversity!.isEmpty) {
+      _showError('اختيار الجامعة إجباري، يرجى تحديد جامعتك');
+      return;
+    }
+    if (password.isEmpty) {
+      _showError('يرجى إدخال كلمة المرور');
       return;
     }
     if (password.length < 6) {
       _showError('يجب أن تكون كلمة المرور 6 أحرف على الأقل');
       return;
     }
-    if (_selectedStage == null || _selectedUniversity == null) {
-      _showError('يرجى تحديد المرحلة والجامعة');
-      return;
-    }
     if (!_agreeTerms) {
       _showError('يجب الموافقة على الشروط والأحكام');
       return;
     }
+
     setState(() => _loading = true);
     try {
       final response = await SupabaseService().signUp(
@@ -110,7 +135,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
         _showError('فشل تسجيل الحساب، يرجى المحاولة مرة أخرى');
       }
     } catch (e) {
-      _showError(e.toString());
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('email') && (errStr.contains('invalid') || errStr.contains('format') || errStr.contains('unable'))) {
+        _showError('البريد الإلكتروني غير صالح أو لم يتم العثور عليه، يرجى التأكد من البريد الإلكتروني');
+      } else {
+        _showError(e.toString());
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -162,20 +192,38 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           Row(
                             children: [
                               Expanded(
-                                  child: _DropdownField(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const _Label('المرحلة *'),
+                                    const SizedBox(height: 8),
+                                    _DropdownField(
                                       value: _selectedStage,
                                       items: _stages,
-                                      hint: 'المرحلة',
+                                      hint: 'المرحلة *',
                                       onChanged: (v) =>
-                                          setState(() => _selectedStage = v))),
+                                          setState(() => _selectedStage = v),
+                                    ),
+                                  ],
+                                ),
+                              ),
                               const SizedBox(width: 10),
                               Expanded(
-                                  child: _DropdownField(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const _Label('الجامعة *'),
+                                    const SizedBox(height: 8),
+                                    _DropdownField(
                                       value: _selectedUniversity,
                                       items: _universities,
-                                      hint: 'الجامعة',
+                                      hint: 'الجامعة *',
                                       onChanged: (v) => setState(
-                                          () => _selectedUniversity = v))),
+                                          () => _selectedUniversity = v),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
                           ),
                           const SizedBox(height: 16),

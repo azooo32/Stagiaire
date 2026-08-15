@@ -43,6 +43,9 @@ abstract class SlideWorkspaceRepository {
   Future<void> saveLastOpenedSlide(String stationId, String slideId);
   Future<String?> uploadWorkspaceImage(Uint8List bytes, String fileName);
   Future<bool> deleteWorkspaceImage(String publicUrl);
+  Future<Map<int, List<WorkspaceObject>>> getPdfAnnotations(String pdfId);
+  Future<void> savePdfAnnotations(String pdfId, String stationId, int pageNumber, List<WorkspaceObject> strokes);
+  Future<void> savePdfLastOpenedPage(String pdfId, String stationId, int pageNumber);
 }
 
 class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
@@ -514,6 +517,46 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     );
   }
 
+  Future<WorkspaceSlide> createPdfSlide({
+    required String stationId,
+    required String title,
+    required String pdfPath,
+    void Function(double progress)? onProgress,
+  }) async {
+    final pdfUrl = await _supabase.uploadFile(
+      'pdf-documents',
+      pdfPath,
+      folder: 'stations',
+      onProgress: onProgress,
+    );
+    if (pdfUrl == null || pdfUrl.isEmpty) {
+      throw Exception('PDF upload failed');
+    }
+
+    final existingSlides = await _supabase.client
+        .from('slides')
+        .select('id')
+        .eq('station_id', stationId);
+    final nextIndex = (existingSlides as List).length + 1;
+
+    final inserted = await _supabase.client
+        .from('slides')
+        .insert({
+          'station_id': stationId,
+          'title': title,
+          'subtitle': '',
+          'pdf_url': pdfUrl,
+          'slide_index': nextIndex,
+          'subtitle_index': 1,
+          'subtitle_slide_index': 1,
+          'questions': [],
+        })
+        .select()
+        .single();
+
+    return _slideFromRow(inserted);
+  }
+
   @override
   Future<void> deleteSlide(String slideId) async {
     // 1. Fetch the row to get station_id, image_url, and voice_url before deleting
@@ -677,6 +720,96 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   }
 
   @override
+  Future<Map<int, List<WorkspaceObject>>> getPdfAnnotations(String pdfId) async {
+    final user = _supabase.currentUser;
+    if (user == null) return const {};
+
+    try {
+      final row = await _supabase.client
+          .from('user_pdf_workspaces')
+          .select('annotations')
+          .eq('user_id', user.id)
+          .eq('pdf_id', pdfId)
+          .maybeSingle();
+
+      if (row == null) return const {};
+      final annotationsMap = Map<String, dynamic>.from(row['annotations'] as Map? ?? {});
+      final results = <int, List<WorkspaceObject>>{};
+      for (final entry in annotationsMap.entries) {
+        final pageNum = int.tryParse(entry.key);
+        if (pageNum != null) {
+          results[pageNum] = _objectsFromJson(entry.value);
+        }
+      }
+      return results;
+    } catch (e) {
+      print('Error fetching PDF annotations: $e');
+      return const {};
+    }
+  }
+
+  @override
+  Future<void> savePdfAnnotations(
+    String pdfId,
+    String stationId,
+    int pageNumber,
+    List<WorkspaceObject> strokes,
+  ) async {
+    final user = _supabase.currentUser;
+    if (user == null) return;
+
+    try {
+      final existing = await _supabase.client
+          .from('user_pdf_workspaces')
+          .select('annotations')
+          .eq('user_id', user.id)
+          .eq('pdf_id', pdfId)
+          .maybeSingle();
+
+      final currentAnnotations = Map<String, dynamic>.from(
+        (existing != null ? existing['annotations'] : null) as Map? ?? {},
+      );
+
+      currentAnnotations[pageNumber.toString()] = {
+        'objects': strokes.map((obj) => obj.toJson()).toList(),
+      };
+
+      await _supabase.client.from('user_pdf_workspaces').upsert({
+        'user_id': user.id,
+        'pdf_id': pdfId,
+        'station_id': stationId,
+        'annotations': currentAnnotations,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id,pdf_id');
+    } catch (e) {
+      print('Error saving PDF annotations: $e');
+    }
+  }
+
+  @override
+  Future<void> savePdfLastOpenedPage(
+    String pdfId,
+    String stationId,
+    int pageNumber,
+  ) async {
+    final user = _supabase.currentUser;
+    if (user == null) return;
+
+    try {
+      await _supabase.client.from('user_pdf_workspaces').upsert({
+        'user_id': user.id,
+        'pdf_id': pdfId,
+        'station_id': stationId,
+        'last_opened_page': pageNumber,
+        'last_opened_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id,pdf_id');
+    } catch (e) {
+      print('Error saving PDF last opened page: $e');
+    }
+  }
+
+  @override
   Future<void> saveSlideStrokes(String slideId, List<WorkspaceObject> strokes,
       {bool isExamMode = false}) async {
     final stationId = await _stationIdForSlide(slideId);
@@ -774,6 +907,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         'subtitle': slide.subtitle,
         'image_asset': slide.imageAsset,
         'audio_url': slide.audioUrl,
+        'pdf_url': slide.pdfUrl,
         'is_hidden': slide.isHidden,
         'questions': slide.questions
             .map((question) => {
@@ -801,6 +935,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         subtitle: (row['subtitle'] ?? '').toString(),
         imageAsset: (row['image_asset'] ?? '').toString(),
         audioUrl: (row['audio_url'] ?? '').toString(),
+        pdfUrl: (row['pdf_url'] ?? '').toString().isEmpty ? null : row['pdf_url'].toString(),
         isHidden: row['is_hidden'] == true,
         questions: _questionsFromCache(row['questions']),
         metadata: Map<String, dynamic>.from(row['metadata'] as Map? ?? {}),
@@ -919,6 +1054,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
                   row['metadata'] as Map? ?? {})['audio_url'] ??
               '')
           .toString(),
+      pdfUrl: (row['pdf_url'] ?? '').toString().trim().isEmpty ? null : _pdfUrlFromRow(row),
       isHidden: row['is_hidden'] == true,
       questions: questions,
       metadata: {
@@ -927,6 +1063,13 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       },
       strokes: const [],
     );
+  }
+
+  String _pdfUrlFromRow(Map<String, dynamic> row) {
+    final raw = (row['pdf_url'] ?? '').toString().trim();
+    if (raw.isEmpty) return '';
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    return _supabase.client.storage.from('question-images').getPublicUrl(raw);
   }
 
   String _imageUrlFromRow(Map<String, dynamic> row) {

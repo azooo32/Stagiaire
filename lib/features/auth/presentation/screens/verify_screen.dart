@@ -26,9 +26,7 @@ class VerifyScreen extends StatefulWidget {
 
 class _VerifyScreenState extends State<VerifyScreen>
     with TickerProviderStateMixin {
-  final List<TextEditingController> _controllers =
-      List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  final TextEditingController _otpController = TextEditingController();
   late AnimationController _shieldController;
   late Animation<double> _shieldScale;
   bool _loading = false;
@@ -53,27 +51,13 @@ class _VerifyScreenState extends State<VerifyScreen>
 
   @override
   void dispose() {
-    for (final o in _controllers) {
-      o.dispose();
-    }
-    for (final f in _focusNodes) {
-      f.dispose();
-    }
+    _otpController.dispose();
     _shieldController.dispose();
     super.dispose();
   }
 
-  void _onOtpInput(String value, int index) {
-    if (value.length == 1 && index < 5) {
-      _focusNodes[index + 1].requestFocus();
-    } else if (value.isEmpty && index > 0) {
-      _focusNodes[index - 1].requestFocus();
-    }
-    setState(() {});
-  }
-
   Future<void> _handleVerifyOTP() async {
-    final token = _controllers.map((o) => o.text).join().trim();
+    final token = _otpController.text.trim();
     if (token.length < 6) {
       _showError('يرجى إدخال رمز التحقق المكون من 6 أرقام');
       return;
@@ -237,12 +221,45 @@ class _VerifyScreenState extends State<VerifyScreen>
                   textAlign: TextAlign.center,
                 ),
 
-                const SizedBox(height: 44),
+                const SizedBox(height: 36),
 
-                // OTP Input Row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(6, (index) => _buildOtpBox(index)),
+                // Single OTP Input Field
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: TextField(
+                    controller: _otpController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: _labelColor,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 10.0,
+                    ),
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: InputDecoration(
+                      counterText: '',
+                      hintText: '• • • • • •',
+                      hintStyle: TextStyle(
+                        color: Colors.grey[400],
+                        fontSize: 22,
+                        letterSpacing: 8.0,
+                      ),
+                      prefixIcon: const Icon(Icons.pin_outlined, color: _purple, size: 24),
+                      filled: true,
+                      fillColor: _fieldBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: const BorderSide(color: _purple, width: 2),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                    ),
+                  ),
                 ),
 
                 const SizedBox(height: 36),
@@ -311,55 +328,6 @@ class _VerifyScreenState extends State<VerifyScreen>
                 const SizedBox(height: 32),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOtpBox(int index) {
-    final bool hasFocus = _focusNodes[index].hasFocus;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      width: 52,
-      height: 56,
-      decoration: BoxDecoration(
-        color: _fieldBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: hasFocus ? const Color(0xFF6B4EFF) : Colors.transparent,
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: hasFocus
-                ? const Color(0xFF6B4EFF).withValues(alpha: 0.15)
-                : Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Focus(
-        onFocusChange: (_) => setState(() {}),
-        child: TextField(
-          controller: _controllers[index],
-          focusNode: _focusNodes[index],
-          onChanged: (val) => _onOtpInput(val, index),
-          keyboardType: TextInputType.number,
-          textAlign: TextAlign.center,
-          maxLength: 1,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          style: const TextStyle(
-            color: Color(0xFF333355),
-            fontSize: 26,
-            fontWeight: FontWeight.w800,
-          ),
-          decoration: const InputDecoration(
-            counterText: '',
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
           ),
         ),
       ),

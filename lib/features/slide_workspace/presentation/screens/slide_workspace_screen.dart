@@ -23,11 +23,13 @@ import '../widgets/mobile_workspace.dart';
 class SlideWorkspaceScreen extends StatefulWidget {
   final String stationName;
   final String? stationDbId;
+  final String? filterSubtitle;
 
   const SlideWorkspaceScreen({
     super.key,
     required this.stationName,
     this.stationDbId,
+    this.filterSubtitle,
   });
 
   @override
@@ -344,6 +346,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
     controller = SlideWorkspaceController(
       repository: SupabaseSlideWorkspaceRepository(),
       stationId: widget.stationDbId,
+      filterSubtitle: widget.filterSubtitle,
     );
 
     // Defer loading to prevent blocking the transition animation!

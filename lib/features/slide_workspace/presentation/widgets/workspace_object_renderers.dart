@@ -378,63 +378,7 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
     final image = widget.image;
     final aspect = image.width / image.height;
 
-    Widget imageChild;
-    if (image.state == ImageState.local ||
-        image.state == ImageState.uploading ||
-        image.state == ImageState.uploadFailed) {
-      if (!kIsWeb && image.localPath != null && File(image.localPath!).existsSync()) {
-        imageChild = Image.file(
-          File(image.localPath!),
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => const Center(
-            child: Icon(Icons.broken_image, color: Colors.grey),
-          ),
-        );
-      } else {
-        final bytes = image.localPath != null
-            ? SlideWorkspaceController.localImageCache[image.localPath!]
-            : null;
-        if (bytes != null) {
-          imageChild = Image.memory(
-            bytes,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => const Center(
-              child: Icon(Icons.broken_image, color: Colors.grey),
-            ),
-          );
-        } else if (image.imageUrl != null) {
-          imageChild = Image.network(
-            image.imageUrl!,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => const Center(
-              child: Icon(Icons.broken_image, color: Colors.grey),
-            ),
-          );
-        } else {
-          imageChild = const Center(
-            child: Icon(Icons.broken_image, color: Colors.grey),
-          );
-        }
-      }
-    } else {
-      imageChild = Image.network(
-        image.imageUrl ?? '',
-        fit: BoxFit.cover,
-        loadingBuilder: (context, child, loadingProgress) {
-          if (loadingProgress == null) return child;
-          return const Center(
-            child: SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          );
-        },
-        errorBuilder: (context, error, stackTrace) => const Center(
-          child: Icon(Icons.broken_image, color: Colors.grey),
-        ),
-      );
-    }
+    Widget imageChild = _WorkspaceImageDisplay(image: image);
 
     return Positioned(
       left: _x - 36,
@@ -585,6 +529,111 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _WorkspaceImageDisplay extends StatefulWidget {
+  final ImageObject image;
+  const _WorkspaceImageDisplay({required this.image});
+
+  @override
+  State<_WorkspaceImageDisplay> createState() => _WorkspaceImageDisplayState();
+}
+
+class _WorkspaceImageDisplayState extends State<_WorkspaceImageDisplay> {
+  String? _resolvedLocalPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCache();
+  }
+
+  @override
+  void didUpdateWidget(_WorkspaceImageDisplay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.image.localPath != widget.image.localPath ||
+        oldWidget.image.imageUrl != widget.image.imageUrl) {
+      _checkCache();
+    }
+  }
+
+  void _checkCache() {
+    final img = widget.image;
+    if (img.localPath != null && !kIsWeb && File(img.localPath!).existsSync()) {
+      if (_resolvedLocalPath != img.localPath) {
+        setState(() => _resolvedLocalPath = img.localPath);
+      }
+      return;
+    }
+
+    if (img.imageUrl != null && img.imageUrl!.isNotEmpty) {
+      final cachedPath = ImageCacheService().getCachedPathSync(img.imageUrl!);
+      if (cachedPath != null && !kIsWeb && File(cachedPath).existsSync()) {
+        if (_resolvedLocalPath != cachedPath) {
+          setState(() => _resolvedLocalPath = cachedPath);
+        }
+        return;
+      }
+
+      ImageCacheService().getOrDownload(img.imageUrl!).then((path) {
+        if (path != null && mounted && _resolvedLocalPath != path) {
+          setState(() => _resolvedLocalPath = path);
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final img = widget.image;
+
+    if (_resolvedLocalPath != null && !kIsWeb && File(_resolvedLocalPath!).existsSync()) {
+      return Image.file(
+        File(_resolvedLocalPath!),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => const Center(
+          child: Icon(Icons.broken_image, color: Colors.grey),
+        ),
+      );
+    }
+
+    if (img.localPath != null) {
+      final bytes = SlideWorkspaceController.localImageCache[img.localPath!];
+      if (bytes != null) {
+        return Image.memory(
+          bytes,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => const Center(
+            child: Icon(Icons.broken_image, color: Colors.grey),
+          ),
+        );
+      }
+    }
+
+    if (img.imageUrl != null && img.imageUrl!.isNotEmpty) {
+      return Image.network(
+        img.imageUrl!,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return const Center(
+            child: SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => const Center(
+          child: Icon(Icons.broken_image, color: Colors.grey),
+        ),
+      );
+    }
+
+    return const Center(
+      child: Icon(Icons.broken_image, color: Colors.grey),
     );
   }
 }

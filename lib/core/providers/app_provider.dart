@@ -101,6 +101,7 @@ class ClinicalSlideStation {
   final String subject;
   final String? evaluation;
   final String? sectionId;
+  final String stationType;
 
   ClinicalSlideStation({
     required this.id,
@@ -112,6 +113,7 @@ class ClinicalSlideStation {
     required this.subject,
     this.evaluation,
     this.sectionId,
+    this.stationType = 'slides',
   });
 }
 
@@ -388,6 +390,7 @@ class AppProvider extends ChangeNotifier {
       final int completedSlides =
           prog != null ? (prog['current_slide_index'] as int) : 1;
       final int totalSlides = map['slides_count'] as int;
+      final String stationType = (map['station_type'] ?? 'slides') as String;
 
       return ClinicalSlideStation(
         id: index + 1,
@@ -399,6 +402,7 @@ class AppProvider extends ChangeNotifier {
         subject: subjectName,
         evaluation: prog != null ? prog['evaluation'] as String? : null,
         sectionId: map['section_id'] as String?,
+        stationType: stationType,
       );
     }).toList();
 
@@ -987,7 +991,7 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> addClinicalSlideStation(
       String subject, String title, int slidesCount, String iconType,
-      {String? sectionId}) async {
+      {String? sectionId, String stationType = 'slides'}) async {
     final subjectStations = getClinicalSlideStations(subject);
     final nextId = subjectStations.isEmpty
         ? 1
@@ -1000,6 +1004,7 @@ class AppProvider extends ChangeNotifier {
       iconType: iconType,
       subject: subject,
       sectionId: sectionId,
+      stationType: stationType,
     ));
     notifyListeners();
 
@@ -1012,6 +1017,7 @@ class AppProvider extends ChangeNotifier {
           'icon_type': iconType,
           'slides_count': slidesCount,
           'section_id': sectionId,
+          'station_type': stationType,
         });
         await invalidateClinicalCache(subject);
         await loadClinicalData(subject);

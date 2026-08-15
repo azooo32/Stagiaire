@@ -8,7 +8,7 @@ import '../../../../core/widgets/app_loader.dart';
 import '../../../practice/presentation/screens/question_viewer_screen.dart';
 import '../../../clinical/presentation/screens/voice_screen.dart';
 import '../../../clinical/presentation/screens/video_screen.dart';
-import '../../../slide_workspace/presentation/screens/slide_workspace_screen.dart';
+import '../../../slide_workspace/presentation/screens/station_subtitles_screen.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({super.key});
@@ -964,14 +964,27 @@ class _FavoriteSlidesScreen extends StatelessWidget {
                 itemCount: items.length,
                 itemBuilder: (context, index) {
                   final item = items[index];
+                  final stationObj = provider.getClinicalSlideStations(item.subject).firstWhere(
+                    (s) => s.dbId == item.id,
+                    orElse: () => ClinicalSlideStation(
+                      id: 0,
+                      title: item.title,
+                      progressText: '',
+                      progress: 0.0,
+                      iconType: '',
+                      subject: item.subject,
+                      stationType: 'slides',
+                    ),
+                  );
                   return InkWell(
                     borderRadius: BorderRadius.circular(22),
                     onTap: () => Navigator.push(
                         context,
                         MaterialPageRoute(
-                            builder: (_) => SlideWorkspaceScreen(
+                            builder: (_) => StationSubtitlesScreen(
                                 stationName: item.title,
-                                stationDbId: item.id))),
+                                stationDbId: item.id,
+                                stationType: stationObj.stationType))),
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(16),

@@ -365,6 +365,7 @@ class WorkspaceSlide {
   final String subtitle;
   final String imageAsset;
   final String audioUrl;
+  final String? pdfUrl;
   final bool isHidden;
   final List<WorkspaceQuestion> questions;
   final Map<String, dynamic> metadata;
@@ -380,6 +381,7 @@ class WorkspaceSlide {
     required this.subtitle,
     required this.imageAsset,
     this.audioUrl = '',
+    this.pdfUrl,
     this.isHidden = false,
     required this.questions,
     this.metadata = const {},
@@ -396,6 +398,7 @@ class WorkspaceSlide {
     String? subtitle,
     String? imageAsset,
     String? audioUrl,
+    String? pdfUrl,
     bool? isHidden,
     List<WorkspaceQuestion>? questions,
     Map<String, dynamic>? metadata,
@@ -411,6 +414,7 @@ class WorkspaceSlide {
       subtitle: subtitle ?? this.subtitle,
       imageAsset: imageAsset ?? this.imageAsset,
       audioUrl: audioUrl ?? this.audioUrl,
+      pdfUrl: pdfUrl ?? this.pdfUrl,
       isHidden: isHidden ?? this.isHidden,
       questions: questions ?? this.questions,
       metadata: metadata ?? this.metadata,

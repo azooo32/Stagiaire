@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'secure_file_cache_service.dart';
@@ -16,6 +17,23 @@ class ImageCacheService {
   String? getCachedPathSync(String url) {
     final trimmed = url.trim();
     return _memoryCache[trimmed];
+  }
+
+  /// Saves raw image bytes into the disk cache and updates memory cache for [url].
+  Future<String?> saveBytesForUrl(String url, Uint8List bytes) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return null;
+    try {
+      final dir = await _cacheDirectory();
+      final targetFile = File(
+        '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}',
+      );
+      await targetFile.writeAsBytes(bytes, flush: true);
+      _memoryCache[trimmed] = targetFile.path;
+      return targetFile.path;
+    } catch (e) {
+      return null;
+    }
   }
 
   /// Fire-and-forget: populates _memoryCache for every URL that is already

@@ -43,8 +43,9 @@ class _VideoScreenState extends State<VideoScreen>
   Timer? _videoSpeedHideTimer;
   String _videoSpeed = '1.0x';
   String _currentResolution = 'Auto';
-  Orientation? _lastOrientation;
   late final AnimationController _spinnerController;
+  bool _isPopping = false;
+
 
   @override
   void initState() {
@@ -84,10 +85,34 @@ class _VideoScreenState extends State<VideoScreen>
     });
 
     try {
-      _chewieController?.dispose();
-      await _videoPlayerController?.dispose();
-      _videoPlayerController = null;
+      final oldChewie = _chewieController;
+      final oldPlayer = _videoPlayerController;
       _chewieController = null;
+      _videoPlayerController = null;
+
+      if (oldChewie != null) {
+        if (oldChewie.isFullScreen) {
+          try {
+            oldChewie.exitFullScreen();
+          } catch (_) {}
+        }
+        try {
+          oldChewie.dispose();
+        } catch (e) {
+          debugPrint("Error disposing old ChewieController: $e");
+        }
+      }
+
+      if (oldPlayer != null) {
+        try {
+          await oldPlayer.pause();
+        } catch (_) {}
+        try {
+          await oldPlayer.dispose();
+        } catch (e) {
+          debugPrint("Error disposing old VideoPlayerController: $e");
+        }
+      }
 
       if (url.startsWith('http') || url.startsWith('https')) {
         _videoPlayerController = VideoPlayerController.networkUrl(
@@ -227,8 +252,34 @@ class _VideoScreenState extends State<VideoScreen>
     }
 
     try {
-      _chewieController?.dispose();
-      await _videoPlayerController?.dispose();
+      final oldChewie = _chewieController;
+      final oldPlayer = _videoPlayerController;
+      _chewieController = null;
+      _videoPlayerController = null;
+
+      if (oldChewie != null) {
+        if (oldChewie.isFullScreen) {
+          try {
+            oldChewie.exitFullScreen();
+          } catch (_) {}
+        }
+        try {
+          oldChewie.dispose();
+        } catch (e) {
+          debugPrint("Error disposing old ChewieController in resolution change: $e");
+        }
+      }
+
+      if (oldPlayer != null) {
+        try {
+          await oldPlayer.pause();
+        } catch (_) {}
+        try {
+          await oldPlayer.dispose();
+        } catch (e) {
+          debugPrint("Error disposing old VideoPlayerController in resolution change: $e");
+        }
+      }
 
       if (url.startsWith('http') || url.startsWith('https')) {
         _videoPlayerController = VideoPlayerController.networkUrl(
@@ -454,25 +505,55 @@ class _VideoScreenState extends State<VideoScreen>
 
   @override
   void dispose() {
-    SecurityService.disableSecure();
     _videoSpeedHideTimer?.cancel();
     _spinnerController.dispose();
 
-    // Pause player immediately to stop native media rendering/callbacks
-    _videoPlayerController?.pause();
+    try {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
+    } catch (_) {}
 
-    // Store references locally to dispose them after the frame
+    try {
+      SecurityService.disableSecure();
+    } catch (_) {}
+
     final chewieToDispose = _chewieController;
     final playerToDispose = _videoPlayerController;
 
-    // Remove references immediately to prevent UI from accessing them
     _chewieController = null;
     _videoPlayerController = null;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      chewieToDispose?.dispose();
-      playerToDispose?.dispose();
-    });
+    if (chewieToDispose != null) {
+      if (chewieToDispose.isFullScreen) {
+        try {
+          chewieToDispose.exitFullScreen();
+        } catch (_) {}
+      }
+      try {
+        chewieToDispose.dispose();
+      } catch (e) {
+        debugPrint("Error disposing ChewieController: $e");
+      }
+    }
+
+    if (playerToDispose != null) {
+      try {
+        playerToDispose.pause();
+      } catch (_) {}
+      try {
+        playerToDispose.dispose();
+      } catch (e) {
+        debugPrint("Error disposing VideoPlayerController: $e");
+      }
+    }
 
     super.dispose();
   }
@@ -640,24 +721,61 @@ class _VideoScreenState extends State<VideoScreen>
     );
   }
 
+  Future<void> _handleBackNavigation() async {
+    if (_isPopping) return;
+    setState(() {
+      _isPopping = true;
+    });
+
+    if (_chewieController != null && _chewieController!.isFullScreen) {
+      try {
+        _chewieController!.exitFullScreen();
+        await Future.delayed(const Duration(milliseconds: 100));
+      } catch (e) {
+        debugPrint("Error exiting fullscreen during back navigation: $e");
+      }
+    }
+
+    if (_videoPlayerController != null) {
+      try {
+        await _videoPlayerController!.pause();
+      } catch (e) {
+        debugPrint("Error pausing video player during back navigation: $e");
+      }
+    }
+
+    try {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+      await SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
+    } catch (e) {
+      debugPrint("Error resetting orientations on pop: $e");
+    }
+
+    try {
+      await SecurityService.disableSecure();
+    } catch (e) {
+      debugPrint("Error disabling security on pop: $e");
+    }
+
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   Widget _wrapWithWillPopScope(Widget child) {
     return PopScope(
-      canPop: false,
+      canPop: _isPopping,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
-        // Pause the player before exiting the screen to avoid native iOS threading crashes
-        if (_videoPlayerController != null &&
-            _videoPlayerController!.value.isPlaying) {
-          try {
-            await _videoPlayerController!.pause();
-          } catch (e) {
-            debugPrint("Error pausing video during pop: $e");
-          }
-        }
-        await SecurityService.disableSecure();
-        if (context.mounted) {
-          Navigator.of(context).pop();
-        }
+        await _handleBackNavigation();
       },
       child: child,
     );
@@ -670,22 +788,6 @@ class _VideoScreenState extends State<VideoScreen>
     final provider = Provider.of<AppProvider>(context);
 
     final orientation = MediaQuery.of(context).orientation;
-    if (_lastOrientation != null && _lastOrientation != orientation) {
-      if (orientation == Orientation.landscape) {
-        if (_chewieController != null && !_chewieController!.isFullScreen) {
-          Future.microtask(() {
-            _chewieController!.enterFullScreen();
-          });
-        }
-      } else if (orientation == Orientation.portrait) {
-        if (_chewieController != null && _chewieController!.isFullScreen) {
-          Future.microtask(() {
-            _chewieController!.exitFullScreen();
-          });
-        }
-      }
-    }
-    _lastOrientation = orientation;
 
     if (provider.isClinicalLoading) {
       return _wrapWithWillPopScope(Directionality(
@@ -722,7 +824,7 @@ class _VideoScreenState extends State<VideoScreen>
                   children: [
                     IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () => _handleBackNavigation(),
                     ),
                     Row(
                       children: [
@@ -807,7 +909,7 @@ class _VideoScreenState extends State<VideoScreen>
                 children: [
                   IconButton(
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () => _handleBackNavigation(),
                   ),
                   Row(
                     children: [

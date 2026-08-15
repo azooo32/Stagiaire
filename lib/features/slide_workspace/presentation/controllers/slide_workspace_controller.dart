@@ -380,11 +380,11 @@ class LockObjectCommand extends WorkspaceCommand {
     });
   }
 }
-
 class SlideWorkspaceController extends ChangeNotifier {
   SlideWorkspaceController({
     required SlideWorkspaceRepository repository,
     required this.stationId,
+    this.filterSubtitle,
   }) : _repository = repository {
     // Restore cached metadata synchronously so reopening Slides never shows
     // the first-load screen while the already-downloaded resources are being
@@ -392,7 +392,10 @@ class SlideWorkspaceController extends ChangeNotifier {
     try {
       final cachedSlides = _repository.getCachedSlidesSync(stationId);
       if (cachedSlides.isNotEmpty) {
-        slides = cachedSlides;
+        final filtered = filterSubtitle != null
+            ? cachedSlides.where((s) => s.subtitle == filterSubtitle).toList()
+            : cachedSlides;
+        slides = filtered;
         currentIndex = min(currentIndex, slides.length - 1);
         isLoading = false;
       }
@@ -402,7 +405,9 @@ class SlideWorkspaceController extends ChangeNotifier {
   }
 
   final SlideWorkspaceRepository _repository;
+  SlideWorkspaceRepository get repository => _repository;
   final String? stationId;
+  final String? filterSubtitle;
 
   List<WorkspaceSlide> slides = const [];
   int currentIndex = 0;
@@ -441,12 +446,13 @@ class SlideWorkspaceController extends ChangeNotifier {
   Future<void> load() async {
     final synchronousCachedSlides = _repository.getCachedSlidesSync(stationId);
     if (synchronousCachedSlides.isNotEmpty) {
-      slides = synchronousCachedSlides;
+      final filtered = filterSubtitle != null
+          ? synchronousCachedSlides.where((s) => s.subtitle == filterSubtitle).toList()
+          : synchronousCachedSlides;
+      slides = filtered;
       currentIndex = min(currentIndex, slides.length - 1);
       isLoading = false;
       notifyListeners();
-      // Keep cache validation and remote refresh completely off the loading
-      // path. The existing slide data remains visible while this runs.
       unawaited(_preloadSlideImages());
       unawaited(_refreshSlidesInBackground());
       _processPendingUploadTasks();
@@ -458,7 +464,10 @@ class SlideWorkspaceController extends ChangeNotifier {
 
     final cachedSlides = await _repository.getCachedSlides(stationId);
     if (cachedSlides.isNotEmpty) {
-      slides = cachedSlides;
+      final filtered = filterSubtitle != null
+          ? cachedSlides.where((s) => s.subtitle == filterSubtitle).toList()
+          : cachedSlides;
+      slides = filtered;
       currentIndex = min(currentIndex, slides.length - 1);
       await _preloadSlideImages();
       isLoading = false;
@@ -468,7 +477,11 @@ class SlideWorkspaceController extends ChangeNotifier {
       return;
     }
 
-    slides = await _repository.getSlides(stationId);
+    final rawSlides = await _repository.getSlides(stationId);
+    final filtered = filterSubtitle != null
+        ? rawSlides.where((s) => s.subtitle == filterSubtitle).toList()
+        : rawSlides;
+    slides = filtered;
     currentIndex = slides.isEmpty ? 0 : min(currentIndex, slides.length - 1);
     await _preloadSlideImages();
     isLoading = false;
@@ -514,8 +527,11 @@ class SlideWorkspaceController extends ChangeNotifier {
             return a.index.compareTo(b.index);
           });
 
-      await _preloadSlideImages(mergedSlides);
-      slides = mergedSlides;
+      final filtered = filterSubtitle != null
+          ? mergedSlides.where((s) => s.subtitle == filterSubtitle).toList()
+          : mergedSlides;
+      await _preloadSlideImages(filtered);
+      slides = filtered;
       if (activeSlideId != null) {
         final refreshedIndex =
             slides.indexWhere((slide) => slide.id == activeSlideId);
@@ -578,12 +594,14 @@ class SlideWorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void goToSlide(int index) {
+  void goToSlide(int index, {bool clearHistory = true}) {
     if (index < 0 || index >= slides.length) return;
     _flushPendingSaves();
     selectedObjectId = null;
     currentIndex = index;
-    _clearHistory();
+    if (clearHistory) {
+      _clearHistory();
+    }
     notifyListeners();
   }
 
@@ -891,7 +909,7 @@ class SlideWorkspaceController extends ChangeNotifier {
     cmd.undo();
     _redoStack.add(cmd);
     notifyListeners();
-    scheduleSave(currentSlide.id);
+    scheduleSave(cmd.slideId);
   }
 
   void redo() {
@@ -900,7 +918,7 @@ class SlideWorkspaceController extends ChangeNotifier {
     cmd.execute();
     _undoStack.add(cmd);
     notifyListeners();
-    scheduleSave(currentSlide.id);
+    scheduleSave(cmd.slideId);
   }
 
   static const double _slideCanvasWidth = 1100.0;
@@ -984,6 +1002,8 @@ class SlideWorkspaceController extends ChangeNotifier {
     try {
       final url = await _repository.uploadWorkspaceImage(bytes, fileName);
       if (url != null) {
+        final cachedPath = await ImageCacheService().saveBytesForUrl(url, bytes);
+
         final slideIndex = slides.indexWhere((s) => s.id == slideId);
         if (slideIndex != -1) {
           final slide = slides[slideIndex];
@@ -992,6 +1012,7 @@ class SlideWorkspaceController extends ChangeNotifier {
             if (obj is ImageObject && obj.id == objectId) {
               return obj.copyWith(
                 imageUrl: url,
+                localPath: cachedPath ?? localPath ?? obj.localPath,
                 storagePath: 'student-workspace/$objectId',
                 state: ImageState.uploaded,
               );
@@ -1003,15 +1024,6 @@ class SlideWorkspaceController extends ChangeNotifier {
               ? slide.copyWith(examStrokes: updatedObjects)
               : slide.copyWith(strokes: updatedObjects);
 
-          if (localPath != null) {
-            localImageCache.remove(localPath);
-            if (!kIsWeb) {
-              final file = File(localPath);
-              if (await file.exists()) {
-                await file.delete().catchError((_) => file);
-              }
-            }
-          }
           await _removePendingUploadTask(objectId);
           notifyListeners();
 

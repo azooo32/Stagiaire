@@ -8,6 +8,9 @@ import '../../../../core/theme/colors.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
 import 'subscriptions_management_screen.dart';
+import '../../../reports/presentation/widgets/notification_badge_button.dart';
+import '../../../reports/presentation/screens/student_notifications_screen.dart';
+import '../../../reports/presentation/screens/supervisor_reports_screen.dart';
 
 
 class _ProfilePalette {
@@ -312,9 +315,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                       ),
-                      SizedBox(width: isTablet ? 72 : 48),
+                      const NotificationBadgeButton(),
                     ],
                   ),
+
                 ),
                 // ─── Overlapping White Card & Avatar Stack ───
                 Expanded(
@@ -388,6 +392,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     ),
                                     const SizedBox(height: 12),
                                   ],
+                                  if (provider.isAdminOrOwner) ...[
+                                    _buildOptionTile(
+                                      icon: Icons.assignment_late_outlined,
+                                      title: 'لوحة البلاغات والملاحظات',
+                                      isDark: provider.isDarkTheme,
+                                      isTablet: isTablet,
+                                      onTap: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => const SupervisorReportsScreen(),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  _buildOptionTile(
+                                    icon: Icons.notifications_none_outlined,
+                                    title: 'الرسائل والإشعارات',
+                                    isDark: provider.isDarkTheme,
+                                    isTablet: isTablet,
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => const StudentNotificationsScreen(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+
                                   _buildOptionTile(
                                     icon: Icons.menu_book_outlined,
                                     title: 'تغيير المرحلة الدراسية',
