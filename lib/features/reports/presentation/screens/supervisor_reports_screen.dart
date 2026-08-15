@@ -62,7 +62,13 @@ class _SupervisorReportsScreenState extends State<SupervisorReportsScreen> {
     if (!context.mounted) return;
 
     if (targetQ != null) {
+      if (targetQ.subject.isNotEmpty &&
+          (provider.selectedSubject != targetQ.subject ||
+              provider.questions.isEmpty)) {
+        await provider.selectSubject(targetQ.subject);
+      }
       provider.startPracticeSession([targetQ]);
+      if (!context.mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(

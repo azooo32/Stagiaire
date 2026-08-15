@@ -3093,40 +3093,30 @@ class _EditQuestionDialogState extends State<_EditQuestionDialog> {
     _currentAudioUrl = widget.question.audioUrl;
 
     // Set initial values
-    final List<String> existingTitles = widget.provider.questions
-        .map((q) => q.topic ?? '')
-        .where((t) => t.isNotEmpty)
-        .toSet()
-        .toList();
-    existingTitles.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    final String initialTitle = widget.question.topic ?? '';
-    _selectedTitle = existingTitles.contains(initialTitle)
-        ? initialTitle
-        : (existingTitles.isNotEmpty ? existingTitles.first : '');
-
-    final List<String> filteredSubTitles = widget.provider.questions
-        .where((q) => q.topic == _selectedTitle)
-        .map((q) => q.subTopic ?? '')
-        .where((s) => s.isNotEmpty)
-        .toSet()
-        .toList();
-    filteredSubTitles
-        .sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-
-    final String initialSubTitle = widget.question.subTopic ?? '';
-    _selectedSubTitle = filteredSubTitles.contains(initialSubTitle)
-        ? initialSubTitle
-        : (filteredSubTitles.isNotEmpty ? filteredSubTitles.first : '');
+    final String initialTitle = (widget.question.topic ?? '').trim();
+    final String initialSubTitle = (widget.question.subTopic ?? '').trim();
+    _selectedTitle = initialTitle;
+    _selectedSubTitle = initialSubTitle;
 
     _loadQuestionImages();
+    _ensureSubjectQuestionsLoaded();
+  }
+
+  Future<void> _ensureSubjectQuestionsLoaded() async {
+    final subject = widget.question.subject.trim();
+    if (subject.isNotEmpty &&
+        (widget.provider.questions.isEmpty ||
+            widget.provider.selectedSubject != subject)) {
+      await widget.provider.selectSubject(subject);
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   Future<void> _loadQuestionImages() async {
     try {
-      final imgs = await widget.provider.questions.isEmpty
-          ? <Map<String, dynamic>>[]
-          : await SupabaseService().getQuestionImages(widget.question.id);
+      final imgs = await SupabaseService().getQuestionImages(widget.question.id);
       if (mounted) {
         setState(() {
           _imagesList = imgs;
@@ -3816,20 +3806,33 @@ Suggested Correct Answer: "$correctText"
 
   Widget _buildRightColumn(bool isDark, Color cardColor, Color borderColor,
       Color textColor, Color labelColor) {
-    final List<String> existingTitles = widget.provider.questions
-        .map((q) => q.topic ?? '')
+    final Set<String> titleSet = widget.provider.questions
+        .map((q) => (q.topic ?? '').trim())
         .where((t) => t.isNotEmpty)
-        .toSet()
-        .toList();
+        .toSet();
+    if (_selectedTitle.trim().isNotEmpty) {
+      titleSet.add(_selectedTitle.trim());
+    }
+    if ((widget.question.topic ?? '').trim().isNotEmpty) {
+      titleSet.add((widget.question.topic ?? '').trim());
+    }
+    final List<String> existingTitles = titleSet.toList();
     existingTitles.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
     // Filter subtopics based on selected chapter (_selectedTitle)
-    final List<String> filteredSubTitles = widget.provider.questions
-        .where((q) => q.topic == _selectedTitle)
-        .map((q) => q.subTopic ?? '')
+    final Set<String> subTitleSet = widget.provider.questions
+        .where((q) => (q.topic ?? '').trim() == _selectedTitle.trim())
+        .map((q) => (q.subTopic ?? '').trim())
         .where((s) => s.isNotEmpty)
-        .toSet()
-        .toList();
+        .toSet();
+    if (_selectedSubTitle.trim().isNotEmpty) {
+      subTitleSet.add(_selectedSubTitle.trim());
+    }
+    if ((widget.question.topic ?? '').trim() == _selectedTitle.trim() &&
+        (widget.question.subTopic ?? '').trim().isNotEmpty) {
+      subTitleSet.add((widget.question.subTopic ?? '').trim());
+    }
+    final List<String> filteredSubTitles = subTitleSet.toList();
     filteredSubTitles
         .sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
@@ -4062,17 +4065,23 @@ Suggested Correct Answer: "$correctText"
                 _selectedTitle = val;
 
                 // Recalculate subtopics for this chapter
-                final List<String> newSubTitles = widget.provider.questions
-                    .where((q) => q.topic == val)
-                    .map((q) => q.subTopic ?? '')
+                final Set<String> newSubSet = widget.provider.questions
+                    .where((q) => (q.topic ?? '').trim() == val.trim())
+                    .map((q) => (q.subTopic ?? '').trim())
                     .where((s) => s.isNotEmpty)
-                    .toSet()
-                    .toList();
+                    .toSet();
+                if ((widget.question.topic ?? '').trim() == val.trim() &&
+                    (widget.question.subTopic ?? '').trim().isNotEmpty) {
+                  newSubSet.add((widget.question.subTopic ?? '').trim());
+                }
+                final List<String> newSubTitles = newSubSet.toList();
                 newSubTitles
                     .sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
                 if (newSubTitles.isNotEmpty) {
-                  _selectedSubTitle = newSubTitles.first;
+                  _selectedSubTitle = newSubTitles.contains(_selectedSubTitle)
+                      ? _selectedSubTitle
+                      : newSubTitles.first;
                 } else {
                   _selectedSubTitle = '';
                 }
