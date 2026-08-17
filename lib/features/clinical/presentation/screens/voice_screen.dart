@@ -2173,10 +2173,10 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                           try {
                             final result = await FilePicker.platform.pickFiles(
                               type: FileType.custom,
-                              allowedExtensions: ['pdf'],
+                              allowedExtensions: ['pdf', 'PDF'],
                               withData: true,
                             );
-                            if (result != null) {
+                            if (result != null && result.files.isNotEmpty) {
                               final file = result.files.single;
                               if (kIsWeb) {
                                 setModalState(() {
@@ -2185,9 +2185,17 @@ void showAddVoiceDialog(BuildContext context, AppProvider provider,
                                 });
                               } else {
                                 selectedPdfBytes = file.bytes;
-                                if (file.path != null) {
+                                String? filePath = file.path;
+                                if ((filePath == null || filePath.isEmpty) && file.bytes != null) {
+                                  final tempDir = await getTemporaryDirectory();
+                                  final tempFile = File('${tempDir.path}/${file.name}');
+                                  await tempFile.writeAsBytes(file.bytes!, flush: true);
+                                  filePath = tempFile.path;
+                                }
+
+                                if (filePath != null && filePath.isNotEmpty) {
                                   final saved =
-                                      await _savePdfPersistently(file.path!);
+                                      await _savePdfPersistently(filePath);
                                   setModalState(() {
                                     selectedPdf = saved;
                                   });

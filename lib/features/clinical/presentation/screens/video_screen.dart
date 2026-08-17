@@ -2659,15 +2659,26 @@ class _VideoScreenState extends State<VideoScreen>
                               final result =
                                   await FilePicker.platform.pickFiles(
                                 type: FileType.custom,
-                                allowedExtensions: ['pdf'],
+                                allowedExtensions: ['pdf', 'PDF'],
+                                withData: true,
                               );
-                              if (result != null &&
-                                  result.files.single.path != null) {
-                                final saved = await _savePdfPersistently(
-                                    result.files.single.path!);
-                                setModalState(() {
-                                  selectedPdf = saved;
-                                });
+                              if (result != null && result.files.isNotEmpty) {
+                                final file = result.files.single;
+                                String? filePath = file.path;
+
+                                if ((filePath == null || filePath.isEmpty) && file.bytes != null) {
+                                  final tempDir = await getTemporaryDirectory();
+                                  final tempFile = File('${tempDir.path}/${file.name}');
+                                  await tempFile.writeAsBytes(file.bytes!, flush: true);
+                                  filePath = tempFile.path;
+                                }
+
+                                if (filePath != null && filePath.isNotEmpty) {
+                                  final saved = await _savePdfPersistently(filePath);
+                                  setModalState(() {
+                                    selectedPdf = saved;
+                                  });
+                                }
                               }
                             } catch (e) {
                               debugPrint('Error picking pdf: $e');

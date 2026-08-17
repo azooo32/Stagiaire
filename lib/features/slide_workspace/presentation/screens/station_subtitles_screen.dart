@@ -12,7 +12,8 @@ import '../../../../core/widgets/app_loader.dart';
 import '../../data/slide_workspace_repository.dart';
 import '../../domain/entities/slide_workspace_models.dart';
 import 'slide_workspace_screen.dart';
-import 'pdf_workspace_screen.dart'; // We will create this next!
+import 'pdf_workspace_screen.dart';
+import '../widgets/slide_editor_dialog.dart';
 
 class StationSubtitlesScreen extends StatefulWidget {
   final String stationName;
@@ -337,17 +338,34 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: () async {
-                        final result = await FilePicker.platform.pickFiles(
-                          type: FileType.custom,
-                          allowedExtensions: ['pdf'],
-                          withData: false,
-                        );
-                        if (result != null && result.files.single.path != null) {
-                          setModalState(() {
-                            selectedFilePath = result.files.single.path;
-                            selectedFileName = result.files.single.name;
-                            selectedFileSize = result.files.single.size;
-                          });
+                        try {
+                          final result = await FilePicker.platform.pickFiles(
+                            type: FileType.custom,
+                            allowedExtensions: ['pdf', 'PDF'],
+                            withData: true,
+                          );
+                          if (result != null && result.files.isNotEmpty) {
+                            final file = result.files.single;
+                            String? filePath = file.path;
+
+                            // iOS fallback: if path is null, write bytes to temporary directory
+                            if ((filePath == null || filePath.isEmpty) && file.bytes != null) {
+                              final tempDir = await getTemporaryDirectory();
+                              final tempFile = File('${tempDir.path}/${file.name}');
+                              await tempFile.writeAsBytes(file.bytes!, flush: true);
+                              filePath = tempFile.path;
+                            }
+
+                            if (filePath != null && filePath.isNotEmpty) {
+                              setModalState(() {
+                                selectedFilePath = filePath;
+                                selectedFileName = file.name;
+                                selectedFileSize = file.size;
+                              });
+                            }
+                          }
+                        } catch (e) {
+                          debugPrint('Error picking PDF file: $e');
                         }
                       },
                       icon: const Icon(Icons.attach_file),
@@ -393,7 +411,6 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                     ClipRRect(
                       borderRadius: BorderRadius.circular(10),
                       child: LinearProgressIndicator(
-                        // indeterminate — Supabase SDK has no real progress callback
                         value: null,
                         minHeight: 10,
                         backgroundColor: brandColor.withValues(alpha: 0.2),
@@ -469,11 +486,76 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     );
   }
 
+  Future<void> _addNewSlideDialog() async {
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final isDark = provider.isDarkTheme;
+
+    final result = await showDialog<SlideEditorResult>(
+      context: context,
+      builder: (dialogContext) => SlideEditorDialog(
+        slide: null,
+        currentSlides: _slides,
+        isDark: isDark,
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    if (widget.stationDbId == null || widget.stationDbId!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('معرف المحطة غير متوفر')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _repository.createSlide(
+        stationId: widget.stationDbId!,
+        title: result.title,
+        subtitle: result.subtitle,
+        questions: result.questions,
+        imagePath: result.imagePath,
+        imageBytes: result.imageBytes,
+        imageFileName: result.imageFileName,
+        imageContentType: result.imageContentType,
+        audioPath: result.audioPath,
+      );
+
+      await _loadContent();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تمت إضافة الشريحة بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error adding slide from StationSubtitlesScreen: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('فشل إضافة الشريحة. يرجى المحاولة مرة أخرى.', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<AppProvider>(context);
     final isDark = provider.isDarkTheme;
     final brandColor = isDark ? const Color(0xFF9E86FF) : const Color(0xFF5B35F5);
+    final canManageSlides = provider.isAdminOrOwner;
 
     if (_isLoading) {
       return Scaffold(
@@ -501,12 +583,57 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       ),
       body: _slides.isEmpty
           ? Center(
-              child: Text(
-                'لا توجد محتويات متوفرة لهذه المحطة حالياً.',
-                style: TextStyle(
-                  fontFamily: 'Cairo',
-                  color: isDark ? Colors.white70 : Colors.black54,
-                  fontSize: 16,
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      widget.stationType == 'pdf'
+                          ? Icons.picture_as_pdf_outlined
+                          : Icons.slideshow_outlined,
+                      size: 64,
+                      color: brandColor.withValues(alpha: 0.7),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'لا توجد محتويات متوفرة لهذه المحطة حالياً.',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        color: isDark ? Colors.white70 : Colors.black54,
+                        fontSize: 16,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (canManageSlides) ...[
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        onPressed: widget.stationType == 'pdf'
+                            ? _addNewPdfDialog
+                            : _addNewSlideDialog,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: brandColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                        icon: Icon(widget.stationType == 'pdf'
+                            ? Icons.picture_as_pdf
+                            : Icons.add_to_photos),
+                        label: Text(
+                          widget.stationType == 'pdf'
+                              ? 'إضافة ملف PDF جديد'
+                              : 'إضافة شريحة جديدة',
+                          style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             )
@@ -516,14 +643,27 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                   ? _buildPdfList(isDark, brandColor)
                   : _buildSubtitlesList(isDark, brandColor),
             ),
-      floatingActionButton: widget.stationType == 'pdf'
+      floatingActionButton: canManageSlides
           ? FloatingActionButton.extended(
-              onPressed: _addNewPdfDialog,
+              onPressed: widget.stationType == 'pdf'
+                  ? _addNewPdfDialog
+                  : _addNewSlideDialog,
               backgroundColor: brandColor,
-              icon: const Icon(Icons.picture_as_pdf, color: Colors.white),
-              label: const Text(
-                'إضافة ملف PDF',
-                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: Colors.white),
+              icon: Icon(
+                widget.stationType == 'pdf'
+                    ? Icons.picture_as_pdf
+                    : Icons.add_to_photos,
+                color: Colors.white,
+              ),
+              label: Text(
+                widget.stationType == 'pdf'
+                    ? 'إضافة ملف PDF'
+                    : 'إضافة شريحة جديدة',
+                style: const TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
             )
           : null,
