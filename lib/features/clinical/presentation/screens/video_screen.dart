@@ -738,57 +738,29 @@ class _VideoScreenState extends State<VideoScreen>
   Future<void> _handleBackNavigation() async {
     if (_isPopping) return;
     _isPopping = true;
-    if (mounted) setState(() {});
 
-    // 1. Exit fullscreen FIRST and wait for iOS to settle
-    if (_chewieController != null && _chewieController!.isFullScreen) {
-      try {
-        _chewieController!.exitFullScreen();
-        // iOS needs more time to tear down the fullscreen ViewController
-        await Future.delayed(const Duration(milliseconds: 400));
-      } catch (e) {
-        debugPrint("Error exiting fullscreen during back navigation: $e");
-      }
-    }
-
-    // 2. Pause and dispose video BEFORE popping the route
-    //    This prevents iOS from crashing when the widget tree is
-    //    removed while AVPlayer is still active
     final chewieRef = _chewieController;
     final playerRef = _videoPlayerController;
-    _chewieController = null;
-    _videoPlayerController = null;
 
-    if (playerRef != null) {
+    // 1. Unmount player from UI state immediately so no widget holds disposed controllers
+    if (mounted) {
+      setState(() {
+        _chewieController = null;
+        _videoPlayerController = null;
+      });
+    }
+
+    // 2. Exit fullscreen if needed
+    if (chewieRef != null && chewieRef.isFullScreen) {
       try {
-        await playerRef.pause();
+        chewieRef.exitFullScreen();
+        await Future.delayed(const Duration(milliseconds: 200));
       } catch (e) {
-        debugPrint("Error pausing video player during back navigation: $e");
+        debugPrint("Error exiting fullscreen: $e");
       }
     }
 
-    // Small delay for iOS AVPlayer to fully pause
-    if (Platform.isIOS) {
-      await Future.delayed(const Duration(milliseconds: 150));
-    }
-
-    if (chewieRef != null) {
-      try {
-        chewieRef.dispose();
-      } catch (e) {
-        debugPrint("Error disposing chewie during back navigation: $e");
-      }
-    }
-
-    if (playerRef != null) {
-      try {
-        playerRef.dispose();
-      } catch (e) {
-        debugPrint("Error disposing player during back navigation: $e");
-      }
-    }
-
-    // 3. Restore orientation and system UI
+    // 3. Reset orientation and system UI overlays
     try {
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
@@ -804,21 +776,36 @@ class _VideoScreenState extends State<VideoScreen>
       debugPrint("Error resetting orientations on pop: $e");
     }
 
-    // 4. Disable security BEFORE popping to avoid layer issues on iOS
+    // 4. Disable security
     try {
       await SecurityService.disableSecure();
     } catch (e) {
       debugPrint("Error disabling security on pop: $e");
     }
 
-    // 5. Small delay to let iOS settle the layer hierarchy restoration
-    if (Platform.isIOS) {
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-
+    // 5. Pop navigator route immediately
     if (mounted) {
       Navigator.of(context).pop();
     }
+
+    // 6. Dispose controllers asynchronously after route pop
+    Future.microtask(() async {
+      if (playerRef != null) {
+        try {
+          await playerRef.pause();
+        } catch (_) {}
+      }
+      if (chewieRef != null) {
+        try {
+          chewieRef.dispose();
+        } catch (_) {}
+      }
+      if (playerRef != null) {
+        try {
+          playerRef.dispose();
+        } catch (_) {}
+      }
+    });
   }
 
   Widget _wrapWithWillPopScope(Widget child) {

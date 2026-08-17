@@ -4,7 +4,6 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var secureField: UITextField?
-  private var originalSuperlayer: CALayer?
 
   override func application(
     _ application: UIApplication,
@@ -56,9 +55,6 @@ import UIKit
   private func makeWindowSecure() {
     guard secureField == nil, let window = self.window else { return }
 
-    // Save the original superlayer so we can restore it later
-    self.originalSuperlayer = window.layer.superlayer
-
     let field = UITextField()
     field.isSecureTextEntry = true
     field.isUserInteractionEnabled = false
@@ -68,28 +64,15 @@ import UIKit
     field.centerYAnchor.constraint(equalTo: window.centerYAnchor).isActive = true
     field.centerXAnchor.constraint(equalTo: window.centerXAnchor).isActive = true
 
-    window.layer.superlayer?.addSublayer(field.layer)
-    if #available(iOS 17.0, *) {
-      field.layer.sublayers?.first?.addSublayer(window.layer)
-    } else {
-      field.layer.sublayers?.last?.addSublayer(window.layer)
-    }
     self.secureField = field
   }
 
   private func makeWindowUnsecure() {
-    guard let field = secureField, let window = self.window else { return }
+    guard let field = secureField else { return }
 
-    // Restore window.layer back to its original superlayer before removing the field
-    if let originalSuperlayer = self.originalSuperlayer {
-      originalSuperlayer.addSublayer(window.layer)
-    }
-
-    field.layer.removeFromSuperlayer()
     field.removeFromSuperview()
-
     self.secureField = nil
-    self.originalSuperlayer = nil
   }
+
 }
 
