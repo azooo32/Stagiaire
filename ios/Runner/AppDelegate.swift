@@ -4,6 +4,7 @@ import UIKit
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var secureField: UITextField?
+  private var originalSuperlayer: CALayer?
 
   override func application(
     _ application: UIApplication,
@@ -17,11 +18,15 @@ import UIKit
       [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
       guard let self = self else { return }
       if call.method == "enableSecure" {
-        self.makeWindowSecure()
-        result(true)
+        DispatchQueue.main.async {
+          self.makeWindowSecure()
+          result(true)
+        }
       } else if call.method == "disableSecure" {
-        self.makeWindowUnsecure()
-        result(true)
+        DispatchQueue.main.async {
+          self.makeWindowUnsecure()
+          result(true)
+        }
       } else if call.method == "isCaptured" {
         if #available(iOS 11.0, *) {
           result(UIScreen.main.isCaptured)
@@ -50,11 +55,19 @@ import UIKit
 
   private func makeWindowSecure() {
     guard secureField == nil, let window = self.window else { return }
+
+    // Save the original superlayer so we can restore it later
+    self.originalSuperlayer = window.layer.superlayer
+
     let field = UITextField()
     field.isSecureTextEntry = true
+    field.isUserInteractionEnabled = false
+    field.frame = CGRect.zero
     window.addSubview(field)
+    field.translatesAutoresizingMaskIntoConstraints = false
     field.centerYAnchor.constraint(equalTo: window.centerYAnchor).isActive = true
     field.centerXAnchor.constraint(equalTo: window.centerXAnchor).isActive = true
+
     window.layer.superlayer?.addSublayer(field.layer)
     if #available(iOS 17.0, *) {
       field.layer.sublayers?.first?.addSublayer(window.layer)
@@ -65,7 +78,18 @@ import UIKit
   }
 
   private func makeWindowUnsecure() {
-    secureField?.removeFromSuperview()
-    secureField = nil
+    guard let field = secureField, let window = self.window else { return }
+
+    // Restore window.layer back to its original superlayer before removing the field
+    if let originalSuperlayer = self.originalSuperlayer {
+      originalSuperlayer.addSublayer(window.layer)
+    }
+
+    field.layer.removeFromSuperlayer()
+    field.removeFromSuperview()
+
+    self.secureField = nil
+    self.originalSuperlayer = nil
   }
 }
+

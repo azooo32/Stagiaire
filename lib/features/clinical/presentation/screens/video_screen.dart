@@ -94,6 +94,9 @@ class _VideoScreenState extends State<VideoScreen>
         if (oldChewie.isFullScreen) {
           try {
             oldChewie.exitFullScreen();
+            if (Platform.isIOS) {
+              await Future.delayed(const Duration(milliseconds: 300));
+            }
           } catch (_) {}
         }
         try {
@@ -107,6 +110,9 @@ class _VideoScreenState extends State<VideoScreen>
         try {
           await oldPlayer.pause();
         } catch (_) {}
+        if (Platform.isIOS) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
         try {
           await oldPlayer.dispose();
         } catch (e) {
@@ -261,6 +267,9 @@ class _VideoScreenState extends State<VideoScreen>
         if (oldChewie.isFullScreen) {
           try {
             oldChewie.exitFullScreen();
+            if (Platform.isIOS) {
+              await Future.delayed(const Duration(milliseconds: 300));
+            }
           } catch (_) {}
         }
         try {
@@ -274,6 +283,9 @@ class _VideoScreenState extends State<VideoScreen>
         try {
           await oldPlayer.pause();
         } catch (_) {}
+        if (Platform.isIOS) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
         try {
           await oldPlayer.dispose();
         } catch (e) {
@@ -521,39 +533,41 @@ class _VideoScreenState extends State<VideoScreen>
       );
     } catch (_) {}
 
-    try {
-      SecurityService.disableSecure();
-    } catch (_) {}
-
+    // Capture references before nulling them out
     final chewieToDispose = _chewieController;
     final playerToDispose = _videoPlayerController;
-
     _chewieController = null;
     _videoPlayerController = null;
 
-    if (chewieToDispose != null) {
-      if (chewieToDispose.isFullScreen) {
+    // Schedule async cleanup so we don't block dispose()
+    // On iOS, pause() MUST complete before dispose() is called
+    // on the native AVPlayer, otherwise it crashes.
+    Future<void>.microtask(() async {
+      if (chewieToDispose != null) {
         try {
-          chewieToDispose.exitFullScreen();
-        } catch (_) {}
+          chewieToDispose.dispose();
+        } catch (e) {
+          debugPrint("Error disposing ChewieController: $e");
+        }
       }
-      try {
-        chewieToDispose.dispose();
-      } catch (e) {
-        debugPrint("Error disposing ChewieController: $e");
-      }
-    }
 
-    if (playerToDispose != null) {
-      try {
-        playerToDispose.pause();
-      } catch (_) {}
-      try {
-        playerToDispose.dispose();
-      } catch (e) {
-        debugPrint("Error disposing VideoPlayerController: $e");
+      if (playerToDispose != null) {
+        try {
+          await playerToDispose.pause();
+        } catch (_) {}
+        // Small delay to let iOS AVPlayer finish pausing
+        await Future.delayed(const Duration(milliseconds: 100));
+        try {
+          playerToDispose.dispose();
+        } catch (e) {
+          debugPrint("Error disposing VideoPlayerController: $e");
+        }
       }
-    }
+
+      try {
+        SecurityService.disableSecure();
+      } catch (_) {}
+    });
 
     super.dispose();
   }
@@ -723,27 +737,58 @@ class _VideoScreenState extends State<VideoScreen>
 
   Future<void> _handleBackNavigation() async {
     if (_isPopping) return;
-    setState(() {
-      _isPopping = true;
-    });
+    _isPopping = true;
+    if (mounted) setState(() {});
 
+    // 1. Exit fullscreen FIRST and wait for iOS to settle
     if (_chewieController != null && _chewieController!.isFullScreen) {
       try {
         _chewieController!.exitFullScreen();
-        await Future.delayed(const Duration(milliseconds: 100));
+        // iOS needs more time to tear down the fullscreen ViewController
+        await Future.delayed(const Duration(milliseconds: 400));
       } catch (e) {
         debugPrint("Error exiting fullscreen during back navigation: $e");
       }
     }
 
-    if (_videoPlayerController != null) {
+    // 2. Pause and dispose video BEFORE popping the route
+    //    This prevents iOS from crashing when the widget tree is
+    //    removed while AVPlayer is still active
+    final chewieRef = _chewieController;
+    final playerRef = _videoPlayerController;
+    _chewieController = null;
+    _videoPlayerController = null;
+
+    if (playerRef != null) {
       try {
-        await _videoPlayerController!.pause();
+        await playerRef.pause();
       } catch (e) {
         debugPrint("Error pausing video player during back navigation: $e");
       }
     }
 
+    // Small delay for iOS AVPlayer to fully pause
+    if (Platform.isIOS) {
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
+
+    if (chewieRef != null) {
+      try {
+        chewieRef.dispose();
+      } catch (e) {
+        debugPrint("Error disposing chewie during back navigation: $e");
+      }
+    }
+
+    if (playerRef != null) {
+      try {
+        playerRef.dispose();
+      } catch (e) {
+        debugPrint("Error disposing player during back navigation: $e");
+      }
+    }
+
+    // 3. Restore orientation and system UI
     try {
       await SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
@@ -759,10 +804,16 @@ class _VideoScreenState extends State<VideoScreen>
       debugPrint("Error resetting orientations on pop: $e");
     }
 
+    // 4. Disable security BEFORE popping to avoid layer issues on iOS
     try {
       await SecurityService.disableSecure();
     } catch (e) {
       debugPrint("Error disabling security on pop: $e");
+    }
+
+    // 5. Small delay to let iOS settle the layer hierarchy restoration
+    if (Platform.isIOS) {
+      await Future.delayed(const Duration(milliseconds: 100));
     }
 
     if (mounted) {

@@ -60,8 +60,16 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   @override
   Future<List<WorkspaceSlide>> getSlides(String? stationId) async {
     final cached = await getCachedSlides(stationId);
+    if (cached.isNotEmpty) {
+      try {
+        return await refreshSlides(stationId).timeout(const Duration(seconds: 4));
+      } catch (_) {
+        return cached;
+      }
+    }
+
     try {
-      return await refreshSlides(stationId);
+      return await refreshSlides(stationId).timeout(const Duration(seconds: 6));
     } catch (_) {
       return cached;
     }

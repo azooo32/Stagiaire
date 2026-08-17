@@ -502,7 +502,7 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   Future<void> _refreshSlidesInBackground() async {
     try {
-      final freshSlides = await _repository.refreshSlides(stationId);
+      final freshSlides = await _repository.refreshSlides(stationId).timeout(const Duration(seconds: 5));
       if (freshSlides.isEmpty) return;
       final activeSlideId = hasSlides ? currentSlide.id : null;
 

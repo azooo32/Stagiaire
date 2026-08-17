@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
@@ -36,9 +37,9 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   bool _isLoading = true;
   List<WorkspaceSlide> _slides = [];
   Map<String, List<WorkspaceSlide>> _slidesBySubtitle = {};
-  Map<String, double> _downloadProgress = {}; // pdfId -> progress (0.0 to 1.0)
-  Map<String, bool> _isDownloading = {};
-  Map<String, String> _localPdfPaths = {}; // pdfId -> localPath
+  final Map<String, double> _downloadProgress = {}; // pdfId -> progress (0.0 to 1.0)
+  final Map<String, bool> _isDownloading = {};
+  final Map<String, String> _localPdfPaths = {}; // pdfId -> localPath
 
   @override
   void initState() {
@@ -47,48 +48,93 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   }
 
   Future<void> _loadContent() async {
-    setState(() {
-      _isLoading = true;
-    });
+    // 1. Check synchronous cache first for instant 0ms offline display
+    final cachedSync = _repository.getCachedSlidesSync(widget.stationDbId);
+    if (cachedSync.isNotEmpty) {
+      final bypassed = await _processSlides(cachedSync);
+      if (bypassed) return;
+      unawaited(_refreshInBackground());
+      return;
+    }
+
+    // 2. Check async cache if sync cache was empty
+    final cachedAsync = await _repository.getCachedSlides(widget.stationDbId);
+    if (cachedAsync.isNotEmpty) {
+      final bypassed = await _processSlides(cachedAsync);
+      if (bypassed) return;
+      unawaited(_refreshInBackground());
+      return;
+    }
+
+    // 3. No cache available at all, set loading state and attempt network fetch
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
       final fetched = await _repository.getSlides(widget.stationDbId);
-      _slides = fetched.where((s) => !s.isHidden).toList();
-
-      if (_slides.isEmpty) {
+      await _processSlides(fetched);
+    } catch (e) {
+      debugPrint('Error loading subtitles/PDFs: $e');
+    } finally {
+      if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        return;
       }
+    }
+  }
 
-      // Check cached status for PDFs without bypassing the station screen
-      if (widget.stationType == 'pdf') {
-        // Find cached status for all PDFs
-        final appDir = await getApplicationDocumentsDirectory();
-        for (final slide in _slides) {
-          final localPath = '${appDir.path}/cached_pdfs/${slide.id}.pdf';
-          final file = File(localPath);
-          if (await file.exists()) {
-            _localPdfPaths[slide.id] = localPath;
-          }
-        }
-      } else {
-        // Group by subtitle
-        _slidesBySubtitle = {};
-        for (final s in _slides) {
-          final sub = s.subtitle.trim().isEmpty ? 'General' : s.subtitle.trim();
-          _slidesBySubtitle.putIfAbsent(sub, () => []).add(s);
-        }
-
-        if (_slidesBySubtitle.keys.length == 1) {
-          // Bypass: open workspace screen directly for the only subtitle
-          _openSlideWorkspace(_slidesBySubtitle.keys.first);
-          return;
-        }
+  Future<void> _refreshInBackground() async {
+    try {
+      final fresh = await _repository
+          .refreshSlides(widget.stationDbId)
+          .timeout(const Duration(seconds: 4));
+      if (fresh.isNotEmpty && mounted) {
+        await _processSlides(fresh);
       }
     } catch (e) {
-      debugPrint('Error loading subtitles/PDFs: $e');
+      debugPrint('Background refresh in StationSubtitlesScreen skipped/failed: $e');
+    }
+  }
+
+  Future<bool> _processSlides(List<WorkspaceSlide> rawSlides) async {
+    _slides = rawSlides.where((s) => !s.isHidden).toList();
+
+    if (_slides.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+      return false;
+    }
+
+    // Check cached status for PDFs without bypassing the station screen
+    if (widget.stationType == 'pdf') {
+      final appDir = await getApplicationDocumentsDirectory();
+      for (final slide in _slides) {
+        final localPath = '${appDir.path}/cached_pdfs/${slide.id}.pdf';
+        final file = File(localPath);
+        if (await file.exists()) {
+          _localPdfPaths[slide.id] = localPath;
+        }
+      }
+    } else {
+      // Group by subtitle
+      _slidesBySubtitle = {};
+      for (final s in _slides) {
+        final sub = s.subtitle.trim().isEmpty ? 'General' : s.subtitle.trim();
+        _slidesBySubtitle.putIfAbsent(sub, () => []).add(s);
+      }
+
+      if (_slidesBySubtitle.keys.length == 1) {
+        // Bypass: open workspace screen directly for the only subtitle
+        _openSlideWorkspace(_slidesBySubtitle.keys.first);
+        return true;
+      }
     }
 
     if (mounted) {
@@ -96,6 +142,8 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         _isLoading = false;
       });
     }
+
+    return false;
   }
 
   void _openSlideWorkspace(String subtitle) {
