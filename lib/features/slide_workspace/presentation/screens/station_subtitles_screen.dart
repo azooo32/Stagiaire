@@ -41,11 +41,83 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   final Map<String, double> _downloadProgress = {}; // pdfId -> progress (0.0 to 1.0)
   final Map<String, bool> _isDownloading = {};
   final Map<String, String> _localPdfPaths = {}; // pdfId -> localPath
+  final Map<String, HttpClient> _activeClients = {};
 
   @override
   void initState() {
     super.initState();
     _loadContent();
+  }
+
+  @override
+  void dispose() {
+    for (final client in _activeClients.values) {
+      try {
+        client.close(force: true);
+      } catch (_) {}
+    }
+    _activeClients.clear();
+    _cleanupInterruptedDownloads();
+    super.dispose();
+  }
+
+  Future<void> _cleanupInterruptedDownloads() async {
+    try {
+      final appDir = await getApplicationDocumentsDirectory();
+      for (final entry in _isDownloading.entries) {
+        if (entry.value) {
+          final slideId = entry.key;
+          final tmpFile = File('${appDir.path}/cached_pdfs/$slideId.pdf.tmp');
+          if (await tmpFile.exists()) {
+            await tmpFile.delete();
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<bool> _isPdfValid(String localPath) async {
+    try {
+      final file = File(localPath);
+      if (!await file.exists()) return false;
+      final length = await file.length();
+      if (length < 100) return false;
+
+      final raf = await file.open(mode: FileMode.read);
+      final headerBytes = await raf.read(4);
+      await raf.close();
+      if (headerBytes.length < 4) return false;
+      final headerStr = String.fromCharCodes(headerBytes);
+      if (!headerStr.startsWith('%PDF')) return false;
+
+      final pdfDoc = await PdfDocument.openFile(localPath);
+      final count = pdfDoc.pagesCount;
+      await pdfDoc.close();
+      return count > 0;
+    } catch (e) {
+      debugPrint('PDF validation failed for $localPath: $e');
+      return false;
+    }
+  }
+
+  Future<void> _cleanupCorruptedPdf(String pdfId, String localPath) async {
+    try {
+      final file = File(localPath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+      final tmpFile = File('$localPath.tmp');
+      if (await tmpFile.exists()) {
+        await tmpFile.delete();
+      }
+      final tempDir = await getTemporaryDirectory();
+      final pdfCacheDir = Directory('${tempDir.path}/pdf_pages_cache/$pdfId');
+      if (await pdfCacheDir.exists()) {
+        await pdfCacheDir.delete(recursive: true);
+      }
+    } catch (e) {
+      debugPrint('Error cleaning up corrupted PDF ($pdfId): $e');
+    }
   }
 
   Future<void> _loadContent() async {
@@ -118,9 +190,25 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       final appDir = await getApplicationDocumentsDirectory();
       for (final slide in _slides) {
         final localPath = '${appDir.path}/cached_pdfs/${slide.id}.pdf';
+        final tmpPath = '$localPath.tmp';
+
+        // Clean up leftover temporary file if previous download was interrupted
+        final tmpFile = File(tmpPath);
+        if (await tmpFile.exists()) {
+          try { await tmpFile.delete(); } catch (_) {}
+        }
+
         final file = File(localPath);
         if (await file.exists()) {
-          _localPdfPaths[slide.id] = localPath;
+          final isValid = await _isPdfValid(localPath);
+          if (isValid) {
+            _localPdfPaths[slide.id] = localPath;
+          } else {
+            await _cleanupCorruptedPdf(slide.id, localPath);
+            _localPdfPaths.remove(slide.id);
+          }
+        } else {
+          _localPdfPaths.remove(slide.id);
         }
       }
     } else {
@@ -161,7 +249,28 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     );
   }
 
-  void _openPdfWorkspace(WorkspaceSlide pdfSlide, String path) {
+  Future<void> _openPdfWorkspace(WorkspaceSlide pdfSlide, String path) async {
+    if (!mounted) return;
+
+    // Verify file validity before opening
+    final isValid = await _isPdfValid(path);
+    if (!isValid) {
+      await _cleanupCorruptedPdf(pdfSlide.id, path);
+      if (mounted) {
+        setState(() {
+          _localPdfPaths.remove(pdfSlide.id);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('الملف غير صالح أو غير مكتمل. جاري إعادة التنزيل...'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+        _downloadPdf(pdfSlide);
+      }
+      return;
+    }
+
     if (!mounted) return;
     Navigator.push(
       context,
@@ -192,22 +301,33 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       _downloadProgress[slide.id] = 0.0;
     });
 
+    final appDir = await getApplicationDocumentsDirectory();
+    final cacheDir = Directory('${appDir.path}/cached_pdfs');
+    if (!await cacheDir.exists()) {
+      await cacheDir.create(recursive: true);
+    }
+
+    final localPath = '${cacheDir.path}/${slide.id}.pdf';
+    final tmpPath = '$localPath.tmp';
+    final tmpFile = File(tmpPath);
+
+    if (await tmpFile.exists()) {
+      try { await tmpFile.delete(); } catch (_) {}
+    }
+
+    final client = HttpClient();
+    _activeClients[slide.id] = client;
+
     try {
-      final appDir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory('${appDir.path}/cached_pdfs');
-      if (!await cacheDir.exists()) {
-        await cacheDir.create(recursive: true);
-      }
-
-      final localPath = '${cacheDir.path}/${slide.id}.pdf';
-
-      final client = HttpClient();
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
       final total = response.contentLength;
 
-      final file = File(localPath);
-      final sink = file.openWrite();
+      if (response.statusCode != 200) {
+        throw Exception('HTTP response code ${response.statusCode}');
+      }
+
+      final sink = tmpFile.openWrite();
 
       var received = 0;
       await response.forEach((chunk) {
@@ -221,7 +341,14 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       });
 
       await sink.close();
+      _activeClients.remove(slide.id);
       client.close();
+
+      // Check PDF validity on tmp file before finalizing
+      final isValid = await _isPdfValid(tmpPath);
+      if (!isValid) {
+        throw Exception('Downloaded file validation failed');
+      }
 
       // Pre-process sound annotations as part of download completion step
       if (mounted) {
@@ -240,7 +367,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         final soundCacheFile = File('${pdfCacheDir.path}/sound_annotations.json');
         if (!soundCacheFile.existsSync()) {
           final soundAnnotations = await PdfSoundParser.parseAndExtract(
-            localPath,
+            tmpPath,
             pdfCacheDir.path,
           );
           if (soundAnnotations.isNotEmpty) {
@@ -253,7 +380,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         // Pre-render Page 1 & page sizes if not cached yet for 0ms workspace launch
         final page1File = File('${pdfCacheDir.path}/page_1.jpg');
         if (!page1File.existsSync()) {
-          final pdfDoc = await PdfDocument.openFile(localPath);
+          final pdfDoc = await PdfDocument.openFile(tmpPath);
           final count = pdfDoc.pagesCount;
           if (count > 0) {
             final pageSizes = <String, dynamic>{};
@@ -279,6 +406,13 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         debugPrint('Error pre-processing PDF assets during download: $e');
       }
 
+      // Rename tmp file to final file ONLY on complete success
+      final targetFile = File(localPath);
+      if (await targetFile.exists()) {
+        try { await targetFile.delete(); } catch (_) {}
+      }
+      await tmpFile.rename(localPath);
+
       if (mounted) {
         setState(() {
           _downloadProgress[slide.id] = 1.0;
@@ -290,10 +424,15 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       _openPdfWorkspace(slide, localPath);
     } catch (e) {
       debugPrint('Error downloading PDF: $e');
-      setState(() {
-        _isDownloading[slide.id] = false;
-      });
+      _activeClients.remove(slide.id);
+      try { client.close(force: true); } catch (_) {}
+      await _cleanupCorruptedPdf(slide.id, localPath);
+
       if (mounted) {
+        setState(() {
+          _isDownloading[slide.id] = false;
+          _localPdfPaths.remove(slide.id);
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('فشل تنزيل ملف الـ PDF. يرجى المحاولة مرة أخرى.')),
         );
@@ -709,6 +848,36 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     );
   }
 
+  Widget _buildDownloadProgressWidget(Color brandColor, double progress, bool isDark) {
+    final faintColor = isDark
+        ? Colors.white.withValues(alpha: 0.18)
+        : brandColor.withValues(alpha: 0.20);
+
+    return SizedBox(
+      width: 36,
+      height: 36,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          CircularProgressIndicator(
+            value: progress > 0.05 ? progress : null,
+            strokeWidth: 3.5,
+            backgroundColor: faintColor,
+            valueColor: AlwaysStoppedAnimation<Color>(brandColor),
+          ),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              color: brandColor,
+              borderRadius: BorderRadius.circular(2.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildPdfList(bool isDark, Color brandColor) {
     return ListView.builder(
       itemCount: _slides.length,
@@ -749,22 +918,21 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
               ),
             ),
             trailing: downloading
-                ? SizedBox(
-                    width: 32,
-                    height: 32,
-                    child: CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 3,
-                      valueColor: AlwaysStoppedAnimation<Color>(brandColor),
-                    ),
-                  )
+                ? _buildDownloadProgressWidget(brandColor, progress, isDark)
                 : Icon(
                     isDownloaded ? Icons.play_circle_fill : Icons.download_for_offline,
                     color: brandColor,
                     size: 32,
                   ),
             onTap: () {
-              if (isDownloaded) {
+              if (downloading) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('جاري تنزيل الملف، يُرجى الانتظار...'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              } else if (isDownloaded) {
                 _openPdfWorkspace(pdfSlide, _localPdfPaths[pdfId]!);
               } else {
                 _downloadPdf(pdfSlide);
