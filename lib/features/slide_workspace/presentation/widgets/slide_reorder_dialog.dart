@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../../../../core/providers/app_provider.dart';
 import '../../../../core/services/image_cache_service.dart';
 import '../../domain/entities/slide_workspace_models.dart';
 import '../controllers/slide_workspace_controller.dart';
@@ -128,6 +130,8 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
     final cardBg = isDark ? const Color(0xFF28233D) : const Color(0xFFF7F5FE);
     final borderColor = isDark ? const Color(0xFF3B3356) : const Color(0xFFE2DCFA);
     final textColor = isDark ? Colors.white : workspaceInk;
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final isOwner = provider.isOwner;
 
     return Dialog(
       backgroundColor: dialogBg,
@@ -180,6 +184,46 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                     ],
                   ),
                 ),
+                if (isOwner) ...[
+                  OutlinedButton.icon(
+                    onPressed: _isSaving
+                        ? null
+                        : () {
+                            setState(() {
+                              _slides = _slides.reversed.toList();
+                              _buildEntries();
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'تم عكس ترتيب السلايدات. اضغط "حفظ الترتيب" لحفظ التغيير.',
+                                  style: TextStyle(fontFamily: 'Cairo'),
+                                ),
+                                duration: Duration(seconds: 2),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orangeAccent,
+                      side: const BorderSide(color: Colors.orangeAccent),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.flip_camera_android_rounded, size: 18),
+                    label: const Text(
+                      'عكس السلايدات',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 IconButton(
                   onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
                   icon: const Icon(Icons.close_rounded),

@@ -160,6 +160,57 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
                     ),
                   ),
                 ),
+                if (isEditingThisSlide)
+                  Positioned(
+                    top: 14,
+                    right: 14,
+                    child: Material(
+                      color: Colors.transparent,
+                      elevation: 6,
+                      borderRadius: BorderRadius.circular(24),
+                      child: InkWell(
+                        onTap: () {
+                          if (stateProvider != null) {
+                            unawaited(stateProvider.saveInPlaceEdit(widget.index));
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(24),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF10B981), Color(0xFF059669)],
+                            ),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF10B981).withValues(alpha: 0.45),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                              SizedBox(width: 6),
+                              Text(
+                                'حفظ التعديل',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

@@ -408,62 +408,64 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
 
     final result = await showDialog<SlideEditorResult>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) => SlideEditorDialog(
         slide: slide,
         currentSlides: controller.slides,
         isDark: isDark,
+        onSave: (editorResult) async {
+          if (slide != null) {
+            await controller.updateSlide(
+              slideId: slide.id,
+              title: editorResult.title,
+              subtitle: editorResult.subtitle,
+              questions: editorResult.questions,
+              imagePath: editorResult.imagePath,
+              imageBytes: editorResult.imageBytes,
+              imageFileName: editorResult.imageFileName,
+              imageContentType: editorResult.imageContentType,
+              audioPath: editorResult.audioPath,
+            );
+          } else {
+            if (insertAfterIndex != null) {
+              await controller.addSlideAfter(
+                insertAfterIndex,
+                title: editorResult.title,
+                subtitle: editorResult.subtitle,
+                questions: editorResult.questions,
+                imagePath: editorResult.imagePath,
+                imageBytes: editorResult.imageBytes,
+                imageFileName: editorResult.imageFileName,
+                imageContentType: editorResult.imageContentType,
+                audioPath: editorResult.audioPath,
+              );
+            } else {
+              await controller.addSlide(
+                title: editorResult.title,
+                subtitle: editorResult.subtitle,
+                questions: editorResult.questions,
+                imagePath: editorResult.imagePath,
+                imageBytes: editorResult.imageBytes,
+                imageFileName: editorResult.imageFileName,
+                imageContentType: editorResult.imageContentType,
+                audioPath: editorResult.audioPath,
+              );
+            }
+          }
+        },
       ),
     );
 
-    if (result == null || !mounted) return;
-
-    try {
-      if (slide != null) {
-        await controller.updateSlide(
-          slideId: slide.id,
-          title: result.title,
-          subtitle: result.subtitle,
-          questions: result.questions,
-          imagePath: result.imagePath,
-          imageBytes: result.imageBytes,
-          imageFileName: result.imageFileName,
-          imageContentType: result.imageContentType,
-          audioPath: result.audioPath,
-        );
-      } else {
-        if (insertAfterIndex != null) {
-          await controller.addSlideAfter(
-            insertAfterIndex,
-            title: result.title,
-            subtitle: result.subtitle,
-            questions: result.questions,
-            imagePath: result.imagePath,
-            imageBytes: result.imageBytes,
-            imageFileName: result.imageFileName,
-            imageContentType: result.imageContentType,
-            audioPath: result.audioPath,
-          );
-        } else {
-          await controller.addSlide(
-            title: result.title,
-            subtitle: result.subtitle,
-            questions: result.questions,
-            imagePath: result.imagePath,
-            imageBytes: result.imageBytes,
-            imageFileName: result.imageFileName,
-            imageContentType: result.imageContentType,
-            audioPath: result.audioPath,
-          );
-        }
-      }
-    } catch (e, s) {
-      debugPrint('Error updating/adding slide: $e\n$s');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Unable to save the slide. Please try again.')),
-        );
-      }
+    if (result != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            slide != null ? 'تم تعديل الشريحة بنجاح' : 'تمت إضافة الشريحة بنجاح',
+            style: const TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
     }
   }
 

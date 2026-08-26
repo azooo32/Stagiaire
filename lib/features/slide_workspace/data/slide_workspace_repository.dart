@@ -38,6 +38,7 @@ abstract class SlideWorkspaceRepository {
   Future<void> deleteSlide(String slideId);
   Future<WorkspaceSlide> setSlideHidden(String slideId, bool isHidden);
   Future<void> reorderSlides(String stationId, List<WorkspaceSlide> slides);
+  Future<void> reorderSubtitles(String stationId, List<String> orderedSubtitles);
   Future<void> saveSlideStrokes(String slideId, List<WorkspaceObject> strokes,
       {bool isExamMode = false});
   Future<void> saveLastOpenedSlide(String stationId, String slideId);
@@ -635,23 +636,103 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   @override
   Future<void> reorderSlides(
       String stationId, List<WorkspaceSlide> slides) async {
+    if (slides.isEmpty) return;
+
+    // Fetch all active slides for the station to preserve full station sequence
+    final existing = await _supabase.client
+        .from('slides')
+        .select('id, slide_index, subtitle_index, subtitle_slide_index')
+        .eq('station_id', stationId)
+        .eq('is_active', true)
+        .order('subtitle_index', ascending: true)
+        .order('subtitle_slide_index', ascending: true)
+        .order('slide_index', ascending: true);
+    final allRows = List<Map<String, dynamic>>.from(existing);
+
+    final passedIds = slides.map((s) => s.id).toSet();
+    final List<String> finalOrderedIds = [];
+
+    if (allRows.length <= slides.length) {
+      finalOrderedIds.addAll(slides.map((s) => s.id));
+    } else {
+      var subsetIdx = 0;
+      for (final row in allRows) {
+        final id = row['id'].toString();
+        if (passedIds.contains(id)) {
+          if (subsetIdx < slides.length) {
+            finalOrderedIds.add(slides[subsetIdx].id);
+            subsetIdx++;
+          }
+        } else {
+          finalOrderedIds.add(id);
+        }
+      }
+    }
+
     // 1. Assign unique negative indexes first to avoid unique constraint collisions
-    for (var i = 0; i < slides.length; i++) {
-      final slide = slides[i];
+    for (var i = 0; i < finalOrderedIds.length; i++) {
+      final id = finalOrderedIds[i];
       await _supabase.client
           .from('slides')
-          .update({'slide_index': -(i + 1)}).eq('id', slide.id);
+          .update({'slide_index': -(i + 1)}).eq('id', id);
     }
 
     // 2. Assign the final positive indexes
-    for (var i = 0; i < slides.length; i++) {
-      final slide = slides[i];
+    for (var i = 0; i < finalOrderedIds.length; i++) {
+      final id = finalOrderedIds[i];
       await _supabase.client
           .from('slides')
-          .update({'slide_index': i + 1}).eq('id', slide.id);
+          .update({'slide_index': i + 1}).eq('id', id);
     }
 
     // 3. Let the RPC clean everything up atomically
+    await _reorderStationSlides(stationId);
+  }
+
+  @override
+  Future<void> reorderSubtitles(
+      String stationId, List<String> orderedSubtitles) async {
+    if (orderedSubtitles.isEmpty) return;
+
+    // 1. Assign unique negative subtitle_index first to avoid conflicts
+    for (var i = 0; i < orderedSubtitles.length; i++) {
+      final sub = orderedSubtitles[i];
+      final targetSub = sub == 'General' ? '' : sub;
+      if (targetSub.isEmpty) {
+        await _supabase.client
+            .from('slides')
+            .update({'subtitle_index': -(i + 1)})
+            .eq('station_id', stationId)
+            .or('subtitle.eq.,subtitle.is.null');
+      } else {
+        await _supabase.client
+            .from('slides')
+            .update({'subtitle_index': -(i + 1)})
+            .eq('station_id', stationId)
+            .eq('subtitle', targetSub);
+      }
+    }
+
+    // 2. Assign final positive subtitle_index
+    for (var i = 0; i < orderedSubtitles.length; i++) {
+      final sub = orderedSubtitles[i];
+      final targetSub = sub == 'General' ? '' : sub;
+      if (targetSub.isEmpty) {
+        await _supabase.client
+            .from('slides')
+            .update({'subtitle_index': i + 1})
+            .eq('station_id', stationId)
+            .or('subtitle.eq.,subtitle.is.null');
+      } else {
+        await _supabase.client
+            .from('slides')
+            .update({'subtitle_index': i + 1})
+            .eq('station_id', stationId)
+            .eq('subtitle', targetSub);
+      }
+    }
+
+    // 3. Call the RPC to re-align slide_index values sequentially
     await _reorderStationSlides(stationId);
   }
 

@@ -759,7 +759,7 @@ class SupabaseService {
       await client.storage.from(bucketName).upload(
             storagePath,
             file,
-            fileOptions: const FileOptions(cacheControl: '3600', upsert: false),
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
           );
 
       onProgress?.call(1.0);

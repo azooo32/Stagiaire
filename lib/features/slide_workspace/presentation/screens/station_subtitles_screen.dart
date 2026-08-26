@@ -626,20 +626,6 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   }
 
   Future<void> _addNewSlideDialog() async {
-    final provider = Provider.of<AppProvider>(context, listen: false);
-    final isDark = provider.isDarkTheme;
-
-    final result = await showDialog<SlideEditorResult>(
-      context: context,
-      builder: (dialogContext) => SlideEditorDialog(
-        slide: null,
-        currentSlides: _slides,
-        isDark: isDark,
-      ),
-    );
-
-    if (result == null || !mounted) return;
-
     if (widget.stationDbId == null || widget.stationDbId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('معرف المحطة غير متوفر')),
@@ -647,45 +633,40 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final isDark = provider.isDarkTheme;
 
-    try {
-      await _repository.createSlide(
-        stationId: widget.stationDbId!,
-        title: result.title,
-        subtitle: result.subtitle,
-        questions: result.questions,
-        imagePath: result.imagePath,
-        imageBytes: result.imageBytes,
-        imageFileName: result.imageFileName,
-        imageContentType: result.imageContentType,
-        audioPath: result.audioPath,
+    final result = await showDialog<SlideEditorResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => SlideEditorDialog(
+        slide: null,
+        currentSlides: _slides,
+        isDark: isDark,
+        onSave: (editorResult) async {
+          await _repository.createSlide(
+            stationId: widget.stationDbId!,
+            title: editorResult.title,
+            subtitle: editorResult.subtitle,
+            questions: editorResult.questions,
+            imagePath: editorResult.imagePath,
+            imageBytes: editorResult.imageBytes,
+            imageFileName: editorResult.imageFileName,
+            imageContentType: editorResult.imageContentType,
+            audioPath: editorResult.audioPath,
+          );
+        },
+      ),
+    );
+
+    if (result != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تمت إضافة الشريحة بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.green,
+        ),
       );
-
       await _loadContent();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تمت إضافة الشريحة بنجاح', style: TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error adding slide from StationSubtitlesScreen: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('فشل إضافة الشريحة. يرجى المحاولة مرة أخرى.', style: TextStyle(fontFamily: 'Cairo')),
-          ),
-        );
-      }
     }
   }
 
@@ -719,6 +700,16 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         elevation: 0,
         centerTitle: true,
         iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
+        actions: [
+          if (provider.isOwner &&
+              widget.stationType != 'pdf' &&
+              _slidesBySubtitle.keys.length > 1)
+            IconButton(
+              icon: const Icon(Icons.swap_vert_rounded),
+              tooltip: 'ترتيب الأقسام',
+              onPressed: () => _showReorderSubtitlesDialog(isDark, brandColor),
+            ),
+        ],
       ),
       body: _slides.isEmpty
           ? Center(
@@ -810,7 +801,12 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   }
 
   Widget _buildSubtitlesList(bool isDark, Color brandColor) {
-    final subtitles = _slidesBySubtitle.keys.toList();
+    final subtitles = _slidesBySubtitle.keys.toList()
+      ..sort((a, b) {
+        final aIndex = _slidesBySubtitle[a]?.firstOrNull?.subtitleIndex ?? 0;
+        final bIndex = _slidesBySubtitle[b]?.firstOrNull?.subtitleIndex ?? 0;
+        return aIndex.compareTo(bIndex);
+      });
     return ListView.builder(
       itemCount: subtitles.length,
       itemBuilder: (context, index) {
@@ -941,6 +937,346 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _showReorderSubtitlesDialog(bool isDark, Color brandColor) async {
+    final currentSubtitles = _slidesBySubtitle.keys.toList()
+      ..sort((a, b) {
+        final aIndex = _slidesBySubtitle[a]?.firstOrNull?.subtitleIndex ?? 0;
+        final bIndex = _slidesBySubtitle[b]?.firstOrNull?.subtitleIndex ?? 0;
+        return aIndex.compareTo(bIndex);
+      });
+
+    if (currentSubtitles.length <= 1) return;
+
+    final updated = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _ReorderSubtitlesDialog(
+        subtitles: currentSubtitles,
+        slidesBySubtitle: _slidesBySubtitle,
+        isDark: isDark,
+        brandColor: brandColor,
+        onSave: (orderedList) async {
+          if (widget.stationDbId == null || widget.stationDbId!.isEmpty) return;
+          await _repository.reorderSubtitles(widget.stationDbId!, orderedList);
+          await _loadContent();
+        },
+      ),
+    );
+
+    if (updated == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ ترتيب الأقسام بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+}
+
+class _ReorderSubtitlesDialog extends StatefulWidget {
+  final List<String> subtitles;
+  final Map<String, List<WorkspaceSlide>> slidesBySubtitle;
+  final bool isDark;
+  final Color brandColor;
+  final Future<void> Function(List<String> ordered) onSave;
+
+  const _ReorderSubtitlesDialog({
+    required this.subtitles,
+    required this.slidesBySubtitle,
+    required this.isDark,
+    required this.brandColor,
+    required this.onSave,
+  });
+
+  @override
+  State<_ReorderSubtitlesDialog> createState() => _ReorderSubtitlesDialogState();
+}
+
+class _ReorderSubtitlesDialogState extends State<_ReorderSubtitlesDialog> {
+  late List<String> _subtitles;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _subtitles = List<String>.from(widget.subtitles);
+  }
+
+  Future<void> _handleSave() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+
+    try {
+      await widget.onSave(_subtitles);
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطأ أثناء حفظ الترتيب: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final dialogBg = isDark ? const Color(0xFF1E1A2E) : Colors.white;
+    final cardBg = isDark ? const Color(0xFF28233D) : const Color(0xFFF7F5FE);
+    final borderColor = isDark ? const Color(0xFF3B3356) : const Color(0xFFE2DCFA);
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    return PopScope(
+      canPop: !_isSaving,
+      child: Dialog(
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: Container(
+          width: 540,
+          height: MediaQuery.of(context).size.height * 0.75,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: widget.brandColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.swap_vert_rounded,
+                      color: widget.brandColor,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ترتيب الأقسام الفرعية',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'قم بسحب وإفلات الأقسام لترتيبها',
+                          style: TextStyle(
+                            color: isDark ? Colors.white60 : Colors.black54,
+                            fontSize: 13,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _isSaving
+                        ? null
+                        : () {
+                            setState(() {
+                              _subtitles = _subtitles.reversed.toList();
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'تم عكس ترتيب الأقسام. اضغط "حفظ الترتيب" لتأكيد الحفظ.',
+                                  style: TextStyle(fontFamily: 'Cairo'),
+                                ),
+                                duration: Duration(seconds: 2),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orangeAccent,
+                      side: const BorderSide(color: Colors.orangeAccent),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.flip_camera_android_rounded, size: 16),
+                    label: const Text(
+                      'عكس الأقسام',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: 'إلغاء',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+
+              // Reorderable list
+              Expanded(
+                child: ReorderableListView.builder(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: _subtitles.length,
+                  buildDefaultDragHandles: false,
+                  onReorder: (oldIndex, newIndex) {
+                    setState(() {
+                      if (oldIndex < newIndex) {
+                        newIndex -= 1;
+                      }
+                      final item = _subtitles.removeAt(oldIndex);
+                      _subtitles.insert(newIndex, item);
+                    });
+                  },
+                  itemBuilder: (context, index) {
+                    final sub = _subtitles[index];
+                    final count = widget.slidesBySubtitle[sub]?.length ?? 0;
+
+                    return KeyedSubtree(
+                      key: ValueKey(sub),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: borderColor, width: 1),
+                        ),
+                        child: Row(
+                          children: [
+                            ReorderableDragStartListener(
+                              index: index,
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.grab,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Icon(
+                                    Icons.drag_handle_rounded,
+                                    color: isDark ? Colors.white54 : Colors.black45,
+                                    size: 22,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Container(
+                              width: 28,
+                              height: 28,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: widget.brandColor.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${index + 1}',
+                                style: TextStyle(
+                                  color: widget.brandColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  fontFamily: 'Cairo',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    sub,
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    '$count شرائح',
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white54 : Colors.black45,
+                                      fontSize: 12,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+
+              // Footer
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+                    child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', fontSize: 15)),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _isSaving ? null : _handleSave,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: widget.brandColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.check_rounded, size: 20),
+                    label: Text(
+                      _isSaving ? 'جاري الحفظ...' : 'حفظ الترتيب',
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
