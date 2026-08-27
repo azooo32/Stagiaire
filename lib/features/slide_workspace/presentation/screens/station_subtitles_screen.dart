@@ -701,7 +701,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         centerTitle: true,
         iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
         actions: [
-          if (provider.isOwner &&
+          if (provider.isAdminOrOwner &&
               widget.stationType != 'pdf' &&
               _slidesBySubtitle.keys.length > 1)
             IconButton(
@@ -875,6 +875,9 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   }
 
   Widget _buildPdfList(bool isDark, Color brandColor) {
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final canManage = provider.isAdminOrOwner;
+
     return ListView.builder(
       itemCount: _slides.length,
       itemBuilder: (context, index) {
@@ -883,6 +886,34 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         final isDownloaded = _localPdfPaths.containsKey(pdfId);
         final downloading = _isDownloading[pdfId] == true;
         final progress = _downloadProgress[pdfId] ?? 0.0;
+
+        Widget trailingWidget;
+        if (downloading) {
+          trailingWidget = _buildDownloadProgressWidget(brandColor, progress, isDark);
+        } else if (canManage) {
+          trailingWidget = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded),
+                color: Colors.redAccent,
+                tooltip: 'حذف الملف',
+                onPressed: () => _confirmDeletePdf(pdfSlide),
+              ),
+              Icon(
+                isDownloaded ? Icons.play_circle_fill : Icons.download_for_offline,
+                color: brandColor,
+                size: 32,
+              ),
+            ],
+          );
+        } else {
+          trailingWidget = Icon(
+            isDownloaded ? Icons.play_circle_fill : Icons.download_for_offline,
+            color: brandColor,
+            size: 32,
+          );
+        }
 
         return Card(
           margin: const EdgeInsets.only(bottom: 12),
@@ -913,13 +944,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                 fontSize: 13,
               ),
             ),
-            trailing: downloading
-                ? _buildDownloadProgressWidget(brandColor, progress, isDark)
-                : Icon(
-                    isDownloaded ? Icons.play_circle_fill : Icons.download_for_offline,
-                    color: brandColor,
-                    size: 32,
-                  ),
+            trailing: trailingWidget,
             onTap: () {
               if (downloading) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -938,6 +963,93 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         );
       },
     );
+  }
+
+  Future<void> _confirmDeletePdf(WorkspaceSlide pdfSlide) async {
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final isDark = provider.isDarkTheme;
+    final brandColor = isDark ? const Color(0xFF9E86FF) : const Color(0xFF5B35F5);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E1A2E) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 26),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'حذف الملف',
+                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'هل أنت متأكد من حذف "${pdfSlide.title}"؟\nلا يمكن التراجع عن هذا الإجراء.',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            color: isDark ? Colors.white70 : Colors.black87,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text(
+              'حذف',
+              style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _repository.deleteSlide(pdfSlide.id);
+      // Also remove local cached file if exists
+      final localPath = _localPdfPaths[pdfSlide.id];
+      if (localPath != null) {
+        try {
+          final file = File(localPath);
+          if (await file.exists()) await file.delete();
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() {
+          _slides.removeWhere((s) => s.id == pdfSlide.id);
+          _localPdfPaths.remove(pdfSlide.id);
+          _downloadProgress.remove(pdfSlide.id);
+          _isDownloading.remove(pdfSlide.id);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تم حذف الملف بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل حذف الملف: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _showReorderSubtitlesDialog(bool isDark, Color brandColor) async {

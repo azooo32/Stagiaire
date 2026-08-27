@@ -20,7 +20,6 @@ class _ReorderEntry {
   bool get isHeader => slide == null;
 }
 
-
 class SlideReorderDialog extends StatefulWidget {
   final SlideWorkspaceController controller;
   final bool isDark;
@@ -66,8 +65,10 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
     _entries = [];
     String? previousSubtitle;
     for (final slide in _slides) {
-      final subtitle = slide.subtitle.trim().isEmpty ? 'Untitled' : slide.subtitle.trim();
-      if (previousSubtitle == null || previousSubtitle.toLowerCase() != subtitle.toLowerCase()) {
+      final subtitle =
+          slide.subtitle.trim().isEmpty ? 'Untitled' : slide.subtitle.trim();
+      if (previousSubtitle == null ||
+          previousSubtitle.toLowerCase() != subtitle.toLowerCase()) {
         _entries.add(_ReorderEntry(subtitle: subtitle));
         previousSubtitle = subtitle;
       }
@@ -78,7 +79,7 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
   void _updateSlidesFromEntries() {
     final newSlides = <WorkspaceSlide>[];
     String currentSubtitle = '';
-    
+
     for (final entry in _entries) {
       if (entry.isHeader) {
         currentSubtitle = entry.subtitle;
@@ -89,7 +90,7 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
         ));
       }
     }
-    
+
     _slides = newSlides;
     _buildEntries();
   }
@@ -128,7 +129,8 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
     final isDark = widget.isDark;
     final dialogBg = isDark ? const Color(0xFF1E1A2E) : Colors.white;
     final cardBg = isDark ? const Color(0xFF28233D) : const Color(0xFFF7F5FE);
-    final borderColor = isDark ? const Color(0xFF3B3356) : const Color(0xFFE2DCFA);
+    final borderColor =
+        isDark ? const Color(0xFF3B3356) : const Color(0xFFE2DCFA);
     final textColor = isDark ? Colors.white : workspaceInk;
     final provider = Provider.of<AppProvider>(context, listen: false);
     final isOwner = provider.isOwner;
@@ -207,12 +209,14 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.orangeAccent,
                       side: const BorderSide(color: Colors.orangeAccent),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    icon: const Icon(Icons.flip_camera_android_rounded, size: 18),
+                    icon:
+                        const Icon(Icons.flip_camera_android_rounded, size: 18),
                     label: const Text(
                       'عكس السلايدات',
                       style: TextStyle(
@@ -225,7 +229,8 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                   const SizedBox(width: 8),
                 ],
                 IconButton(
-                  onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+                  onPressed:
+                      _isSaving ? null : () => Navigator.of(context).pop(false),
                   icon: const Icon(Icons.close_rounded),
                   tooltip: 'إلغاء',
                 ),
@@ -272,7 +277,8 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                     key: ValueKey(slide.id),
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
                       decoration: BoxDecoration(
                         color: cardBg,
                         borderRadius: BorderRadius.circular(14),
@@ -288,7 +294,8 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                                 padding: const EdgeInsets.all(8),
                                 child: Icon(
                                   Icons.drag_handle_rounded,
-                                  color: isDark ? Colors.white54 : workspaceMuted,
+                                  color:
+                                      isDark ? Colors.white54 : workspaceMuted,
                                   size: 22,
                                 ),
                               ),
@@ -333,7 +340,9 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  slide.title.trim().isEmpty ? 'شريحة بدون عنوان' : slide.title,
+                                  slide.title.trim().isEmpty
+                                      ? 'شريحة بدون عنوان'
+                                      : slide.title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
@@ -350,7 +359,9 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: isDark ? const Color(0xFFB4A6E8) : workspacePurple,
+                                      color: isDark
+                                          ? const Color(0xFFB4A6E8)
+                                          : workspacePurple,
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                       fontFamily: 'Cairo',
@@ -363,11 +374,13 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                           if (slide.isHidden) ...[
                             const SizedBox(width: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.amber.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                                border: Border.all(
+                                    color: Colors.amber.withValues(alpha: 0.4)),
                               ),
                               child: const Text(
                                 'مخفي',
@@ -396,7 +409,8 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
-                  onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+                  onPressed:
+                      _isSaving ? null : () => Navigator.of(context).pop(false),
                   child: const Text(
                     'إلغاء',
                     style: TextStyle(fontFamily: 'Cairo', fontSize: 15),
@@ -407,7 +421,8 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
                   onPressed: _isSaving ? null : _handleSave,
                   style: FilledButton.styleFrom(
                     backgroundColor: workspacePurple,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 12),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),

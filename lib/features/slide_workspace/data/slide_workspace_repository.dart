@@ -463,22 +463,43 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     final stationId = (slide.metadata['station_id'] ?? '').toString();
     if (stationId.isEmpty) throw Exception('Missing station id for duplicate');
 
+    // Fetch ids + indexes so we can shift slides that come after the original.
     final existing = await _supabase.client
         .from('slides')
-        .select('slide_index, subtitle_index, subtitle_slide_index')
+        .select('id, slide_index, subtitle_index, subtitle_slide_index')
         .eq('station_id', stationId)
-        .eq('is_active', true);
+        .eq('is_active', true)
+        .order('slide_index', ascending: true);
     final rows = List<Map<String, dynamic>>.from(existing);
-    final usedIndexes = rows
-        .map((row) => (row['slide_index'] as num?)?.toInt())
-        .whereType<int>()
-        .where((index) => index > 0)
-        .toSet();
-    var nextIndex = 1;
-    while (usedIndexes.contains(nextIndex)) {
-      nextIndex++;
+
+    // The duplicate must appear immediately after the original slide.
+    // insertionIndex = original slide_index + 1.
+    final originalSlideIndex = slide.index;
+    final insertionIndex = originalSlideIndex + 1;
+
+    // Shift every slide whose slide_index >= insertionIndex upward by 1
+    // (process in descending order to avoid transient unique-constraint hits).
+    final rowsToShift = rows
+        .where((row) {
+          final idx = (row['slide_index'] as num?)?.toInt();
+          return idx != null && idx >= insertionIndex;
+        })
+        .toList()
+      ..sort((a, b) => ((b['slide_index'] as num?)?.toInt() ?? 0)
+          .compareTo((a['slide_index'] as num?)?.toInt() ?? 0));
+
+    for (final row in rowsToShift) {
+      final id = row['id']?.toString();
+      final idx = (row['slide_index'] as num?)?.toInt();
+      if (id == null || idx == null) continue;
+      await _supabase.client
+          .from('slides')
+          .update({'slide_index': idx + 1}).eq('id', id);
     }
 
+    // subtitle_slide_index: use max+1 as a temporary placeholder.
+    // _reorderStationSlides (called below) will compute the correct
+    // per-subtitle position based on the updated slide_index order.
     final subtitleIndex = slide.subtitleIndex;
     final subtitleSlideIndex = rows
             .where((row) =>
@@ -493,7 +514,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .from('slides')
         .insert({
           'station_id': stationId,
-          'slide_index': nextIndex,
+          'slide_index': insertionIndex,
           'subtitle_index': subtitleIndex,
           'subtitle_slide_index': subtitleSlideIndex,
           'title': slide.title,
@@ -513,11 +534,15 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .select('*')
         .single();
     await _syncStationSlideCount(stationId);
+    // Normalize all indexes: the fixed reorder_station_slides function will
+    // place the duplicate right after the original within its subtitle group.
+    await _reorderStationSlides(stationId);
     return _slideFromRow(Map<String, dynamic>.from(inserted));
   }
 
   @override
   Future<WorkspaceSlide> createBlankSlide({required String stationId}) {
+
     return createSlide(
       stationId: stationId,
       title: 'Untitled Slide',
@@ -568,10 +593,10 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
 
   @override
   Future<void> deleteSlide(String slideId) async {
-    // 1. Fetch the row to get station_id, image_url, and voice_url before deleting
+    // 1. Fetch the row to get station_id, image_url, voice_url and pdf_url before deleting
     final row = await _supabase.client
         .from('slides')
-        .select('station_id, image_url, voice_url, metadata')
+        .select('station_id, image_url, voice_url, pdf_url, metadata')
         .eq('id', slideId)
         .maybeSingle();
 
@@ -598,6 +623,10 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
             ? (row['metadata'] as Map<String, dynamic>)['audio_url'] as String
             : null;
 
+    final pdfUrl = (row['pdf_url'] as String?)?.trim().isNotEmpty == true
+        ? row['pdf_url'] as String
+        : null;
+
     // 3. Delete the slide row permanently from the database
     await _supabase.client.from('slides').delete().eq('id', slideId);
 
@@ -616,11 +645,19 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         print('Failed to delete slide audio during deletion: $e');
       }
     }
+    if (pdfUrl != null && pdfUrl.isNotEmpty) {
+      try {
+        await _supabase.deleteStorageFile('pdf-documents', pdfUrl);
+      } catch (e) {
+        print('Failed to delete slide PDF from storage during deletion: $e');
+      }
+    }
 
     // 5. Sync slide count and reorder remaining slides
     await _syncStationSlideCount(stationId);
     await _reorderStationSlides(stationId);
   }
+
 
   @override
   Future<WorkspaceSlide> setSlideHidden(String slideId, bool isHidden) async {
