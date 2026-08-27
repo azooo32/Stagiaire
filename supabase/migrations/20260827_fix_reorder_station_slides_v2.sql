@@ -1,6 +1,7 @@
--- Fix reorder_station_slides: use new_slide_index (not raw slide_index) when computing
--- subtitle_slide_index so slides within the same subtitle group retain the
--- order imposed by slide_index after the +10M phase-1 shift.
+-- Fix reorder_station_slides:
+-- 1. Use pg_advisory_xact_lock to prevent race conditions during rapid sequential deletions/inserts.
+-- 2. Use negative temporary indexing to avoid unique constraint collisions without index accumulation.
+-- 3. Correctly derive clean sequential indexes (slide_index, subtitle_index, subtitle_slide_index).
 
 CREATE OR REPLACE FUNCTION public.reorder_station_slides(p_station_id uuid)
  RETURNS void
@@ -8,35 +9,33 @@ CREATE OR REPLACE FUNCTION public.reorder_station_slides(p_station_id uuid)
  SECURITY DEFINER
 AS $function$
 BEGIN
+  -- 1. Acquire transaction advisory lock for this specific station
+  -- Prevents concurrent reordering collisions and race conditions
+  PERFORM pg_advisory_xact_lock(hashtext(p_station_id::text));
+
   SET CONSTRAINTS slides_station_id_slide_index_key DEFERRED;
 
-  -- Phase 1: move all active slides to a safe temp range to avoid unique-constraint
-  -- collisions while we reassign indexes in phase 2.
-  UPDATE slides
-  SET slide_index          = slide_index + 10000000,
-      subtitle_index       = subtitle_index + 10000000,
-      subtitle_slide_index = subtitle_slide_index + 10000000
-  WHERE station_id = p_station_id AND is_active = true;
+  -- 2. Phase 1: assign temporary unique negative indexes to avoid unique constraint collisions
+  WITH numbered AS (
+    SELECT id, ROW_NUMBER() OVER () as temp_rn
+    FROM slides
+    WHERE station_id = p_station_id AND is_active = true
+  )
+  UPDATE slides s
+  SET slide_index = -n.temp_rn
+  FROM numbered n
+  WHERE s.id = n.id;
 
-  -- Phase 2: compute clean sequential values and apply them.
-  --
-  -- NOTE: All CTEs below operate on the +10M-shifted rows that were just written.
-  -- We derive the logical order from slide_index (which still reflects the
-  -- correct insertion position) and then recalculate subtitle_index and
-  -- subtitle_slide_index from scratch so they are always consistent.
+  -- 3. Phase 2: compute clean sequential values ordered by subtitle group then slide position
   WITH ordered AS (
     SELECT
       id,
-      -- Global sequential order across the whole station (1, 2, 3...)
-      ROW_NUMBER() OVER (ORDER BY slide_index, id)::int  AS new_slide_index,
-      lower(trim(coalesce(subtitle, '')))                AS subtitle_key
+      ROW_NUMBER() OVER (ORDER BY subtitle_index ASC, subtitle_slide_index ASC, id ASC)::int AS new_slide_index,
+      lower(trim(coalesce(subtitle, ''))) AS subtitle_key
     FROM slides
     WHERE station_id = p_station_id AND is_active = true
   ),
   subtitle_first_positions AS (
-    -- Find the earliest global position for each subtitle group.
-    -- Using new_slide_index (not the raw +10M slide_index) gives a clean
-    -- 1-based position regardless of how large slide_index grew.
     SELECT
       subtitle_key,
       MIN(new_slide_index) AS first_position
@@ -54,8 +53,6 @@ BEGIN
       o.id,
       o.new_slide_index,
       r.new_subtitle_index,
-      -- Per-subtitle sequential index ordered by the global slide position.
-      -- Using new_slide_index (1-based) makes this deterministic and correct.
       ROW_NUMBER() OVER (
         PARTITION BY o.subtitle_key
         ORDER BY o.new_slide_index, o.id
