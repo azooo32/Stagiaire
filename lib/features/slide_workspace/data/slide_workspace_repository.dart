@@ -326,7 +326,6 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       return _slideFromRow(Map<String, dynamic>.from(inserted));
     });
   }
-  }
 
   @override
   Future<WorkspaceSlide> updateSlide({
