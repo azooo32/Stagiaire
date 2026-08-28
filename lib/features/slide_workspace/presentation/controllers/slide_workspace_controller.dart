@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/slide_workspace_repository.dart';
 import '../../domain/entities/slide_workspace_models.dart';
 import '../../../../core/services/image_cache_service.dart';
+import '../../../../core/services/audio_cache_service.dart';
 
 abstract class WorkspaceCommand {
   String get slideId;
@@ -418,6 +419,7 @@ class SlideWorkspaceController extends ChangeNotifier {
   // and are centered by SlidePagesList instead of leaving a one-sided gap.
   double zoom = 1.0;
   bool isLoading = true;
+  bool isRefreshing = false;
   // Session-only study view; intentionally never persisted.
   bool isStudyMode = true;
 
@@ -497,6 +499,58 @@ class SlideWorkspaceController extends ChangeNotifier {
         .toList();
     if (urls.isNotEmpty) {
       await ImageCacheService().preloadUrls(urls);
+    }
+  }
+
+  /// Clears the entire cache for the current station (images, audios, slides)
+  /// then re-downloads everything fresh. Shows [isRefreshing] during the process.
+  Future<void> forceRefreshCache() async {
+    final id = stationId;
+    if (id == null || id.trim().isEmpty) return;
+    if (isRefreshing) return;
+
+    isRefreshing = true;
+    notifyListeners();
+
+    try {
+      // 1. Collect URLs to clear
+      final imageUrls = slides
+          .map((s) => s.imageAsset.trim())
+          .where((u) => u.startsWith('http'))
+          .toList();
+      final audioUrls = slides
+          .map((s) => s.audioUrl.trim())
+          .where((u) => u.startsWith('http'))
+          .toList();
+
+      // 2. Clear caches
+      await ImageCacheService().clearCacheForUrls(imageUrls);
+      await AudioCacheService().clearCacheForUrls(audioUrls);
+      await _repository.clearStationCache(id);
+
+      // 3. Fetch fresh slides from server
+      final freshSlides = await _repository.refreshSlides(id)
+          .timeout(const Duration(seconds: 30));
+      final filtered = filterSubtitle != null
+          ? freshSlides.where((s) => s.subtitle == filterSubtitle).toList()
+          : freshSlides;
+
+      // 4. Re-download all images
+      await _preloadSlideImages(filtered);
+
+      final activeSlideId = hasSlides ? currentSlide.id : null;
+      slides = filtered;
+      if (activeSlideId != null) {
+        final idx = slides.indexWhere((s) => s.id == activeSlideId);
+        currentIndex = idx >= 0 ? idx : min(currentIndex, slides.length - 1);
+      } else {
+        currentIndex = min(currentIndex, slides.isEmpty ? 0 : slides.length - 1);
+      }
+    } catch (_) {
+      // On error, keep existing slides
+    } finally {
+      isRefreshing = false;
+      notifyListeners();
     }
   }
 

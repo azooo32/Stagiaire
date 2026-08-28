@@ -46,6 +46,34 @@ class ImageCacheService {
   /// Makes all slide images available on the device before the Slides page is
   /// shown. Files are stored in the application support directory, so future
   /// opens do not depend on Supabase or an internet connection.
+  /// Removes cached files for the given [urls] from both disk and memory cache.
+  Future<void> clearCacheForUrls(List<String> urls) async {
+    if (kIsWeb) return;
+    final dir = await _cacheDirectory();
+    for (final url in urls) {
+      final trimmed = url.trim();
+      if (trimmed.isEmpty) continue;
+      _memoryCache.remove(trimmed);
+      // Remove plain file
+      final plainFile = File(
+          '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}');
+      try {
+        if (await plainFile.exists()) await plainFile.delete();
+      } catch (_) {}
+      // Remove encrypted file
+      final encFile = File(
+          '${dir.path}${Platform.pathSeparator}${_encryptedFileNameForUrl(trimmed)}');
+      try {
+        if (await encFile.exists()) await encFile.delete();
+      } catch (_) {}
+      // Remove partial/temp file
+      final tempFile = File('${plainFile.path}.part');
+      try {
+        if (await tempFile.exists()) await tempFile.delete();
+      } catch (_) {}
+    }
+  }
+
   Future<void> preloadUrls(
     List<String> urls, {
     int concurrency = 4,

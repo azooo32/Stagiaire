@@ -316,6 +316,22 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
     controller.setZoom(value.clamp(0.5, 5.0));
   }
 
+  Future<void> _refreshCache() async {
+    await controller.forceRefreshCache();
+    if (mounted && !controller.isRefreshing) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تم تحديث الكاش بنجاح',
+            style: TextStyle(fontFamily: 'Cairo'),
+          ),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   Future<void> _preventScreenshot() async {
     if (kIsWeb) return;
     try {
@@ -599,6 +615,17 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
                   maintainBottomViewPadding: true,
                   child: Column(
                     children: [
+                      // Refresh progress indicator banner
+                      if (controller.isRefreshing)
+                        LinearProgressIndicator(
+                          minHeight: 3,
+                          backgroundColor: isDark
+                              ? const Color(0xFF2A2442)
+                              : const Color(0xFFEDE9FF),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                            Color(0xFF7C5CFC),
+                          ),
+                        ),
                       WorkspaceTopToolbar(
                         controller: controller,
                         stationName: widget.stationName,
@@ -623,6 +650,10 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
                         onReorderSlides: canManageSlides
                             ? () => _showReorderDialog(isDark)
                             : null,
+                        onRefreshCache: controller.isRefreshing
+                            ? null
+                            : _refreshCache,
+                        isRefreshing: controller.isRefreshing,
                       ),
                       if (!controller.hasSlides)
                         Expanded(

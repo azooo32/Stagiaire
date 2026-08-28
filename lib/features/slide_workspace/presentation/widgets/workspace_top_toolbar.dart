@@ -63,6 +63,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
   final VoidCallback onBack;
   final VoidCallback? onAddSlide;
   final VoidCallback? onReorderSlides;
+  final VoidCallback? onRefreshCache;
+  final bool isRefreshing;
 
   const WorkspaceTopToolbar({
     super.key,
@@ -79,6 +81,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
     required this.onBack,
     this.onAddSlide,
     this.onReorderSlides,
+    this.onRefreshCache,
+    this.isRefreshing = false,
   });
 
   static const _toolOrder = [
@@ -181,6 +185,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 16),
+            _refreshButton(iconExtent: iconExtent, iconSize: iconSize),
+            const SizedBox(width: 8),
             _reorderButton(iconExtent: iconExtent, iconSize: iconSize),
             if (onReorderSlides != null) const SizedBox(width: 8),
             _backButton(iconExtent: iconExtent, iconSize: iconSize),
@@ -227,6 +233,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     _historyButtons(iconExtent: iconExtent, iconSize: iconSize),
+                    const SizedBox(width: 8),
+                    _refreshButton(iconExtent: iconExtent, iconSize: iconSize),
                     const SizedBox(width: 8),
                     _reorderButton(iconExtent: iconExtent, iconSize: iconSize),
                     if (onReorderSlides != null) const SizedBox(width: 8),
@@ -291,6 +299,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
                   ),
                   SizedBox(width: isPhone ? 2 : 10),
                   _historyButtons(iconExtent: iconExtent, iconSize: iconSize),
+                  SizedBox(width: isPhone ? 2 : 8),
+                  _refreshButton(iconExtent: iconExtent, iconSize: iconSize),
                   SizedBox(width: isPhone ? 2 : 8),
                   _reorderButton(iconExtent: iconExtent, iconSize: iconSize),
                   if (onReorderSlides != null) SizedBox(width: isPhone ? 2 : 8),
@@ -648,6 +658,43 @@ class WorkspaceTopToolbar extends StatelessWidget {
       size: iconExtent,
       iconSize: iconSize,
       onTap: onReorderSlides,
+    );
+  }
+
+  Widget _refreshButton({
+    required double iconExtent,
+    required double iconSize,
+  }) {
+    return Tooltip(
+      message: 'تحديث الكاش وإعادة التنزيل',
+      child: SizedBox(
+        width: iconExtent,
+        height: iconExtent,
+        child: isRefreshing
+            ? Center(
+                child: SizedBox(
+                  width: iconSize + 4,
+                  height: iconSize + 4,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      isDark ? const Color(0xFF8B75FF) : workspacePurple,
+                    ),
+                  ),
+                ),
+              )
+            : InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: onRefreshCache,
+                child: Center(
+                  child: Icon(
+                    Icons.refresh_rounded,
+                    size: iconSize,
+                    color: _foreground,
+                  ),
+                ),
+              ),
+      ),
     );
   }
 

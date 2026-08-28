@@ -47,7 +47,9 @@ abstract class SlideWorkspaceRepository {
   Future<Map<int, List<WorkspaceObject>>> getPdfAnnotations(String pdfId);
   Future<void> savePdfAnnotations(String pdfId, String stationId, int pageNumber, List<WorkspaceObject> strokes);
   Future<void> savePdfLastOpenedPage(String pdfId, String stationId, int pageNumber);
+  Future<void> clearStationCache(String stationId);
 }
+
 
 class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   SupabaseSlideWorkspaceRepository({SupabaseService? supabase})
@@ -1013,6 +1015,14 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
   }
 
   String _slidesCacheKey(String stationId) => 'slide_workspace_$stationId';
+
+  @override
+  Future<void> clearStationCache(String stationId) async {
+    _memorySlidesCache.remove(stationId);
+    await _cache.invalidateCache(_slidesCacheKey(stationId));
+  }
+
+
   String _pendingStrokesKey(String stationId, {bool isExamMode = false}) =>
       isExamMode
           ? 'pending_exam_slide_strokes_$stationId'

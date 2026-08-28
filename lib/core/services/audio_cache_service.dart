@@ -207,6 +207,38 @@ class AudioCacheService {
     }
   }
 
+  /// Returns true if the given [url] is already cached on disk.
+  Future<bool> isCachedForUrl(String url) async {
+    if (kIsWeb) return false;
+    final path = await cachedPathForUrl(url.trim());
+    return path != null;
+  }
+
+  /// Removes cached files for the given [urls] from both disk and memory.
+  Future<void> clearCacheForUrls(List<String> urls) async {
+    if (kIsWeb) return;
+    final dir = await _cacheDirectory();
+    for (final url in urls) {
+      final trimmed = url.trim();
+      if (trimmed.isEmpty) continue;
+      _memoryBytesCache.remove(trimmed);
+      final encFile = File(
+          '${dir.path}${Platform.pathSeparator}${_encryptedFileNameForUrl(trimmed)}');
+      try {
+        if (await encFile.exists()) await encFile.delete();
+      } catch (_) {}
+      final plainFile = File(
+          '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}');
+      try {
+        if (await plainFile.exists()) await plainFile.delete();
+      } catch (_) {}
+      final tempFile = File('${encFile.path}.part');
+      try {
+        if (await tempFile.exists()) await tempFile.delete();
+      } catch (_) {}
+    }
+  }
+
   Future<void> prefetchQuestionAudios(List<String?> urls,
       {int limit = 2}) async {
     final queue = urls
