@@ -1412,12 +1412,37 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                   builder: (_) => SubmitReportDialog(questionId: q.id),
                                 );
                               },
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 12.0),
-                                child: Icon(
-                                  Icons.outlined_flag_rounded,
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  size: 22,
+                              child: Container(
+                                margin: const EdgeInsets.only(right: 12.0),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8.0, vertical: 3.0),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  border: Border.all(
+                                    color: const Color(0xFFEF4444).withValues(alpha: 0.4),
+                                    width: 1.0,
+                                  ),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.outlined_flag_rounded,
+                                      color: Color(0xFFEF4444),
+                                      size: 18,
+                                    ),
+                                    SizedBox(width: 4.0),
+                                    Text(
+                                      'إبلاغ',
+                                      style: TextStyle(
+                                        color: Color(0xFFEF4444),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Cairo',
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

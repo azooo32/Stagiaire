@@ -33,6 +33,7 @@ class SlideEditorDialog extends StatefulWidget {
   final WorkspaceSlide? slide;
   final List<WorkspaceSlide> currentSlides;
   final bool isDark;
+  final String? initialSubtitle;
   final Future<void> Function(SlideEditorResult result)? onSave;
 
   const SlideEditorDialog({
@@ -40,6 +41,7 @@ class SlideEditorDialog extends StatefulWidget {
     this.slide,
     required this.currentSlides,
     required this.isDark,
+    this.initialSubtitle,
     this.onSave,
   });
 
@@ -75,8 +77,10 @@ class _SlideEditorDialogState extends State<SlideEditorDialog> {
   @override
   void initState() {
     super.initState();
+    final defaultSub =
+        widget.slide?.subtitle ?? widget.initialSubtitle?.trim() ?? '';
     _titleController = TextEditingController(text: widget.slide?.title ?? '');
-    _subtitleController = TextEditingController(text: widget.slide?.subtitle ?? '');
+    _subtitleController = TextEditingController(text: defaultSub);
 
     if (widget.slide != null && widget.slide!.questions.isNotEmpty) {
       for (var q in widget.slide!.questions) {
@@ -99,10 +103,19 @@ class _SlideEditorDialogState extends State<SlideEditorDialog> {
     }
 
     final initialSubtitle = _subtitleController.text.trim();
-    _selectedSubtitle = _subtitleOptions.firstWhere(
-      (item) => item.toLowerCase() == initialSubtitle.toLowerCase(),
-      orElse: () => _newSubtitleChoice,
-    );
+    if (initialSubtitle.isNotEmpty) {
+      _selectedSubtitle = _subtitleOptions.firstWhere(
+        (item) => item.toLowerCase() == initialSubtitle.toLowerCase(),
+        orElse: () => _newSubtitleChoice,
+      );
+    } else {
+      _selectedSubtitle = _subtitleOptions.isNotEmpty
+          ? _subtitleOptions.first
+          : _newSubtitleChoice;
+      if (_selectedSubtitle != _newSubtitleChoice) {
+        _subtitleController.text = _selectedSubtitle;
+      }
+    }
   }
 
   @override

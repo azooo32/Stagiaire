@@ -78,7 +78,7 @@ class _SlideReorderDialogState extends State<SlideReorderDialog> {
 
   void _updateSlidesFromEntries() {
     final newSlides = <WorkspaceSlide>[];
-    String currentSubtitle = '';
+    String currentSubtitle = _slides.isNotEmpty ? _slides.first.subtitle : '';
 
     for (final entry in _entries) {
       if (entry.isHeader) {

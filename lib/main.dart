@@ -5,6 +5,7 @@ import 'core/services/supabase_service.dart';
 import 'core/services/cache_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/services/app_update_service.dart';
+import 'core/services/pdf_storage_service.dart';
 import 'features/auth/presentation/screens/splash_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -21,6 +22,7 @@ void main() async {
     await SupabaseService.initialize();
     await CacheService().initialize();
     await AppUpdateService().initialize();
+    await PdfStorageService.migrateOldPdfFiles();
   } catch (e) {
     print('Failed to initialize Stagiaire core services: $e');
   }

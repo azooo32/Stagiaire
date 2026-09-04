@@ -66,8 +66,8 @@
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>This permission is used when accessing camera and photo features within the app.</string>
 		<key>UIFileSharingEnabled</key>
-		<true/>
+		<false/>
 		<key>LSSupportsOpeningDocumentsInPlace</key>
-		<true/>
+		<false/>
 	</dict>
 </plist>

@@ -70,6 +70,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
   double _playbackSpeed = 1.0;
+  bool _isDockedAudioVisible = false;
 
   // Persistent disk cache path
   String? _cacheDirPath;
@@ -173,6 +174,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
       _updateCurrentPageFromTranslation(translation.y, scale);
     }
+
+    _updateDockedAudioState();
   }
 
   void _updateCurrentPageFromTranslation(double translationY, double scale) {
@@ -222,6 +225,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         setState(() {
           _playerState = PlayerState.stopped;
           _currentPosition = Duration.zero;
+          _isDockedAudioVisible = false;
         });
       }
     });
@@ -722,6 +726,87 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _transformationController.value = Matrix4.diagonal3Values(clamped, clamped, 1.0);
   }
 
+  PdfSoundAnnotation? get _activeSound {
+    if (_activeAudioPath == null) return null;
+    try {
+      return _soundAnnotations
+          .where((s) => s.tempAudioPath == _activeAudioPath)
+          .firstOrNull;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  double? _getSoundScreenY(PdfSoundAnnotation sound) {
+    if (_lastPageWidth <= 0 || _lastViewportHeight <= 0) return null;
+
+    final matrix = _transformationController.value;
+    final translationY = matrix.getTranslation().y;
+    final scale = matrix.getMaxScaleOnAxis();
+
+    const initialTopPad = 8.0;
+    const pageVerticalPadding = 6.0;
+    double currentY = initialTopPad;
+
+    for (var i = 0; i < controller.slides.length; i++) {
+      final pageNum = i + 1;
+      final size = _pageSizes[pageNum];
+      final pdfW = size?.width ?? 595.0;
+      final pdfH = size?.height ?? 842.0;
+      final pageHeight = _lastPageWidth * pdfH / pdfW;
+
+      if (pageNum == sound.pageNumber) {
+        final double rectTop = sound.rect.length >= 4 ? sound.rect[3] : 0.0;
+        final double soundTopInPdf = (pdfH - rectTop).clamp(0.0, pdfH);
+        final double soundTopInPage = soundTopInPdf * (_lastPageWidth / pdfW);
+        final double soundYInContent = currentY + pageVerticalPadding + soundTopInPage;
+        final double screenY = translationY + soundYInContent * scale;
+        return screenY;
+      }
+
+      currentY += pageHeight + (pageVerticalPadding * 2);
+    }
+    return null;
+  }
+
+  bool _isSoundScrolledOff(PdfSoundAnnotation sound) {
+    final screenY = _getSoundScreenY(sound);
+    if (screenY == null) return false;
+    return screenY < 24.0;
+  }
+
+  void _updateDockedAudioState() {
+    final sound = _activeSound;
+    if (sound == null) {
+      if (_isDockedAudioVisible) {
+        setState(() => _isDockedAudioVisible = false);
+      }
+      return;
+    }
+
+    final shouldDock = _isSoundScrolledOff(sound);
+    if (shouldDock != _isDockedAudioVisible) {
+      setState(() => _isDockedAudioVisible = shouldDock);
+    }
+  }
+
+  Future<void> _cancelAudio() async {
+    try {
+      await _audioPlayer.stop();
+    } catch (e) {
+      debugPrint('Error stopping audio: $e');
+    }
+    if (mounted) {
+      setState(() {
+        _activeAudioPath = null;
+        _isDockedAudioVisible = false;
+        _playerState = PlayerState.stopped;
+        _currentPosition = Duration.zero;
+        _totalDuration = Duration.zero;
+      });
+    }
+  }
+
   Future<void> _togglePlayPause(String audioPath) async {
     try {
       if (_activeAudioPath != audioPath) {
@@ -731,7 +816,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         await _audioPlayer.stop();
         await _audioPlayer.setPlaybackRate(_playbackSpeed);
         await _audioPlayer.play(DeviceFileSource(audioPath));
-        if (mounted) setState(() {});
+        if (mounted) {
+          final sound = _activeSound;
+          _isDockedAudioVisible = sound != null && _isSoundScrolledOff(sound);
+          setState(() {});
+        }
         return;
       }
 
@@ -771,9 +860,45 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   ) {
     final isActive = _activeAudioPath == sound.tempAudioPath;
     final left = sound.rect[0];
-    final top = (pdfHeight - sound.rect[3]).clamp(0.0, pdfHeight);
+    final double rectTop = sound.rect.length >= 4 ? sound.rect[3] : 0.0;
+    final top = (pdfHeight - rectTop).clamp(0.0, pdfHeight);
 
     if (isActive) {
+      // When docked under toolbar, show active compact glowing icon on the page
+      if (_isDockedAudioVisible) {
+        return Positioned(
+          left: left,
+          top: top,
+          width: 44,
+          height: 44,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _togglePlayPause(sound.tempAudioPath),
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF5B35F5),
+                shape: BoxShape.circle,
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x775B35F5),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: Icon(
+                _playerState == PlayerState.playing
+                    ? Icons.volume_up_rounded
+                    : Icons.pause_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ),
+        );
+      }
+
       const double pillWidth = 260.0;
       final double adjustedLeft = (left + pillWidth > pdfWidth)
           ? (pdfWidth - pillWidth - 8).clamp(8.0, pdfWidth)
@@ -788,7 +913,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
 
     final width = (sound.rect[2] - sound.rect[0]).abs();
-    final height = (sound.rect[3] - sound.rect[1]).abs();
+    final height = ((sound.rect.length >= 4 ? sound.rect[3] : 0.0) - sound.rect[1]).abs();
 
     final clickWidth = width.clamp(36.0, 56.0);
     final clickHeight = height.clamp(36.0, 56.0);
@@ -894,7 +1019,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
               const SizedBox(width: 4),
 
-              // 3. Playback Speed Button (Instead of delete button)
+              // 3. Playback Speed Button
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _togglePlaybackSpeed,
@@ -931,20 +1056,200 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
               const SizedBox(width: 2),
 
-              // 5. Close / Collapse Arrow
+              // 5. Close / Cancel Button
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: () {
-                  setState(() {
-                    _activeAudioPath = null;
-                  });
-                },
+                onTap: _cancelAudio,
                 child: const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                   child: Icon(
-                    Icons.chevron_left_rounded,
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDockedAudioPlayer(
+    PdfSoundAnnotation sound,
+    bool isDark,
+    bool compact,
+  ) {
+    final isPlaying = _playerState == PlayerState.playing;
+    final maxMs = _totalDuration.inMilliseconds > 0
+        ? _totalDuration.inMilliseconds.toDouble()
+        : 1.0;
+    final currentMs =
+        _currentPosition.inMilliseconds.toDouble().clamp(0.0, maxMs);
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        height: 44,
+        margin: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF26223D) : const Color(0xFF322F46),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: isDark ? Colors.white12 : Colors.white24,
+            width: 1,
+          ),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black45,
+              blurRadius: 12,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 1. Page Indicator & Jump-to Page
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _scrollToPage(sound.pageNumber - 1),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5B35F5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.volume_up_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'ص ${sound.pageNumber}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 6),
+
+              // 2. Play / Pause Button
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _togglePlayPause(sound.tempAudioPath),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: const BoxDecoration(
+                    color: Colors.white12,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
                     color: Colors.white,
                     size: 20,
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 4),
+
+              // 3. Audio Slider / Progress Track
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: compact ? 110 : 180,
+                  minWidth: 70,
+                ),
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 4,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                    activeTrackColor: const Color(0xFF7C5CFC),
+                    inactiveTrackColor: Colors.white24,
+                    thumbColor: Colors.white,
+                  ),
+                  child: Slider(
+                    value: currentMs,
+                    min: 0.0,
+                    max: maxMs,
+                    onChanged: (val) {
+                      _audioPlayer.seek(Duration(milliseconds: val.toInt()));
+                    },
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 4),
+
+              // 4. Playback Speed Button
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _togglePlaybackSpeed,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.white12,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    '${_playbackSpeed == 1.0 ? '1' : _playbackSpeed}x',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 6),
+
+              // 5. Remaining Countdown Time
+              Text(
+                _formatRemainingTime(_currentPosition, _totalDuration),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+
+              const SizedBox(width: 6),
+
+              // 6. Cancel / Close Button
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _cancelAudio,
+                child: Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 16,
                   ),
                 ),
               ),
@@ -1234,6 +1539,37 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                               );
                             },
                           ),
+                          // Sticky Docked Audio Bar (when active sound is scrolled out of view under toolbar)
+                          Positioned(
+                            top: 8,
+                            left: 0,
+                            right: 0,
+                            child: AnimatedSlide(
+                              offset: (_isDockedAudioVisible && _activeSound != null)
+                                  ? Offset.zero
+                                  : const Offset(0, -0.4),
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeOutCubic,
+                              child: AnimatedOpacity(
+                                opacity: (_isDockedAudioVisible && _activeSound != null)
+                                    ? 1.0
+                                    : 0.0,
+                                duration: const Duration(milliseconds: 200),
+                                child: IgnorePointer(
+                                  ignoring: !(_isDockedAudioVisible && _activeSound != null),
+                                  child: _activeSound != null
+                                      ? Center(
+                                          child: _buildDockedAudioPlayer(
+                                            _activeSound!,
+                                            isDark,
+                                            compact,
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
+                              ),
+                            ),
+                          ),
                           // Bottom Page Indicator / Controller
                           Positioned(
                             bottom: 16,
@@ -1408,6 +1744,7 @@ class _PdfDrawingOverlay extends StatefulWidget {
 class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
   final GlobalKey _canvasKey = GlobalKey();
   int? _activePointer;
+  PointerDeviceKind? _activeKind;
 
   SlideWorkspaceController get controller => widget.controller;
 
@@ -1422,7 +1759,11 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
     final canDraw = _canDraw;
     return Listener(
       behavior: canDraw ? HitTestBehavior.opaque : HitTestBehavior.translucent,
-      onPointerDown: canDraw ? _handlePointerDown : null,
+      onPointerDown: canDraw
+          ? (event) {
+              unawaited(_handlePointerDown(event));
+            }
+          : null,
       onPointerMove: canDraw ? _handlePointerMove : null,
       onPointerUp: canDraw ? _handlePointerUp : null,
       onPointerCancel: canDraw ? _handlePointerUp : null,
@@ -1478,11 +1819,16 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
     );
   }
 
-  void _handlePointerDown(PointerDownEvent event) {
+  Future<void> _handlePointerDown(PointerDownEvent event) async {
     if (!_canDraw || !_isPrimaryMouseButton(event)) return;
 
-    // Allow finger touch, stylus, and mouse drawing on all devices
-    if (event.kind == PointerDeviceKind.unknown) return;
+    final fingerDrawing = MediaQuery.sizeOf(context).width < 600 &&
+        event.kind == PointerDeviceKind.touch;
+    if (!_isStylus(event.kind) &&
+        event.kind != PointerDeviceKind.mouse &&
+        !fingerDrawing) {
+      return;
+    }
 
     if (widget.index != controller.currentIndex) {
       controller.goToSlide(widget.index, clearHistory: false);
@@ -1490,9 +1836,18 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
       repo.mainRepository.savePdfLastOpenedPage(repo.pdfId, repo.stationId, widget.index + 1);
     }
 
-    if (_activePointer != null) return;
+    final incomingIsStylus = _isStylus(event.kind);
+    final activeIsStylus = _isStylus(_activeKind);
+    if (_activePointer != null) {
+      if (incomingIsStylus && !activeIsStylus) {
+        await controller.endStroke();
+      } else {
+        return;
+      }
+    }
 
     _activePointer = event.pointer;
+    _activeKind = event.kind;
     controller.startStroke(
       _toSlidePoint(event.position),
       event.kind,
@@ -1508,7 +1863,8 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
   void _handlePointerUp(PointerEvent event) {
     if (event.pointer != _activePointer) return;
     _activePointer = null;
-    controller.endStroke();
+    _activeKind = null;
+    unawaited(controller.endStroke());
   }
 
   bool get _canDraw =>
@@ -1519,6 +1875,10 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
   bool _isPrimaryMouseButton(PointerDownEvent event) =>
       event.kind != PointerDeviceKind.mouse ||
       event.buttons == kPrimaryMouseButton;
+
+  bool _isStylus(PointerDeviceKind? kind) =>
+      kind == PointerDeviceKind.stylus ||
+      kind == PointerDeviceKind.invertedStylus;
 
   Offset _toSlidePoint(Offset globalPosition) {
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;

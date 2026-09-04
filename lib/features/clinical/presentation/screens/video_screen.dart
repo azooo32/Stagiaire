@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../../../core/services/pdf_storage_service.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/services/security_service.dart';
 import '../../../../core/theme/colors.dart';
@@ -1484,11 +1485,7 @@ class _VideoScreenState extends State<VideoScreen>
     try {
       final file = File(originalPath);
       if (!await file.exists()) return originalPath;
-      final docsDir = await getApplicationDocumentsDirectory();
-      final pdfsDir = Directory('${docsDir.path}/saved_pdfs');
-      if (!await pdfsDir.exists()) {
-        await pdfsDir.create(recursive: true);
-      }
+      final pdfsDir = await PdfStorageService.getSavedPdfsDirectory();
       final fileName = originalPath.split('/').last.split('\\').last;
       final savedPath =
           '${pdfsDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';

@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
+import '../../../../core/services/pdf_storage_service.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/utils/platform_file_helper.dart';
 import '../../../../core/theme/colors.dart';
@@ -2361,11 +2362,7 @@ Future<String?> _savePdfPersistently(String originalPath) async {
   try {
     final file = File(originalPath);
     if (!await file.exists()) return originalPath;
-    final docsDir = await getApplicationDocumentsDirectory();
-    final pdfsDir = Directory('${docsDir.path}/saved_pdfs');
-    if (!await pdfsDir.exists()) {
-      await pdfsDir.create(recursive: true);
-    }
+    final pdfsDir = await PdfStorageService.getSavedPdfsDirectory();
     final fileName = originalPath.split('/').last.split('\\').last;
     final savedPath =
         '${pdfsDir.path}/${DateTime.now().millisecondsSinceEpoch}_$fileName';

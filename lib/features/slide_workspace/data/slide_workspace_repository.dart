@@ -34,7 +34,11 @@ abstract class SlideWorkspaceRepository {
     String? audioPath,
   });
   Future<WorkspaceSlide> duplicateSlide(WorkspaceSlide slide);
-  Future<WorkspaceSlide> createBlankSlide({required String stationId});
+  Future<WorkspaceSlide> createBlankSlide({
+    required String stationId,
+    int? insertAfterSlideIndex,
+    String? subtitle,
+  });
   Future<void> deleteSlide(String slideId);
   Future<WorkspaceSlide> setSlideHidden(String slideId, bool isHidden);
   Future<void> reorderSlides(String stationId, List<WorkspaceSlide> slides);
@@ -255,13 +259,84 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
           .where((index) => index > 0)
           .toSet();
       var nextIndex = 1;
+      var subtitleIndex = 1;
+      var subtitleSlideIndex = 1;
+
       if (insertAfterSlideIndex != null) {
+        final precedingRow = rows.firstWhere(
+          (r) => (r['slide_index'] as num?)?.toInt() == insertAfterSlideIndex,
+          orElse: () => <String, dynamic>{},
+        );
+
         final insertionIndex =
             (insertAfterSlideIndex + 1).clamp(1, rows.length + 1);
-        final rowsToShift = rows.where((row) {
-          final index = (row['slide_index'] as num?)?.toInt();
-          return index != null && index >= insertionIndex;
-        }).toList()
+
+        if (precedingRow.isNotEmpty) {
+          final precSub = (precedingRow['subtitle'] ?? '').toString();
+          final effectiveSubtitle =
+              subtitle.trim().isNotEmpty ? subtitle : precSub;
+          subtitle = effectiveSubtitle;
+          final isSameSub = subtitle.trim().toLowerCase() == precSub.trim().toLowerCase();
+
+          if (isSameSub) {
+            subtitleIndex =
+                (precedingRow['subtitle_index'] as num?)?.toInt() ?? 1;
+            final precSubSlideIdx =
+                (precedingRow['subtitle_slide_index'] as num?)?.toInt() ?? 1;
+            subtitleSlideIndex = precSubSlideIdx + 1;
+
+            // Shift subtitle_slide_index in descending order for following rows in the same subtitle
+            final subRowsToShift = rows
+                .where((r) {
+                  final sIdx = (r['subtitle_index'] as num?)?.toInt();
+                  final subSIdx = (r['subtitle_slide_index'] as num?)?.toInt();
+                  return sIdx == subtitleIndex &&
+                      subSIdx != null &&
+                      subSIdx >= subtitleSlideIndex;
+                })
+                .toList()
+              ..sort((a, b) => ((b['subtitle_slide_index'] as num?)?.toInt() ?? 0)
+                  .compareTo((a['subtitle_slide_index'] as num?)?.toInt() ?? 0));
+
+            for (final r in subRowsToShift) {
+              final id = r['id']?.toString();
+              final idx = (r['subtitle_slide_index'] as num?)?.toInt();
+              if (id != null && idx != null) {
+                await _supabase.client
+                    .from('slides')
+                    .update({'subtitle_slide_index': idx + 1}).eq('id', id);
+              }
+            }
+          } else {
+            final sameSubRows = rows.where((r) =>
+                (r['subtitle'] ?? '').toString().trim().toLowerCase() ==
+                subtitle.trim().toLowerCase());
+            subtitleIndex = sameSubRows.isNotEmpty
+                ? (sameSubRows.first['subtitle_index'] as num?)?.toInt() ?? 1
+                : rows.map((r) => (r['subtitle_index'] as num?)?.toInt() ?? 0).fold<int>(0, (m, v) => v > m ? v : m) + 1;
+            subtitleSlideIndex = sameSubRows
+                .map((r) => (r['subtitle_slide_index'] as num?)?.toInt() ?? 0)
+                .fold<int>(0, (m, v) => v > m ? v : m) + 1;
+          }
+        } else {
+          final subtitleKey = subtitle.trim().toLowerCase();
+          final sameSubtitle = rows.where((row) =>
+              (row['subtitle'] ?? '').toString().trim().toLowerCase() == subtitleKey);
+          subtitleIndex = sameSubtitle.isNotEmpty
+              ? (sameSubtitle.first['subtitle_index'] as num?)?.toInt() ?? 1
+              : rows.map((row) => (row['subtitle_index'] as num?)?.toInt() ?? 0).fold<int>(0, (m, v) => v > m ? v : m) + 1;
+          subtitleSlideIndex = sameSubtitle
+              .map((row) => (row['subtitle_slide_index'] as num?)?.toInt() ?? 0)
+              .fold<int>(0, (m, v) => v > m ? v : m) + 1;
+        }
+
+        // Shift slide_index globally in descending order
+        final rowsToShift = rows
+            .where((row) {
+              final index = (row['slide_index'] as num?)?.toInt();
+              return index != null && index >= insertionIndex;
+            })
+            .toList()
           ..sort((a, b) => ((b['slide_index'] as num?)?.toInt() ?? 0)
               .compareTo((a['slide_index'] as num?)?.toInt() ?? 0));
 
@@ -278,26 +353,16 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         while (usedIndexes.contains(nextIndex)) {
           nextIndex++;
         }
+        final subtitleKey = subtitle.trim().toLowerCase();
+        final sameSubtitle = rows.where((row) =>
+            (row['subtitle'] ?? '').toString().trim().toLowerCase() == subtitleKey);
+        subtitleIndex = sameSubtitle.isNotEmpty
+            ? (sameSubtitle.first['subtitle_index'] as num?)?.toInt() ?? 1
+            : rows.map((row) => (row['subtitle_index'] as num?)?.toInt() ?? 0).fold<int>(0, (m, v) => v > m ? v : m) + 1;
+        subtitleSlideIndex = sameSubtitle
+            .map((row) => (row['subtitle_slide_index'] as num?)?.toInt() ?? 0)
+            .fold<int>(0, (m, v) => v > m ? v : m) + 1;
       }
-
-      final subtitleKey = subtitle.trim().toLowerCase();
-      final sameSubtitle = rows.where(
-        (row) =>
-            (row['subtitle'] ?? '').toString().trim().toLowerCase() ==
-            subtitleKey,
-      );
-      final subtitleIndex = sameSubtitle.isNotEmpty
-          ? (sameSubtitle.first['subtitle_index'] as num?)?.toInt() ?? 1
-          : rows
-                  .map((row) => (row['subtitle_index'] as num?)?.toInt() ?? 0)
-                  .fold<int>(0,
-                      (maxValue, value) => value > maxValue ? value : maxValue) +
-              1;
-      final subtitleSlideIndex = sameSubtitle
-              .map((row) => (row['subtitle_slide_index'] as num?)?.toInt() ?? 0)
-              .fold<int>(
-                  0, (maxValue, value) => value > maxValue ? value : maxValue) +
-          1;
 
       final inserted = await _supabase.client
           .from('slides')
@@ -321,9 +386,6 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
           .select('*')
           .single();
 
-      if (insertAfterSlideIndex != null) {
-        await _reorderStationSlides(stationId);
-      }
       await _syncStationSlideCount(stationId);
       return _slideFromRow(Map<String, dynamic>.from(inserted));
     });
@@ -479,22 +541,55 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     if (stationId.isEmpty) throw Exception('Missing station id for duplicate');
 
     return _runStationExclusive(stationId, () async {
-      // Fetch ids + indexes so we can shift slides that come after the original.
       final existing = await _supabase.client
           .from('slides')
-          .select('id, slide_index, subtitle_index, subtitle_slide_index')
+          .select('id, slide_index, subtitle_index, subtitle_slide_index, subtitle')
           .eq('station_id', stationId)
           .eq('is_active', true)
           .order('slide_index', ascending: true);
       final rows = List<Map<String, dynamic>>.from(existing);
 
-      final originalSlideIndex = slide.index;
-      final insertionIndex = originalSlideIndex + 1;
+      final originalRow = rows.firstWhere(
+        (r) => r['id'].toString() == slide.id,
+        orElse: () => <String, dynamic>{},
+      );
+      final originalSlideIndex =
+          (originalRow['slide_index'] as num?)?.toInt() ?? slide.index;
+      final originalSubtitleIndex =
+          (originalRow['subtitle_index'] as num?)?.toInt() ?? slide.subtitleIndex;
+      final originalSubtitleSlideIndex =
+          (originalRow['subtitle_slide_index'] as num?)?.toInt() ?? slide.subtitleSlideIndex;
 
+      final insertionSlideIndex = originalSlideIndex + 1;
+      final insertionSubSlideIndex = originalSubtitleSlideIndex + 1;
+
+      // 1. Shift subtitle_slide_index in descending order for following slides in the same subtitle
+      final subRowsToShift = rows
+          .where((row) {
+            final sIdx = (row['subtitle_index'] as num?)?.toInt();
+            final subSIdx = (row['subtitle_slide_index'] as num?)?.toInt();
+            return sIdx == originalSubtitleIndex &&
+                subSIdx != null &&
+                subSIdx >= insertionSubSlideIndex;
+          })
+          .toList()
+        ..sort((a, b) => ((b['subtitle_slide_index'] as num?)?.toInt() ?? 0)
+            .compareTo((a['subtitle_slide_index'] as num?)?.toInt() ?? 0));
+
+      for (final row in subRowsToShift) {
+        final id = row['id']?.toString();
+        final subSIdx = (row['subtitle_slide_index'] as num?)?.toInt();
+        if (id == null || subSIdx == null) continue;
+        await _supabase.client
+            .from('slides')
+            .update({'subtitle_slide_index': subSIdx + 1}).eq('id', id);
+      }
+
+      // 2. Shift slide_index in descending order for following slides globally
       final rowsToShift = rows
           .where((row) {
             final idx = (row['slide_index'] as num?)?.toInt();
-            return idx != null && idx >= insertionIndex;
+            return idx != null && idx >= insertionSlideIndex;
           })
           .toList()
         ..sort((a, b) => ((b['slide_index'] as num?)?.toInt() ?? 0)
@@ -509,23 +604,15 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
             .update({'slide_index': idx + 1}).eq('id', id);
       }
 
-      final subtitleIndex = slide.subtitleIndex;
-      final subtitleSlideIndex = rows
-              .where((row) =>
-                  (row['subtitle_index'] as num?)?.toInt() == subtitleIndex)
-              .map((row) => (row['subtitle_slide_index'] as num?)?.toInt() ?? 0)
-              .fold<int>(
-                  0, (maxValue, value) => value > maxValue ? value : maxValue) +
-          1;
-
+      // 3. Insert the duplicated slide
       final qaItems = _qaItems(slide.questions);
       final inserted = await _supabase.client
           .from('slides')
           .insert({
             'station_id': stationId,
-            'slide_index': insertionIndex,
-            'subtitle_index': subtitleIndex,
-            'subtitle_slide_index': subtitleSlideIndex,
+            'slide_index': insertionSlideIndex,
+            'subtitle_index': originalSubtitleIndex,
+            'subtitle_slide_index': insertionSubSlideIndex,
             'title': slide.title,
             'subtitle': slide.subtitle,
             'image_url': slide.imageAsset.isEmpty ? null : slide.imageAsset,
@@ -542,20 +629,24 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
           })
           .select('*')
           .single();
+
       await _syncStationSlideCount(stationId);
-      await _reorderStationSlides(stationId);
       return _slideFromRow(Map<String, dynamic>.from(inserted));
     });
   }
 
   @override
-  Future<WorkspaceSlide> createBlankSlide({required String stationId}) {
-
+  Future<WorkspaceSlide> createBlankSlide({
+    required String stationId,
+    int? insertAfterSlideIndex,
+    String? subtitle,
+  }) {
     return createSlide(
       stationId: stationId,
       title: 'Untitled Slide',
-      subtitle: '',
+      subtitle: subtitle ?? '',
       questions: const [],
+      insertAfterSlideIndex: insertAfterSlideIndex,
     );
   }
 
@@ -681,55 +772,117 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     if (slides.isEmpty) return;
 
     await _runStationExclusive(stationId, () async {
-      // Fetch all active slides for the station to preserve full station sequence
+      // 1. Fetch all active slides for the station ordered by slide_index ASC
       final existing = await _supabase.client
           .from('slides')
-          .select('id, slide_index, subtitle_index, subtitle_slide_index')
+          .select('id, slide_index, subtitle_index, subtitle_slide_index, subtitle')
           .eq('station_id', stationId)
           .eq('is_active', true)
-          .order('subtitle_index', ascending: true)
-          .order('subtitle_slide_index', ascending: true)
           .order('slide_index', ascending: true);
       final allRows = List<Map<String, dynamic>>.from(existing);
+      if (allRows.isEmpty) return;
 
-      final passedIds = slides.map((s) => s.id).toSet();
-      final List<String> finalOrderedIds = [];
+      final passedSlideMap = {for (final s in slides) s.id: s};
+      final passedIds = passedSlideMap.keys.toSet();
 
-      if (allRows.length <= slides.length) {
-        finalOrderedIds.addAll(slides.map((s) => s.id));
+      // 2. Build finalOrderedRows preserving full station sequence
+      final List<Map<String, dynamic>> finalOrderedRows = [];
+      if (allRows.length <= slides.length || passedIds.length >= allRows.length) {
+        // Full station reorder
+        for (final s in slides) {
+          final original = allRows.firstWhere(
+            (r) => r['id'].toString() == s.id,
+            orElse: () => <String, dynamic>{},
+          );
+          finalOrderedRows.add({
+            'id': s.id,
+            'subtitle': s.subtitle.isNotEmpty
+                ? s.subtitle
+                : (original['subtitle'] ?? ''),
+          });
+        }
       } else {
+        // Partial reorder (e.g. within a single subtitle):
+        // Only replace the slots corresponding to passedIds with the new order in slides!
         var subsetIdx = 0;
         for (final row in allRows) {
           final id = row['id'].toString();
           if (passedIds.contains(id)) {
             if (subsetIdx < slides.length) {
-              finalOrderedIds.add(slides[subsetIdx].id);
+              final newSlide = slides[subsetIdx];
+              finalOrderedRows.add({
+                'id': newSlide.id,
+                'subtitle': newSlide.subtitle.isNotEmpty
+                    ? newSlide.subtitle
+                    : (row['subtitle'] ?? ''),
+              });
               subsetIdx++;
+            } else {
+              finalOrderedRows.add(row);
             }
           } else {
-            finalOrderedIds.add(id);
+            // Unchanged slide from other subtitles: stays in exact same slot
+            finalOrderedRows.add(row);
           }
         }
       }
 
-      // 1. Assign unique negative indexes first to avoid unique constraint collisions
-      for (var i = 0; i < finalOrderedIds.length; i++) {
-        final id = finalOrderedIds[i];
-        await _supabase.client
-            .from('slides')
-            .update({'slide_index': -(i + 1)}).eq('id', id);
+      // 3. Compute clean sequential indexes for all rows:
+      // - slide_index: 1 .. N
+      // - subtitle_index: 1 .. M (based on order of appearance)
+      // - subtitle_slide_index: 1 .. K (within each subtitle group)
+      final Map<String, int> subtitleAssignedIndex = {};
+      final Map<String, int> subtitleCounters = {};
+      var nextSubtitleIndex = 1;
+
+      for (var i = 0; i < finalOrderedRows.length; i++) {
+        final subKey =
+            (finalOrderedRows[i]['subtitle'] ?? '').toString().trim().toLowerCase();
+        if (!subtitleAssignedIndex.containsKey(subKey)) {
+          subtitleAssignedIndex[subKey] = nextSubtitleIndex++;
+        }
       }
 
-      // 2. Assign the final positive indexes
-      for (var i = 0; i < finalOrderedIds.length; i++) {
-        final id = finalOrderedIds[i];
-        await _supabase.client
-            .from('slides')
-            .update({'slide_index': i + 1}).eq('id', id);
+      final List<Map<String, dynamic>> finalUpdates = [];
+      for (var i = 0; i < finalOrderedRows.length; i++) {
+        final row = finalOrderedRows[i];
+        final id = row['id'].toString();
+        final rawSub = (row['subtitle'] ?? '').toString();
+        final subKey = rawSub.trim().toLowerCase();
+        final subIdx = subtitleAssignedIndex[subKey] ?? 1;
+        final subSlideIdx = (subtitleCounters[subKey] ?? 0) + 1;
+        subtitleCounters[subKey] = subSlideIdx;
+
+        finalUpdates.add({
+          'id': id,
+          'slide_index': i + 1,
+          'subtitle_index': subIdx,
+          'subtitle_slide_index': subSlideIdx,
+          'subtitle': rawSub,
+        });
       }
 
-      // 3. Let the RPC clean everything up atomically
-      await _reorderStationSlides(stationId);
+      // 4. Phase 1: Assign unique negative slide_index to avoid unique constraint collision
+      for (var i = 0; i < finalUpdates.length; i++) {
+        final id = finalUpdates[i]['id'];
+        await _supabase.client
+            .from('slides')
+            .update({'slide_index': -(i + 1)})
+            .eq('id', id);
+      }
+
+      // 5. Phase 2: Assign final positive slide_index, subtitle_index, subtitle_slide_index, and subtitle
+      for (final u in finalUpdates) {
+        await _supabase.client
+            .from('slides')
+            .update({
+              'slide_index': u['slide_index'],
+              'subtitle_index': u['subtitle_index'],
+              'subtitle_slide_index': u['subtitle_slide_index'],
+              'subtitle': u['subtitle'],
+            })
+            .eq('id', u['id']);
+      }
     });
   }
 

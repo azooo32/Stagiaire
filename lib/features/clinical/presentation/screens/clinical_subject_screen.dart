@@ -587,6 +587,380 @@ void showAddStationDialog(BuildContext context, AppProvider provider,
   );
 }
 
+// --- Edit Station Dialog ---
+void showEditStationDialog(
+  BuildContext context,
+  AppProvider provider,
+  ClinicalSlideStation station,
+  String subject,
+) {
+  final titleController = TextEditingController(text: station.title);
+  String selectedIconType = station.iconType;
+  String selectedStationType = station.stationType;
+  final isDark = provider.isDarkTheme;
+  final titleColor = isDark ? Colors.white : const Color(0xFF1E1E50);
+  final dbId = station.dbId;
+  if (dbId == null) return;
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: isDark ? AppColors.surface : Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    ),
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+              top: 24,
+              left: 24,
+              right: 24,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 48,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: isDark ? AppColors.border : Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'تعديل الستيشن / Edit Station',
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                    fontFamily: 'Cairo',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+
+                // Title Input
+                Text(
+                  'اسم الستيشن / Station Name',
+                  style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      fontFamily: 'Cairo'),
+                ),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: titleController,
+                  decoration: _buildInputDecoration(
+                      'e.g., General Surgery, Urology',
+                      isDark: isDark),
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? Colors.white : Colors.black),
+                ),
+                const SizedBox(height: 16),
+
+                // Icon Type Selection
+                Text(
+                  'أيقونة الستيشن / Station Icon',
+                  style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      fontFamily: 'Cairo'),
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedIconType,
+                  dropdownColor: isDark ? AppColors.surface : Colors.white,
+                  decoration: _buildInputDecoration('', isDark: isDark),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black),
+                  items: [
+                    'scalpel',
+                    'kidneys',
+                    'stomach',
+                    'liver',
+                    'vascular',
+                    'brain',
+                    'ribcage',
+                    'baby',
+                    'siren'
+                  ]
+                      .map((type) => DropdownMenuItem(
+                            value: type,
+                            child: Text(
+                              type.substring(0, 1).toUpperCase() +
+                                  type.substring(1),
+                              style: TextStyle(
+                                  color:
+                                      isDark ? Colors.white : Colors.black),
+                            ),
+                          ))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setModalState(() => selectedIconType = val);
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+
+                // Station Type Selection
+                Text(
+                  'نوع المحطة / Station Type',
+                  style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      fontFamily: 'Cairo'),
+                ),
+                const SizedBox(height: 6),
+                DropdownButtonFormField<String>(
+                  value: selectedStationType,
+                  dropdownColor: isDark ? AppColors.surface : Colors.white,
+                  decoration: _buildInputDecoration('', isDark: isDark),
+                  style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontFamily: 'Cairo'),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'slides',
+                      child: Text('🖼️ شرائح تفاعلية (Slides)'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'pdf',
+                      child: Text('📄 مستندات (PDF Workspace)'),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val != null) {
+                      setModalState(() => selectedStationType = val);
+                    }
+                  },
+                ),
+                const SizedBox(height: 24),
+
+                ElevatedButton(
+                  onPressed: () {
+                    final title = titleController.text.trim();
+                    if (title.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                            content: Text('الرجاء إدخال اسم الستيشن')),
+                      );
+                      return;
+                    }
+                    provider.updateClinicalSlideStation(
+                      dbId,
+                      subject,
+                      title: title,
+                      iconType: selectedIconType,
+                      stationType: selectedStationType,
+                    );
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('تم تعديل "$title" بنجاح ✅')),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6B4EFF),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text(
+                    'حفظ التعديلات / Save Changes',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        fontFamily: 'Cairo'),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+// --- Admin Station Options Sheet ---
+void _showStationAdminOptions(
+  BuildContext context,
+  AppProvider provider,
+  ClinicalSlideStation station,
+  String subject,
+  Color brandColor,
+) {
+  final isDark = provider.isDarkTheme;
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: isDark ? AppColors.surface : Colors.white,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (context) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 44,
+                height: 5,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.border : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              // Station name header
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Text(
+                  station.title,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF1E1E50),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    fontFamily: 'Cairo',
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Edit Option
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: brandColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.edit_rounded, color: brandColor, size: 20),
+                ),
+                title: Text(
+                  'تعديل الستيشن / Edit Station',
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF1E1E50),
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  showEditStationDialog(context, provider, station, subject);
+                },
+              ),
+              // Delete Option
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.10),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.delete_rounded,
+                      color: Colors.red, size: 20),
+                ),
+                title: const Text(
+                  'حذف الستيشن / Delete Station',
+                  style: TextStyle(
+                    color: Colors.red,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor:
+                          isDark ? AppColors.surface : Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20)),
+                      title: Text(
+                        'حذف الستيشن؟',
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white
+                              : const Color(0xFF1E1E50),
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      content: Text(
+                        'هل أنت متأكد من حذف "${station.title}"؟\nلا يمكن التراجع عن هذه العملية.',
+                        style: TextStyle(
+                          color: isDark
+                              ? AppColors.textMuted
+                              : Colors.grey.shade600,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          child: Text(
+                            'إلغاء',
+                            style: TextStyle(
+                              color: brandColor,
+                              fontFamily: 'Cairo',
+                            ),
+                          ),
+                        ),
+                        ElevatedButton(
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            if (station.dbId != null) {
+                              provider.deleteClinicalSlideStation(
+                                  station.dbId!, subject);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                      'تم حذف "${station.title}" بنجاح 🗑️'),
+                                ),
+                              );
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            'حذف',
+                            style: TextStyle(
+                                color: Colors.white, fontFamily: 'Cairo'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 void showAddSectionDialog(BuildContext context, AppProvider provider,
     {required String subject}) {
   final titleController = TextEditingController();
@@ -1874,6 +2248,7 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
       BuildContext context, ClinicalSlideStation station, Color brandColor, bool isTablet) {
     final provider = Provider.of<AppProvider>(context);
     final isDark = provider.isDarkTheme;
+    final isAdmin = provider.isAdminOrOwner;
     final isBookmarked = provider.isClinicalBookmarked('station', station.dbId);
     final isDone = provider.isStationCompleted(station.dbId);
 
@@ -1893,6 +2268,15 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
           ),
         );
       },
+      onLongPress: isAdmin
+          ? () => _showStationAdminOptions(
+                context,
+                provider,
+                station,
+                widget.subject,
+                brandColor,
+              )
+          : null,
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? AppColors.surface : Colors.white,
@@ -1921,27 +2305,39 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Top Row: Station ID badge
-              Align(
-                alignment: Alignment.topRight,
-                child: Container(
-                  padding: isTablet
-                      ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4)
-                      : const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                  decoration: BoxDecoration(
-                    color: brandColor.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '${station.id}',
-                    style: TextStyle(
-                      color: brandColor,
-                      fontSize: isTablet ? 12 : 9,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'Inter',
+              // Top Row: Admin icon (left) + Station ID badge (right)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Admin edit indicator (only visible to admins)
+                  if (isAdmin)
+                    Icon(
+                      Icons.more_vert_rounded,
+                      color: brandColor.withValues(alpha: 0.50),
+                      size: isTablet ? 16 : 12,
+                    )
+                  else
+                    const SizedBox.shrink(),
+                  // Station ID badge
+                  Container(
+                    padding: isTablet
+                        ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4)
+                        : const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                    decoration: BoxDecoration(
+                      color: brandColor.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${station.id}',
+                      style: TextStyle(
+                        color: brandColor,
+                        fontSize: isTablet ? 12 : 9,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Inter',
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
 
               // Prominent Circular Icon in Center

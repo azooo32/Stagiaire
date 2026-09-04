@@ -782,19 +782,22 @@ class SlideWorkspaceController extends ChangeNotifier {
     final nextSlides = [...slides]..insert(index + 1, duplicated);
     slides = _renumber(nextSlides);
     currentIndex = index + 1;
-    await _persistOrder();
     notifyListeners();
   }
 
   Future<void> addBlankSlideAfter(int index) async {
     final id = stationId;
     if (id == null || id.trim().isEmpty) return;
-    final blank = await _repository.createBlankSlide(stationId: id);
+    final preceding = index >= 0 && index < slides.length ? slides[index] : null;
+    final blank = await _repository.createBlankSlide(
+      stationId: id,
+      insertAfterSlideIndex: preceding?.index,
+      subtitle: preceding?.subtitle ?? (filterSubtitle ?? ''),
+    );
     final insertAt = slides.isEmpty ? 0 : (index + 1).clamp(0, slides.length);
     final nextSlides = [...slides]..insert(insertAt, blank);
     slides = _renumber(nextSlides);
     currentIndex = insertAt;
-    await _persistOrder();
     notifyListeners();
   }
 
@@ -805,7 +808,6 @@ class SlideWorkspaceController extends ChangeNotifier {
     final nextSlides = [...slides]..removeAt(index);
     slides = _renumber(nextSlides);
     currentIndex = slides.isEmpty ? 0 : min(index, slides.length - 1);
-    await _persistOrder();
     _clearHistory();
     notifyListeners();
   }

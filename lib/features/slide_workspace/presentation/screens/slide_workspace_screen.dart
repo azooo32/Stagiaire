@@ -422,6 +422,18 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
     final provider = Provider.of<AppProvider>(context, listen: false);
     final isDark = provider.isDarkTheme;
 
+    String? initialSubtitle;
+    if (slide != null) {
+      initialSubtitle = slide.subtitle;
+    } else if (insertAfterIndex != null &&
+        insertAfterIndex >= 0 &&
+        insertAfterIndex < controller.slides.length) {
+      initialSubtitle = controller.slides[insertAfterIndex].subtitle;
+    } else if (controller.filterSubtitle != null &&
+        controller.filterSubtitle!.trim().isNotEmpty) {
+      initialSubtitle = controller.filterSubtitle;
+    }
+
     final result = await showDialog<SlideEditorResult>(
       context: context,
       barrierDismissible: false,
@@ -429,6 +441,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
         slide: slide,
         currentSlides: controller.slides,
         isDark: isDark,
+        initialSubtitle: initialSubtitle,
         onSave: (editorResult) async {
           if (slide != null) {
             await controller.updateSlide(

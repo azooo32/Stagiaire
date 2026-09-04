@@ -260,33 +260,35 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
             ),
             child: Align(
               alignment: Alignment.topLeft,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (var i = 0; i < slide.questions.length; i++)
-                      QuestionBlock(
-                        number: i + 1,
-                        question: slide.questions[i],
-                        isDark: isDark,
-                        showAnswer: widget.studyMode,
-                        isEditingInPlace: isEditingInPlace,
-                        promptController: isEditingInPlace &&
-                                i <
-                                    stateProvider
-                                        .inPlacePromptControllers.length
-                            ? stateProvider.inPlacePromptControllers[i]
-                            : null,
-                        answerController: isEditingInPlace &&
-                                i <
-                                    stateProvider
-                                        .inPlaceAnswerControllers.length
-                            ? stateProvider.inPlaceAnswerControllers[i]
-                            : null,
-                      ),
-                  ],
+              child: SelectionArea(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (var i = 0; i < slide.questions.length; i++)
+                        QuestionBlock(
+                          number: i + 1,
+                          question: slide.questions[i],
+                          isDark: isDark,
+                          showAnswer: widget.studyMode,
+                          isEditingInPlace: isEditingInPlace,
+                          promptController: isEditingInPlace &&
+                                  i <
+                                      stateProvider
+                                          .inPlacePromptControllers.length
+                              ? stateProvider.inPlacePromptControllers[i]
+                              : null,
+                          answerController: isEditingInPlace &&
+                                  i <
+                                      stateProvider
+                                          .inPlaceAnswerControllers.length
+                              ? stateProvider.inPlaceAnswerControllers[i]
+                              : null,
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),

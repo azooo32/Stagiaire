@@ -1027,6 +1027,77 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> deleteClinicalSlideStation(String dbId, String subject) async {
+    _clinicalSlideStations.removeWhere((s) => s.dbId == dbId);
+    _dbSlideStations.removeWhere((s) => s.dbId == dbId);
+    notifyListeners();
+    try {
+      await _supabase.client
+          .from('slide_stations')
+          .delete()
+          .eq('id', dbId);
+      await invalidateClinicalCache(subject);
+      await loadClinicalData(subject);
+    } catch (e) {
+      print('Error deleting slide station: $e');
+    }
+  }
+
+  Future<void> updateClinicalSlideStation(
+    String dbId,
+    String subject, {
+    required String title,
+    required String iconType,
+    required String stationType,
+  }) async {
+    for (int i = 0; i < _clinicalSlideStations.length; i++) {
+      final s = _clinicalSlideStations[i];
+      if (s.dbId == dbId) {
+        _clinicalSlideStations[i] = ClinicalSlideStation(
+          id: s.id,
+          dbId: s.dbId,
+          title: title,
+          progressText: s.progressText,
+          progress: s.progress,
+          iconType: iconType,
+          subject: s.subject,
+          evaluation: s.evaluation,
+          sectionId: s.sectionId,
+          stationType: stationType,
+        );
+      }
+    }
+    for (int i = 0; i < _dbSlideStations.length; i++) {
+      final s = _dbSlideStations[i];
+      if (s.dbId == dbId) {
+        _dbSlideStations[i] = ClinicalSlideStation(
+          id: s.id,
+          dbId: s.dbId,
+          title: title,
+          progressText: s.progressText,
+          progress: s.progress,
+          iconType: iconType,
+          subject: s.subject,
+          evaluation: s.evaluation,
+          sectionId: s.sectionId,
+          stationType: stationType,
+        );
+      }
+    }
+    notifyListeners();
+    try {
+      await _supabase.client.from('slide_stations').update({
+        'title': title,
+        'icon_type': iconType,
+        'station_type': stationType,
+      }).eq('id', dbId);
+      await invalidateClinicalCache(subject);
+      await loadClinicalData(subject);
+    } catch (e) {
+      print('Error updating slide station: $e');
+    }
+  }
+
   Future<void> addClinicalSection(String subject, String title,
       String contentType, String? iconType) async {
     try {

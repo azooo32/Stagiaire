@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/services/pdf_sound_parser.dart';
 import '../../../../core/widgets/app_loader.dart';
+import '../../../../core/services/pdf_storage_service.dart';
 import '../../data/slide_workspace_repository.dart';
 import '../../domain/entities/slide_workspace_models.dart';
 import 'slide_workspace_screen.dart';
@@ -63,11 +64,11 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
 
   Future<void> _cleanupInterruptedDownloads() async {
     try {
-      final appDir = await getApplicationDocumentsDirectory();
+      final cacheDir = await PdfStorageService.getPdfCacheDirectory();
       for (final entry in _isDownloading.entries) {
         if (entry.value) {
           final slideId = entry.key;
-          final tmpFile = File('${appDir.path}/cached_pdfs/$slideId.pdf.tmp');
+          final tmpFile = File('${cacheDir.path}/$slideId.pdf.tmp');
           if (await tmpFile.exists()) {
             await tmpFile.delete();
           }
@@ -187,9 +188,10 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
 
     // Check cached status for PDFs without bypassing the station screen
     if (widget.stationType == 'pdf') {
-      final appDir = await getApplicationDocumentsDirectory();
+      await PdfStorageService.migrateOldPdfFiles();
+      final cacheDir = await PdfStorageService.getPdfCacheDirectory();
       for (final slide in _slides) {
-        final localPath = '${appDir.path}/cached_pdfs/${slide.id}.pdf';
+        final localPath = '${cacheDir.path}/${slide.id}.pdf';
         final tmpPath = '$localPath.tmp';
 
         // Clean up leftover temporary file if previous download was interrupted
@@ -301,12 +303,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       _downloadProgress[slide.id] = 0.0;
     });
 
-    final appDir = await getApplicationDocumentsDirectory();
-    final cacheDir = Directory('${appDir.path}/cached_pdfs');
-    if (!await cacheDir.exists()) {
-      await cacheDir.create(recursive: true);
-    }
-
+    final cacheDir = await PdfStorageService.getPdfCacheDirectory();
     final localPath = '${cacheDir.path}/${slide.id}.pdf';
     final tmpPath = '$localPath.tmp';
     final tmpFile = File(tmpPath);

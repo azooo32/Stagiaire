@@ -79,14 +79,8 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
             child: Stack(
               children: [
                 GestureDetector(
-                  behavior: HitTestBehavior.opaque,
+                  behavior: HitTestBehavior.translucent,
                   onTap: allowSlideGestures
-                      ? () {
-                          widget.onSlideTap?.call(widget.index);
-                          controller.selectObject(null);
-                        }
-                      : null,
-                  onLongPress: allowSlideGestures
                       ? () {
                           widget.onSlideTap?.call(widget.index);
                           controller.selectObject(null);
