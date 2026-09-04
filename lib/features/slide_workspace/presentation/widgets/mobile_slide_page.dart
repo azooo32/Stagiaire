@@ -47,8 +47,17 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
   int? _activePointer;
   PointerDeviceKind? _activeKind;
   PointerDeviceKind? _lastPointerKind;
+  /// Tracks the scroll offset of the in-slide SingleChildScrollView so the
+  /// drawing-layer overlay can follow the content scroll.
+  final ValueNotifier<double> _inSlideScrollOffset = ValueNotifier(0.0);
 
   SlideWorkspaceController get controller => widget.controller;
+
+  @override
+  void dispose() {
+    _inSlideScrollOffset.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -103,54 +112,63 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
                     isCurrent: isCurrent,
                     controller: controller,
                     slideIndex: widget.index,
+                    scrollOffsetNotifier: _inSlideScrollOffset,
                   ),
                 ),
                 Positioned.fill(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(18),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        for (final obj
-                            in ((controller.isStudyMode
-                                    ? slide.strokes
-                                    : slide.examStrokes)
-                                .toList()
-                              ..sort((a, b) {
-                                final cmp = a.zIndex.compareTo(b.zIndex);
-                                if (cmp != 0) return cmp;
-                                return a.creationTime.compareTo(b.creationTime);
-                              })))
-                          WorkspaceRendererRegistry.render(
-                            context: context,
-                            object: obj,
-                            controller: controller,
-                            isSelected: isCurrent &&
-                                controller.selectedObjectId == obj.id,
-                            onSelected: () {
-                              widget.onSlideTap?.call(widget.index);
-                              controller.selectObject(obj.id);
-                            },
-                            onUpdate: (updated) {
-                              controller.onInteractionFinished(updated);
-                            },
-                            onDelete: () {
-                              controller.deleteWorkspaceObject(obj.id);
-                              controller.selectObject(null);
-                            },
-                          ),
-                        if (isCurrent)
-                          IgnorePointer(
-                            child: RepaintBoundary(
-                              child: CustomPaint(
-                                painter: DrawingLayerPainter(
-                                  strokes: const [],
-                                  activeStroke: controller.activeStroke,
+                    child: ValueListenableBuilder<double>(
+                      valueListenable: _inSlideScrollOffset,
+                      builder: (context, scrollOffset, _) {
+                        return Transform.translate(
+                          offset: Offset(0, -scrollOffset),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              for (final obj
+                                  in ((controller.isStudyMode
+                                          ? slide.strokes
+                                          : slide.examStrokes)
+                                      .toList()
+                                    ..sort((a, b) {
+                                      final cmp = a.zIndex.compareTo(b.zIndex);
+                                      if (cmp != 0) return cmp;
+                                      return a.creationTime.compareTo(b.creationTime);
+                                    })))
+                                WorkspaceRendererRegistry.render(
+                                  context: context,
+                                  object: obj,
+                                  controller: controller,
+                                  isSelected: isCurrent &&
+                                      controller.selectedObjectId == obj.id,
+                                  onSelected: () {
+                                    widget.onSlideTap?.call(widget.index);
+                                    controller.selectObject(obj.id);
+                                  },
+                                  onUpdate: (updated) {
+                                    controller.onInteractionFinished(updated);
+                                  },
+                                  onDelete: () {
+                                    controller.deleteWorkspaceObject(obj.id);
+                                    controller.selectObject(null);
+                                  },
                                 ),
-                              ),
-                            ),
+                              if (isCurrent)
+                                IgnorePointer(
+                                  child: RepaintBoundary(
+                                    child: CustomPaint(
+                                      painter: DrawingLayerPainter(
+                                        strokes: const [],
+                                        activeStroke: controller.activeStroke,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                      ],
+                        );
+                      },
                     ),
                   ),
                 ),

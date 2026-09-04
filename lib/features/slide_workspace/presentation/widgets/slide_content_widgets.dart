@@ -21,6 +21,9 @@ class SlidePaper extends StatelessWidget {
   final SlideWorkspaceController? controller;
   final bool? loadRealImage;
   final int? slideIndex;
+  /// When provided, the in-slide scroll offset (in canvas logical pixels)
+  /// is written here so that the drawing-layer overlay can follow the scroll.
+  final ValueNotifier<double>? scrollOffsetNotifier;
 
   const SlidePaper({
     super.key,
@@ -33,6 +36,7 @@ class SlidePaper extends StatelessWidget {
     this.controller,
     this.loadRealImage,
     this.slideIndex,
+    this.scrollOffsetNotifier,
   });
 
   bool get _shouldLoadImage {
@@ -110,6 +114,7 @@ class SlidePaper extends StatelessWidget {
               isThumbnail: isThumbnail,
               loadRealImage: _shouldLoadImage,
               slideIndex: slideIndex,
+              scrollOffsetNotifier: scrollOffsetNotifier,
             ),
           ),
         ],
@@ -126,6 +131,7 @@ class AdaptiveSlideContent extends StatefulWidget {
   final bool isThumbnail;
   final bool loadRealImage;
   final int? slideIndex;
+  final ValueNotifier<double>? scrollOffsetNotifier;
 
   const AdaptiveSlideContent({
     super.key,
@@ -136,6 +142,7 @@ class AdaptiveSlideContent extends StatefulWidget {
     this.isThumbnail = false,
     this.loadRealImage = true,
     this.slideIndex,
+    this.scrollOffsetNotifier,
   });
 
   @override
@@ -144,6 +151,7 @@ class AdaptiveSlideContent extends StatefulWidget {
 
 class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
   bool _hasLoadedRealImage = false;
+  late final ScrollController _scrollController;
 
   @override
   void initState() {
@@ -151,6 +159,12 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
     if (widget.loadRealImage) {
       _hasLoadedRealImage = true;
     }
+    _scrollController = ScrollController();
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    widget.scrollOffsetNotifier?.value = _scrollController.offset;
   }
 
   @override
@@ -163,6 +177,8 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -262,6 +278,7 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
               alignment: Alignment.topLeft,
               child: SelectionArea(
                 child: SingleChildScrollView(
+                  controller: _scrollController,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.start,
