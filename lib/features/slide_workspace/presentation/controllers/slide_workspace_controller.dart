@@ -846,7 +846,7 @@ class SlideWorkspaceController extends ChangeNotifier {
   }
 
   void startStroke(Offset point, PointerDeviceKind kind,
-      {double pressure = 1}) {
+      {double pressure = 1, int? audioTimeMs}) {
     if (!_isDrawingTool) return;
     activeStroke.value = SlideStroke(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -859,6 +859,7 @@ class SlideWorkspaceController extends ChangeNotifier {
       opacity: selectedTool == WorkspaceTool.highlighter ? .25 : 1,
       tool: selectedTool,
       createdAtMillis: DateTime.now().millisecondsSinceEpoch,
+      audioTimeMs: audioTimeMs,
     );
   }
 

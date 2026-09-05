@@ -374,6 +374,40 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
           }
         }
 
+        // Pre-download synchronized lecture recordings if available
+        try {
+          final lectureRecordings = await _repository.getPdfLectureRecordings(slide.id);
+          if (lectureRecordings.isNotEmpty) {
+            final updatedRecordings = <PdfLectureRecording>[];
+            final audioClient = HttpClient();
+            for (final rec in lectureRecordings) {
+              final localAudioFile = File('${pdfCacheDir.path}/lecture_${rec.id}.m4a');
+              if (!await localAudioFile.exists() && rec.audioUrl.isNotEmpty) {
+                try {
+                  final req = await audioClient.getUrl(Uri.parse(rec.audioUrl));
+                  final res = await req.close();
+                  if (res.statusCode == 200) {
+                    final sink = localAudioFile.openWrite();
+                    await res.pipe(sink);
+                  }
+                } catch (_) {}
+              }
+              updatedRecordings.add(
+                localAudioFile.existsSync()
+                    ? rec.copyWith(localAudioPath: localAudioFile.path)
+                    : rec,
+              );
+            }
+            audioClient.close();
+
+            final jsonList = updatedRecordings.map((r) => r.toJson()).toList();
+            await File('${pdfCacheDir.path}/lecture_recordings.json')
+                .writeAsString(jsonEncode(jsonList));
+          }
+        } catch (e) {
+          debugPrint('Error pre-downloading PDF lecture recordings: $e');
+        }
+
         // Pre-render Page 1 & page sizes if not cached yet for 0ms workspace launch
         final page1File = File('${pdfCacheDir.path}/page_1.jpg');
         if (!page1File.existsSync()) {
@@ -965,7 +999,6 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   Future<void> _confirmDeletePdf(WorkspaceSlide pdfSlide) async {
     final provider = Provider.of<AppProvider>(context, listen: false);
     final isDark = provider.isDarkTheme;
-    final brandColor = isDark ? const Color(0xFF9E86FF) : const Color(0xFF5B35F5);
 
     final confirmed = await showDialog<bool>(
       context: context,

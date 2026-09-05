@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import '../../../core/services/cache_service.dart';
@@ -32,6 +33,15 @@ abstract class SlideWorkspaceRepository {
     String? imageFileName,
     String? imageContentType,
     String? audioPath,
+    String? subtitleChanged,
+    String? stationId,
+  });
+  Future<void> deleteAudioFromSlide(String slideId, String? audioUrl);
+  Future<void> updateSlideSubtitleInfo({
+    required String slideId,
+    required int subtitleIndex,
+    required int subtitleSlideIndex,
+    String? subtitle,
   });
   Future<WorkspaceSlide> duplicateSlide(WorkspaceSlide slide);
   Future<WorkspaceSlide> createBlankSlide({
@@ -52,6 +62,19 @@ abstract class SlideWorkspaceRepository {
   Future<void> savePdfAnnotations(String pdfId, String stationId, int pageNumber, List<WorkspaceObject> strokes);
   Future<void> savePdfLastOpenedPage(String pdfId, String stationId, int pageNumber);
   Future<void> clearStationCache(String stationId);
+  Future<List<PdfLectureRecording>> getPdfLectureRecordings(String pdfId);
+  Future<PdfLectureRecording> savePdfLectureRecording({
+    required String pdfId,
+    required String stationId,
+    required File audioFile,
+    required int durationMs,
+    required int pageNumber,
+    required double positionX,
+    required double positionY,
+    required Map<int, List<SlideStroke>> strokesData,
+    required List<PdfPointerEvent> pointerEvents,
+  });
+  Future<void> deletePdfLectureRecording(String recordingId, String audioUrl);
 }
 
 
@@ -402,6 +425,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     String? imageFileName,
     String? imageContentType,
     String? audioPath,
+    String? subtitleChanged,
+    String? stationId,
   }) async {
     final existing = await _supabase.client
         .from('slides')
@@ -533,6 +558,37 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .eq('id', slideId)
         .single();
     return _slideFromRow(Map<String, dynamic>.from(updated));
+  }
+
+  @override
+  Future<void> deleteAudioFromSlide(String slideId, String? audioUrl) async {
+    await _supabase.client
+        .from('slides')
+        .update({'voice_url': null})
+        .eq('id', slideId);
+
+    if (audioUrl != null && audioUrl.isNotEmpty) {
+      try {
+        await _supabase.deleteStorageFile('question-audios', audioUrl);
+      } catch (e) {
+        print('Failed to delete audio from storage: $e');
+      }
+    }
+  }
+
+  @override
+  Future<void> updateSlideSubtitleInfo({
+    required String slideId,
+    required int subtitleIndex,
+    required int subtitleSlideIndex,
+    String? subtitle,
+  }) async {
+    final payload = <String, dynamic>{
+      'subtitle_index': subtitleIndex,
+      'subtitle_slide_index': subtitleSlideIndex,
+      if (subtitle != null) 'subtitle': subtitle,
+    };
+    await _supabase.client.from('slides').update(payload).eq('id', slideId);
   }
 
   @override
@@ -1094,6 +1150,100 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       }, onConflict: 'user_id,pdf_id');
     } catch (e) {
       print('Error saving PDF last opened page: $e');
+    }
+  }
+
+  @override
+  Future<List<PdfLectureRecording>> getPdfLectureRecordings(String pdfId) async {
+    try {
+      final rows = await _supabase.client
+          .from('pdf_lecture_recordings')
+          .select('*')
+          .eq('pdf_id', pdfId)
+          .order('created_at', ascending: true);
+
+      return (rows as List)
+          .map((row) => PdfLectureRecording.fromJson(Map<String, dynamic>.from(row)))
+          .toList();
+    } catch (e) {
+      print('Error fetching PDF lecture recordings: $e');
+      return const [];
+    }
+  }
+
+  @override
+  Future<PdfLectureRecording> savePdfLectureRecording({
+    required String pdfId,
+    required String stationId,
+    required File audioFile,
+    required int durationMs,
+    required int pageNumber,
+    required double positionX,
+    required double positionY,
+    required Map<int, List<SlideStroke>> strokesData,
+    required List<PdfPointerEvent> pointerEvents,
+  }) async {
+    final user = _supabase.currentUser;
+
+    // 1. Upload audio file to Supabase storage bucket 'question-audios'
+    final audioUrl = await _supabase.uploadFile(
+      'question-audios',
+      audioFile.path,
+      folder: 'pdf_lectures/$pdfId',
+    );
+
+    if (audioUrl == null || audioUrl.isEmpty) {
+      throw Exception('Failed to upload lecture audio file to storage');
+    }
+
+    // 2. Prepare payload
+    final strokesMap = <String, dynamic>{};
+    for (final entry in strokesData.entries) {
+      strokesMap[entry.key.toString()] = entry.value.map((s) => s.toJson()).toList();
+    }
+
+    final row = await _supabase.client
+        .from('pdf_lecture_recordings')
+        .insert({
+          'pdf_id': pdfId,
+          'station_id': stationId,
+          'audio_url': audioUrl,
+          'duration_ms': durationMs,
+          'page_number': pageNumber,
+          'position_x': positionX,
+          'position_y': positionY,
+          'strokes_data': strokesMap,
+          'pointer_events': pointerEvents.map((e) => e.toJson()).toList(),
+          'created_by': user?.id,
+        })
+        .select('*')
+        .single();
+
+    // 3. Also update slides table voice_url as primary fallback
+    try {
+      await _supabase.client.from('slides').update({
+        'voice_url': audioUrl,
+      }).eq('id', pdfId);
+    } catch (_) {}
+
+    return PdfLectureRecording.fromJson(Map<String, dynamic>.from(row))
+        .copyWith(localAudioPath: audioFile.path);
+  }
+
+  @override
+  Future<void> deletePdfLectureRecording(String recordingId, String audioUrl) async {
+    try {
+      await _supabase.client
+          .from('pdf_lecture_recordings')
+          .delete()
+          .eq('id', recordingId);
+
+      if (audioUrl.isNotEmpty) {
+        unawaited(_supabase.deleteStorageFile('question-audios', audioUrl).catchError((_) => false));
+      }
+    } catch (e) {
+      print('Error deleting PDF lecture recording: $e');
+      rethrow;
     }
   }
 

@@ -65,6 +65,9 @@ class WorkspaceTopToolbar extends StatelessWidget {
   final VoidCallback? onReorderSlides;
   final VoidCallback? onRefreshCache;
   final bool isRefreshing;
+  final bool showLaserTool;
+  final VoidCallback? onRecordLecture;
+  final bool isRecordingLecture;
 
   const WorkspaceTopToolbar({
     super.key,
@@ -83,6 +86,9 @@ class WorkspaceTopToolbar extends StatelessWidget {
     this.onReorderSlides,
     this.onRefreshCache,
     this.isRefreshing = false,
+    this.showLaserTool = false,
+    this.onRecordLecture,
+    this.isRecordingLecture = false,
   });
 
   static const _toolOrder = [
@@ -97,6 +103,8 @@ class WorkspaceTopToolbar extends StatelessWidget {
     WorkspaceTool.eraser: (Icons.crop_16_9_rounded, 'Eraser'),
     WorkspaceTool.shape: (Icons.category_outlined, 'Shapes'),
     WorkspaceTool.text: (Icons.text_fields_rounded, 'Text'),
+    WorkspaceTool.laserDot: (Icons.adjust_rounded, 'Laser Dot'),
+    WorkspaceTool.laserTrail: (Icons.auto_fix_high_rounded, 'Vanishing Laser'),
   };
 
   static const _colors = [
@@ -368,6 +376,101 @@ class WorkspaceTopToolbar extends StatelessWidget {
               size: iconExtent,
               iconSize: iconSize,
               onTap: () => controller.selectTool(tool),
+            ),
+          if (showLaserTool)
+            PopupMenuButton<WorkspaceTool>(
+              tooltip: 'أداة الليزر',
+              offset: const Offset(0, 42),
+              color: isDark ? const Color(0xFF242038) : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              onSelected: (tool) {
+                controller.selectTool(tool);
+              },
+              itemBuilder: (ctx) => [
+                PopupMenuItem(
+                  value: WorkspaceTool.laserDot,
+                  child: Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.adjust_rounded, color: Colors.redAccent, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          'مؤشر ليزري وميضي (Dot)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                        if (controller.selectedTool == WorkspaceTool.laserDot) ...[
+                          const Spacer(),
+                          const Icon(Icons.check, size: 16, color: Color(0xFF7C5CFC)),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                PopupMenuItem(
+                  value: WorkspaceTool.laserTrail,
+                  child: Directionality(
+                    textDirection: TextDirection.rtl,
+                    child: Row(
+                      children: [
+                        const Icon(Icons.auto_fix_high_rounded, color: Colors.redAccent, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          'قلم ليزري متلاشي (Trail)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                        if (controller.selectedTool == WorkspaceTool.laserTrail) ...[
+                          const Spacer(),
+                          const Icon(Icons.check, size: 16, color: Color(0xFF7C5CFC)),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              child: WorkspaceIconButton(
+                icon: controller.selectedTool == WorkspaceTool.laserTrail
+                    ? Icons.auto_fix_high_rounded
+                    : Icons.adjust_rounded,
+                tooltip: 'أداة الليزر',
+                selected: controller.selectedTool == WorkspaceTool.laserDot ||
+                    controller.selectedTool == WorkspaceTool.laserTrail,
+                foregroundColor: (controller.selectedTool == WorkspaceTool.laserDot ||
+                        controller.selectedTool == WorkspaceTool.laserTrail)
+                    ? const Color(0xFFFF3B30)
+                    : _foreground,
+                size: iconExtent,
+                iconSize: iconSize,
+                onTap: () {
+                  if (controller.selectedTool == WorkspaceTool.laserDot) {
+                    controller.selectTool(WorkspaceTool.laserTrail);
+                  } else if (controller.selectedTool == WorkspaceTool.laserTrail) {
+                    controller.selectTool(WorkspaceTool.pan);
+                  } else {
+                    controller.selectTool(WorkspaceTool.laserDot);
+                  }
+                },
+              ),
+            ),
+          if (onRecordLecture != null)
+            WorkspaceIconButton(
+              icon: isRecordingLecture ? Icons.mic_rounded : Icons.mic_none_rounded,
+              tooltip: isRecordingLecture ? 'جاري تسجيل الشرح' : 'تسجيل شرح للمحاضرة',
+              selected: isRecordingLecture,
+              foregroundColor: isRecordingLecture ? const Color(0xFFFF3B30) : _foreground,
+              size: iconExtent,
+              iconSize: iconSize,
+              onTap: onRecordLecture,
             ),
           if (onAddSlide != null && showAddSlideButton)
             WorkspaceIconButton(
