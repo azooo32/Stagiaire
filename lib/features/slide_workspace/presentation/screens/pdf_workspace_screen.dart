@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -79,6 +80,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   // Lecture Recordings
   List<PdfLectureRecording> _lectureRecordings = [];
   PdfLectureRecording? _activeLectureRecording;
+  bool _isLecturePillCollapsed = false;
+  bool _isSoundPillCollapsed = false;
 
   // Recording Engine (for Admin/Owner)
   final AudioRecorder _audioRecorder = AudioRecorder();
@@ -290,6 +293,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           _playerState = PlayerState.stopped;
           _currentPosition = Duration.zero;
           _isDockedAudioVisible = false;
+          _isLecturePillCollapsed = false;
+          _isSoundPillCollapsed = false;
           _liveLaserDot = null;
           _activeLaserTrails.clear();
         });
@@ -1026,6 +1031,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _activeAudioPath = null;
         _activeLectureRecording = null;
         _isDockedAudioVisible = false;
+        _isLecturePillCollapsed = false;
+        _isSoundPillCollapsed = false;
         _playerState = PlayerState.stopped;
         _currentPosition = Duration.zero;
         _totalDuration = Duration.zero;
@@ -1039,6 +1046,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     try {
       if (_activeAudioPath != audioPath) {
         _activeAudioPath = audioPath;
+        _isSoundPillCollapsed = false;
         _currentPosition = Duration.zero;
         _totalDuration = Duration.zero;
         await _audioPlayer.stop();
@@ -1098,6 +1106,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
       _activeAudioPath = null;
       _activeLectureRecording = rec;
+      _isLecturePillCollapsed = false;
       _currentPosition = Duration(milliseconds: initialPositionMs);
       _totalDuration = Duration(milliseconds: rec.durationMs);
 
@@ -1566,20 +1575,25 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         return Positioned(
           left: left,
           top: top,
-          width: 44,
-          height: 44,
+          width: 42,
+          height: 42,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => _toggleLecturePlayPause(rec),
             child: Container(
               decoration: BoxDecoration(
-                color: const Color(0xFF7C5CFC),
+                color: const Color(0xFF5B35F5),
                 shape: BoxShape.circle,
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x777C5CFC),
+                    color: Color(0x775B35F5),
                     blurRadius: 10,
                     spreadRadius: 2,
+                  ),
+                  BoxShadow(
+                    color: Colors.black38,
+                    blurRadius: 6,
+                    offset: Offset(0, 2),
                   ),
                 ],
                 border: Border.all(color: Colors.white, width: 2),
@@ -1589,14 +1603,106 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                     ? Icons.graphic_eq_rounded
                     : Icons.play_arrow_rounded,
                 color: Colors.white,
-                size: 22,
+                size: 20,
               ),
             ),
           ),
         );
       }
 
-      const double pillWidth = 280.0;
+      // If folded/collapsed while playing on the slide:
+      if (_isLecturePillCollapsed) {
+        final isPlaying = _playerState == PlayerState.playing;
+        return Positioned(
+          left: left.clamp(8.0, pdfWidth - 78.0),
+          top: top.clamp(8.0, pdfHeight - 48.0),
+          child: Material(
+            color: Colors.transparent,
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: AnimatedBuilder(
+                animation: _laserPulseController,
+                builder: (context, _) {
+                  final t = (math.sin(_laserPulseController.value * 2 * math.pi) + 1.0) / 2.0;
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Circular sound icon (Tap to Play/Pause, Long press to delete if Admin)
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _toggleLecturePlayPause(rec),
+                        onLongPress: isAdminOrOwner ? () => _confirmDeleteLectureRecording(rec) : null,
+                        child: Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5B35F5),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF5B35F5).withValues(alpha: 0.5 + 0.45 * t),
+                                blurRadius: 10.0 + 8.0 * t,
+                                spreadRadius: 2.0 + 3.5 * t,
+                              ),
+                              const BoxShadow(
+                                color: Colors.black38,
+                                blurRadius: 6,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            isPlaying ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+
+                      // Pop-out Arrow Button (سهم منبثق لليمين لإعادة فتح المشغل)
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          setState(() => _isLecturePillCollapsed = false);
+                        },
+                        child: Container(
+                          height: 32,
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF26223D),
+                            borderRadius: const BorderRadius.only(
+                              topRight: Radius.circular(16),
+                              bottomRight: Radius.circular(16),
+                            ),
+                            border: Border.all(color: const Color(0xFF7C5CFC), width: 1.5),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 6,
+                                offset: Offset(2, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              color: Colors.white,
+                              size: 13,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+      }
+
+      const double pillWidth = 285.0;
       final double adjustedLeft = (left + pillWidth > pdfWidth)
           ? (pdfWidth - pillWidth - 8).clamp(8.0, pdfWidth)
           : left.clamp(8.0, pdfWidth - pillWidth);
@@ -1609,46 +1715,55 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       );
     }
 
+    // Unplayed / Idle state:
+    // Circular sound icon matching the original sound icon, with radiant pulsating glow
     return Positioned(
       left: left,
       top: top,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => _playLectureRecording(rec),
-        onLongPress: isAdminOrOwner ? () => _confirmDeleteLectureRecording(rec) : null,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFF7C5CFC),
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: const [
-              BoxShadow(
-                color: Colors.black38,
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-            border: Border.all(color: Colors.white, width: 1.5),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.graphic_eq_rounded,
-                color: Colors.white,
-                size: 16,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                _formatDuration(Duration(milliseconds: rec.durationMs)),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Cairo',
+      child: Tooltip(
+        message: 'تسجيل صوتي للمحاضر (${_formatDuration(Duration(milliseconds: rec.durationMs))})',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _playLectureRecording(rec),
+          onLongPress: isAdminOrOwner ? () => _confirmDeleteLectureRecording(rec) : null,
+          child: AnimatedBuilder(
+            animation: _laserPulseController,
+            builder: (context, _) {
+              final t = (math.sin(_laserPulseController.value * 2 * math.pi) + 1.0) / 2.0;
+              return Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF5B35F5),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 2),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF5B35F5).withValues(alpha: 0.45 + 0.45 * t),
+                      blurRadius: 10.0 + 8.0 * t,
+                      spreadRadius: 2.0 + 3.5 * t,
+                    ),
+                    BoxShadow(
+                      color: const Color(0xFF8C6CFE).withValues(alpha: 0.25 + 0.35 * t),
+                      blurRadius: 18.0 + 10.0 * t,
+                      spreadRadius: 4.0 + 4.5 * t,
+                    ),
+                    const BoxShadow(
+                      color: Colors.black38,
+                      blurRadius: 6,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                child: const Center(
+                  child: Icon(
+                    Icons.volume_up_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -1783,7 +1898,33 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 const SizedBox(width: 2),
               ],
 
-              // 6. Close / Cancel Button
+              // 6. Fold / Collapse Button (سهم لطي المشغل وإظهار المحتوى مع استمرار تشغيل الصوت)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  setState(() => _isLecturePillCollapsed = true);
+                },
+                child: Tooltip(
+                  message: 'طي المشغل',
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.chevron_left_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 2),
+
+              // 7. Close / Cancel Button
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _cancelAudio,
@@ -2054,6 +2195,86 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         );
       }
 
+      if (_isSoundPillCollapsed) {
+        final isPlaying = _playerState == PlayerState.playing;
+        return Positioned(
+          left: left.clamp(8.0, pdfWidth - 78.0),
+          top: top.clamp(8.0, pdfHeight - 48.0),
+          child: Material(
+            color: Colors.transparent,
+            child: Directionality(
+              textDirection: TextDirection.ltr,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => _togglePlayPause(sound.tempAudioPath),
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF5B35F5),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x885B35F5),
+                            blurRadius: 10,
+                            spreadRadius: 2,
+                          ),
+                          BoxShadow(
+                            color: Colors.black38,
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        isPlaying ? Icons.volume_up_rounded : Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      setState(() => _isSoundPillCollapsed = false);
+                    },
+                    child: Container(
+                      height: 32,
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF4A494E),
+                        borderRadius: BorderRadius.only(
+                          topRight: Radius.circular(16),
+                          bottomRight: Radius.circular(16),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black45,
+                            blurRadius: 6,
+                            offset: Offset(2, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          color: Colors.white,
+                          size: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }
+
       const double pillWidth = 260.0;
       final double adjustedLeft = (left + pillWidth > pdfWidth)
           ? (pdfWidth - pillWidth - 8).clamp(8.0, pdfWidth)
@@ -2211,7 +2432,33 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
               const SizedBox(width: 2),
 
-              // 5. Close / Cancel Button
+              // 5. Fold / Collapse Button (سهم لطي المشغل مع استمرار تشغيل الصوت)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  setState(() => _isSoundPillCollapsed = true);
+                },
+                child: Tooltip(
+                  message: 'طي المشغل',
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.chevron_left_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 2),
+
+              // 6. Close / Cancel Button
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _cancelAudio,
