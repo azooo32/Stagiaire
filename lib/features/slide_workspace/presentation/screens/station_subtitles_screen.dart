@@ -377,7 +377,36 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         // Pre-download synchronized lecture recordings if available
         try {
           final lectureRecordings = await _repository.getPdfLectureRecordings(slide.id);
-          if (lectureRecordings.isNotEmpty) {
+          if (lectureRecordings.isEmpty) {
+            final cacheFile = File('${pdfCacheDir.path}/lecture_recordings.json');
+            if (await cacheFile.exists()) {
+              await cacheFile.writeAsString(jsonEncode([]));
+            }
+            if (await pdfCacheDir.exists()) {
+              try {
+                for (final f in pdfCacheDir.listSync()) {
+                  if (f is File && f.path.contains('lecture_') && f.path.endsWith('.m4a')) {
+                    try { await f.delete(); } catch (_) {}
+                  }
+                }
+              } catch (_) {}
+            }
+          } else {
+            final remoteIds = lectureRecordings.map((r) => r.id).toSet();
+            if (await pdfCacheDir.exists()) {
+              try {
+                for (final f in pdfCacheDir.listSync()) {
+                  if (f is File && f.path.contains('lecture_') && f.path.endsWith('.m4a')) {
+                    final filename = f.uri.pathSegments.last;
+                    final recId = filename.replaceFirst('lecture_', '').replaceAll('.m4a', '');
+                    if (!remoteIds.contains(recId)) {
+                      try { await f.delete(); } catch (_) {}
+                    }
+                  }
+                }
+              } catch (_) {}
+            }
+
             final updatedRecordings = <PdfLectureRecording>[];
             final audioClient = HttpClient();
             for (final rec in lectureRecordings) {

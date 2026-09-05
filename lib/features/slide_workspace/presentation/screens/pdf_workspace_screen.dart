@@ -82,6 +82,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   PdfLectureRecording? _activeLectureRecording;
   bool _isLecturePillCollapsed = false;
   bool _isSoundPillCollapsed = false;
+  Timer? _lectureSyncTimer;
+  bool _isSyncingRecordings = false;
 
   // Recording Engine (for Admin/Owner)
   final AudioRecorder _audioRecorder = AudioRecorder();
@@ -698,6 +700,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       // 5. Background sync for lecture recordings (fetch newly added audios from Supabase)
       await _syncLectureRecordingsInBackground(mainRepository);
 
+      // Start periodic background sync every 15s to keep recordings synchronized (additions/deletions)
+      _lectureSyncTimer?.cancel();
+      _lectureSyncTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+        if (mounted && !_isRecordingLecture && !_isSavingLecture) {
+          _syncLectureRecordingsInBackground(mainRepository);
+        }
+      });
+
     } catch (e) {
       debugPrint('Error in background PDF workspace init: $e');
     }
@@ -705,12 +715,86 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Future<void> _syncLectureRecordingsInBackground(
       SupabaseSlideWorkspaceRepository mainRepository) async {
-    if (_cacheDirPath == null) return;
+    if (_cacheDirPath == null || _isSyncingRecordings) return;
+    _isSyncingRecordings = true;
     try {
       final remoteRecordings =
           await mainRepository.getPdfLectureRecordings(widget.pdfSlide.id);
-      if (remoteRecordings.isEmpty) return;
 
+      final remoteIds = remoteRecordings.map((r) => r.id).toSet();
+      final cacheDir = Directory(_cacheDirPath!);
+
+      // Case 1: All lecture recordings deleted remotely by admin
+      if (remoteRecordings.isEmpty) {
+        bool needsUpdate = _lectureRecordings.isNotEmpty;
+
+        // Cancel active audio if it was a lecture recording
+        if (_activeLectureRecording != null) {
+          await _cancelAudio();
+          needsUpdate = true;
+        }
+
+        // Clean up all local cached lecture audio files
+        if (await cacheDir.exists()) {
+          try {
+            final files = cacheDir.listSync();
+            for (final f in files) {
+              if (f is File &&
+                  f.path.contains('lecture_') &&
+                  f.path.endsWith('.m4a')) {
+                try {
+                  await f.delete();
+                } catch (_) {}
+              }
+            }
+          } catch (_) {}
+        }
+
+        // Overwrite cache file with empty list
+        final cacheFile = File('$_cacheDirPath/lecture_recordings.json');
+        if (await cacheFile.exists() || needsUpdate) {
+          try {
+            await cacheFile.writeAsString(jsonEncode([]));
+          } catch (_) {}
+        }
+
+        if (needsUpdate && mounted) {
+          setState(() {
+            _lectureRecordings = [];
+            _activeLectureRecording = null;
+          });
+        }
+        return;
+      }
+
+      // Case 2: Remote recordings exist - reconcile with local cache
+      if (_activeLectureRecording != null &&
+          !remoteIds.contains(_activeLectureRecording!.id)) {
+        await _cancelAudio();
+      }
+
+      // Delete orphaned local audio files for recordings no longer on server
+      if (await cacheDir.exists()) {
+        try {
+          final files = cacheDir.listSync();
+          for (final f in files) {
+            if (f is File &&
+                f.path.contains('lecture_') &&
+                f.path.endsWith('.m4a')) {
+              final filename = f.uri.pathSegments.last;
+              final recId =
+                  filename.replaceFirst('lecture_', '').replaceAll('.m4a', '');
+              if (!remoteIds.contains(recId)) {
+                try {
+                  await f.delete();
+                } catch (_) {}
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Download missing audio files for active recordings
       final updatedRecordings = <PdfLectureRecording>[];
       final audioClient = HttpClient();
       for (final rec in remoteRecordings) {
@@ -735,18 +819,53 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       }
       audioClient.close();
 
-      final jsonList = updatedRecordings.map((r) => r.toJson()).toList();
-      await File('$_cacheDirPath/lecture_recordings.json')
-          .writeAsString(jsonEncode(jsonList));
+      try {
+        final jsonList = updatedRecordings.map((r) => r.toJson()).toList();
+        await File('$_cacheDirPath/lecture_recordings.json')
+            .writeAsString(jsonEncode(jsonList));
+      } catch (_) {}
 
       if (mounted) {
-        setState(() {
-          _lectureRecordings = updatedRecordings;
-        });
+        final hasChanged =
+            _hasLectureRecordingsChanged(_lectureRecordings, updatedRecordings);
+        if (hasChanged) {
+          setState(() {
+            _lectureRecordings = updatedRecordings;
+            if (_activeLectureRecording != null) {
+              final idx = updatedRecordings
+                  .indexWhere((r) => r.id == _activeLectureRecording!.id);
+              if (idx != -1) {
+                _activeLectureRecording = updatedRecordings[idx];
+              } else {
+                _activeLectureRecording = null;
+              }
+            }
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error syncing lecture recordings in background: $e');
+    } finally {
+      _isSyncingRecordings = false;
     }
+  }
+
+  bool _hasLectureRecordingsChanged(
+      List<PdfLectureRecording> current, List<PdfLectureRecording> updated) {
+    if (current.length != updated.length) return true;
+    final currentMap = {for (final r in current) r.id: r};
+    for (final u in updated) {
+      final c = currentMap[u.id];
+      if (c == null) return true;
+      if (c.positionX != u.positionX ||
+          c.positionY != u.positionY ||
+          c.pageNumber != u.pageNumber ||
+          c.localAudioPath != u.localAudioPath ||
+          c.audioUrl != u.audioUrl) {
+        return true;
+      }
+    }
+    return false;
   }
 
   double _contentHeight(double pageWidth) {
@@ -902,6 +1021,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _transformationController.dispose();
     _flingAnimationController.dispose();
     _recordTimer?.cancel();
+    _lectureSyncTimer?.cancel();
     _recordStopwatch?.stop();
     _audioRecorder.dispose();
     _laserPulseController.dispose();
@@ -924,6 +1044,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (!_isLoadingPdf &&
         (state == AppLifecycleState.paused || state == AppLifecycleState.inactive)) {
       controller.flushPendingSaves();
+    }
+    if (state == AppLifecycleState.resumed &&
+        !_isLoadingPdf &&
+        !_isRecordingLecture &&
+        !_isSavingLecture) {
+      _syncLectureRecordingsInBackground(_pdfRepository.mainRepository);
     }
   }
 
