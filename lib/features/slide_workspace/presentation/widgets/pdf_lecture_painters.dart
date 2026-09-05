@@ -158,22 +158,22 @@ class PdfLecturerNotesPainter extends CustomPainter {
 class ActiveLaserTrail {
   final List<Offset> points;
   final int startTimeMs;
-  final int totalDurationMs; // ~1000ms (fast vanishing laser)
+  final int totalDurationMs; // 2000ms (2 seconds)
   final int pageNumber;
 
   const ActiveLaserTrail({
     required this.points,
     required this.startTimeMs,
-    this.totalDurationMs = 1000,
+    this.totalDurationMs = 2000,
     this.pageNumber = 1,
   });
 
   double getOpacity(int nowMs) {
     final elapsed = nowMs - startTimeMs;
     if (elapsed < 0) return 0.0;
-    final solidDuration = (totalDurationMs * 0.35).round(); // Stays solid for first 35% of duration
+    final solidDuration = (totalDurationMs * 0.5).round(); // Stays full brightness for first 1.0s
     if (elapsed <= solidDuration) return 1.0;
-    if (elapsed >= totalDurationMs) return 0.0; // Fades out completely by totalDurationMs
+    if (elapsed >= totalDurationMs) return 0.0; // Fades out completely by 2.0s
     return (1.0 - (elapsed - solidDuration) / (totalDurationMs - solidDuration)).clamp(0.0, 1.0);
   }
 

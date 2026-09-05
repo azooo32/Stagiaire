@@ -75,6 +75,7 @@ abstract class SlideWorkspaceRepository {
     required List<PdfPointerEvent> pointerEvents,
   });
   Future<void> deletePdfLectureRecording(String recordingId, String audioUrl);
+  Future<void> updatePdfLectureRecordingPosition(String recordingId, double positionX, double positionY);
 }
 
 
@@ -1244,6 +1245,22 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     } catch (e) {
       print('Error deleting PDF lecture recording: $e');
       rethrow;
+    }
+  }
+
+  @override
+  Future<void> updatePdfLectureRecordingPosition(String recordingId, double positionX, double positionY) async {
+    try {
+      await _supabase.client
+          .from('pdf_lecture_recordings')
+          .update({
+            'position_x': positionX,
+            'position_y': positionY,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', recordingId);
+    } catch (e) {
+      print('Error updating PDF lecture recording position: $e');
     }
   }
 

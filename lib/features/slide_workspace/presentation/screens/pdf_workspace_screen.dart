@@ -103,6 +103,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   int? _liveLaserPage;
   final List<ActiveLaserTrail> _activeLaserTrails = [];
   List<Offset> _currentDrawingTrail = [];
+  int _trailStartTimeMs = 0;
+  final Map<String, Offset> _draggedRecordingPositions = {};
   late final AnimationController _laserPulseController;
 
   // Interactive Stroke Tap to Seek Highlight
@@ -328,24 +330,55 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
     // 2. Replay Laser Trails
     final trails = <ActiveLaserTrail>[];
+    Offset? replayLaserTip;
+    int? replayLaserTipPage;
+
     for (final e in rec.pointerEvents) {
       if (e.type == PdfPointerType.trail &&
           e.points != null &&
           e.points!.length >= 2) {
-        final dur = e.durationMs ?? 1000;
-        if (posMs >= e.timestampMs && posMs <= e.timestampMs + dur) {
-          trails.add(ActiveLaserTrail(
-            points: e.points!,
-            startTimeMs: e.timestampMs,
-            totalDurationMs: dur,
-            pageNumber: e.pageNumber,
-          ));
+        final startMs = e.timestampMs;
+        final drawDur = (e.drawDurationMs != null && e.drawDurationMs! > 0) ? e.drawDurationMs! : 400;
+        final fadeDur = e.durationMs ?? 2000;
+        final totalEventDur = drawDur + fadeDur;
+
+        if (posMs >= startMs && posMs <= startMs + totalEventDur) {
+          if (posMs < startMs + drawDur) {
+            // Actively being drawn live: show progressive points matching drawing speed
+            final drawProgress = ((posMs - startMs) / drawDur).clamp(0.0, 1.0);
+            final count = (e.points!.length * drawProgress).round().clamp(2, e.points!.length);
+            final visiblePts = e.points!.sublist(0, count);
+
+            trails.add(ActiveLaserTrail(
+              points: visiblePts,
+              startTimeMs: posMs,
+              totalDurationMs: fadeDur + 1000,
+              pageNumber: e.pageNumber,
+            ));
+
+            replayLaserTip = visiblePts.last;
+            replayLaserTipPage = e.pageNumber;
+          } else {
+            // Finished drawing, full trail smoothly fades out over 2000ms
+            final finishTimeMs = startMs + drawDur;
+            trails.add(ActiveLaserTrail(
+              points: e.points!,
+              startTimeMs: finishTimeMs,
+              totalDurationMs: fadeDur,
+              pageNumber: e.pageNumber,
+            ));
+          }
         }
       }
     }
     _activeLaserTrails
       ..clear()
       ..addAll(trails);
+
+    if (replayLaserTip != null) {
+      _liveLaserDot = replayLaserTip;
+      _liveLaserPage = replayLaserTipPage;
+    }
   }
 
   Future<void> _initWorkspace() async {
@@ -1514,28 +1547,34 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   void _onLaserTrailStarted(int pageNum, Offset startPos) {
+    _trailStartTimeMs = _recordStopwatch?.elapsedMilliseconds ?? 0;
     _currentDrawingTrail = [startPos];
+    _liveLaserDot = startPos;
     _liveLaserPage = pageNum;
     setState(() {});
   }
 
   void _onLaserTrailMoved(int pageNum, Offset pos) {
     _currentDrawingTrail.add(pos);
+    _liveLaserDot = pos;
+    _liveLaserPage = pageNum;
     setState(() {});
   }
 
   void _onLaserTrailEnded(int pageNum) {
+    _liveLaserDot = null;
     if (_currentDrawingTrail.length >= 2) {
       final trailPoints = List<Offset>.from(_currentDrawingTrail);
       final now = DateTime.now().millisecondsSinceEpoch;
-      final audioTimestamp = _recordStopwatch?.elapsedMilliseconds ?? 0;
+      final drawEndMs = _recordStopwatch?.elapsedMilliseconds ?? 0;
+      final drawDur = (drawEndMs - _trailStartTimeMs).clamp(30, 10000);
 
       setState(() {
         _activeLaserTrails.add(
           ActiveLaserTrail(
             points: trailPoints,
             startTimeMs: now,
-            totalDurationMs: 1000,
+            totalDurationMs: 2000,
             pageNumber: pageNum,
           ),
         );
@@ -1546,10 +1585,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _recordingPointerEvents.add(
           PdfPointerEvent(
             pageNumber: pageNum,
-            timestampMs: audioTimestamp,
+            timestampMs: _trailStartTimeMs,
             type: PdfPointerType.trail,
             points: trailPoints,
-            durationMs: 1000,
+            durationMs: 2000,
+            drawDurationMs: drawDur,
           ),
         );
       }
@@ -1560,6 +1600,23 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
+  Future<void> _saveRecordingPosition(PdfLectureRecording rec) async {
+    try {
+      if (_cacheDirPath != null) {
+        final jsonList = _lectureRecordings.map((r) => r.toJson()).toList();
+        await File('$_cacheDirPath/lecture_recordings.json')
+            .writeAsString(jsonEncode(jsonList));
+      }
+      await _pdfRepository.mainRepository.updatePdfLectureRecordingPosition(
+        rec.id,
+        rec.positionX,
+        rec.positionY,
+      );
+    } catch (e) {
+      debugPrint('Error saving lecture recording position: $e');
+    }
+  }
+
   Widget _buildLectureRecordingOverlay(
     PdfLectureRecording rec,
     double pdfWidth,
@@ -1567,16 +1624,17 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     bool isAdminOrOwner,
   ) {
     final isActive = _activeLectureRecording?.id == rec.id;
-    final left = rec.positionX.clamp(8.0, pdfWidth - 44.0);
-    final top = rec.positionY.clamp(8.0, pdfHeight - 44.0);
+    final dragPos = _draggedRecordingPositions[rec.id];
+    final left = (dragPos?.dx ?? rec.positionX).clamp(8.0, pdfWidth - 36.0);
+    final top = (dragPos?.dy ?? rec.positionY).clamp(8.0, pdfHeight - 36.0);
 
     if (isActive) {
       if (_isDockedAudioVisible) {
         return Positioned(
           left: left,
           top: top,
-          width: 42,
-          height: 42,
+          width: 34,
+          height: 34,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => _toggleLecturePlayPause(rec),
@@ -1586,24 +1644,24 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 shape: BoxShape.circle,
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x775B35F5),
-                    blurRadius: 10,
-                    spreadRadius: 2,
+                    color: Color(0x555B35F5),
+                    blurRadius: 6,
+                    spreadRadius: 1,
                   ),
                   BoxShadow(
-                    color: Colors.black38,
-                    blurRadius: 6,
-                    offset: Offset(0, 2),
+                    color: Colors.black26,
+                    blurRadius: 4,
+                    offset: Offset(0, 1.5),
                   ),
                 ],
-                border: Border.all(color: Colors.white, width: 2),
+                border: Border.all(color: Colors.white, width: 1.8),
               ),
               child: Icon(
                 _playerState == PlayerState.playing
                     ? Icons.graphic_eq_rounded
                     : Icons.play_arrow_rounded,
                 color: Colors.white,
-                size: 20,
+                size: 16,
               ),
             ),
           ),
@@ -1614,8 +1672,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       if (_isLecturePillCollapsed) {
         final isPlaying = _playerState == PlayerState.playing;
         return Positioned(
-          left: left.clamp(8.0, pdfWidth - 78.0),
-          top: top.clamp(8.0, pdfHeight - 48.0),
+          left: left.clamp(8.0, pdfWidth - 66.0),
+          top: top.clamp(8.0, pdfHeight - 38.0),
           child: Material(
             color: Colors.transparent,
             child: Directionality(
@@ -1627,35 +1685,60 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   return Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Circular sound icon (Tap to Play/Pause, Long press to delete if Admin)
+                      // Circular sound icon (Tap to Play/Pause, Drag to move if Admin)
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => _toggleLecturePlayPause(rec),
                         onLongPress: isAdminOrOwner ? () => _confirmDeleteLectureRecording(rec) : null,
+                        onPanUpdate: isAdminOrOwner ? (details) {
+                          setState(() {
+                            final current = _draggedRecordingPositions[rec.id] ?? Offset(rec.positionX, rec.positionY);
+                            _draggedRecordingPositions[rec.id] = Offset(
+                              (current.dx + details.delta.dx).clamp(8.0, pdfWidth - 36.0),
+                              (current.dy + details.delta.dy).clamp(8.0, pdfHeight - 36.0),
+                            );
+                          });
+                        } : null,
+                        onPanEnd: isAdminOrOwner ? (details) {
+                          final newPos = _draggedRecordingPositions.remove(rec.id);
+                          if (newPos != null) {
+                            final idx = _lectureRecordings.indexWhere((r) => r.id == rec.id);
+                            if (idx != -1) {
+                              final updated = _lectureRecordings[idx].copyWith(
+                                positionX: newPos.dx,
+                                positionY: newPos.dy,
+                              );
+                              setState(() {
+                                _lectureRecordings[idx] = updated;
+                              });
+                              _saveRecordingPosition(updated);
+                            }
+                          }
+                        } : null,
                         child: Container(
-                          width: 42,
-                          height: 42,
+                          width: 34,
+                          height: 34,
                           decoration: BoxDecoration(
                             color: const Color(0xFF5B35F5),
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
+                            border: Border.all(color: Colors.white, width: 1.8),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF5B35F5).withValues(alpha: 0.5 + 0.45 * t),
-                                blurRadius: 10.0 + 8.0 * t,
-                                spreadRadius: 2.0 + 3.5 * t,
+                                color: const Color(0xFF5B35F5).withValues(alpha: 0.35 + 0.25 * t),
+                                blurRadius: 6.0 + 4.0 * t,
+                                spreadRadius: 1.0 + 1.5 * t,
                               ),
                               const BoxShadow(
-                                color: Colors.black38,
-                                blurRadius: 6,
-                                offset: Offset(0, 2),
+                                color: Colors.black26,
+                                blurRadius: 4,
+                                offset: Offset(0, 1.5),
                               ),
                             ],
                           ),
                           child: Icon(
                             isPlaying ? Icons.graphic_eq_rounded : Icons.play_arrow_rounded,
                             color: Colors.white,
-                            size: 20,
+                            size: 16,
                           ),
                         ),
                       ),
@@ -1667,20 +1750,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                           setState(() => _isLecturePillCollapsed = false);
                         },
                         child: Container(
-                          height: 32,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          height: 26,
+                          padding: const EdgeInsets.symmetric(horizontal: 5),
                           decoration: BoxDecoration(
                             color: const Color(0xFF26223D),
                             borderRadius: const BorderRadius.only(
-                              topRight: Radius.circular(16),
-                              bottomRight: Radius.circular(16),
+                              topRight: Radius.circular(13),
+                              bottomRight: Radius.circular(13),
                             ),
-                            border: Border.all(color: const Color(0xFF7C5CFC), width: 1.5),
+                            border: Border.all(color: const Color(0xFF7C5CFC), width: 1.2),
                             boxShadow: const [
                               BoxShadow(
-                                color: Colors.black45,
-                                blurRadius: 6,
-                                offset: Offset(2, 2),
+                                color: Colors.black38,
+                                blurRadius: 4,
+                                offset: Offset(1.5, 1.5),
                               ),
                             ],
                           ),
@@ -1688,7 +1771,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                             child: Icon(
                               Icons.arrow_forward_ios_rounded,
                               color: Colors.white,
-                              size: 13,
+                              size: 11,
                             ),
                           ),
                         ),
@@ -1716,7 +1799,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
 
     // Unplayed / Idle state:
-    // Circular sound icon matching the original sound icon, with radiant pulsating glow
+    // Slightly smaller circular sound icon with refined, subtle glow & draggable for Admin
+    final isDraggingThis = _draggedRecordingPositions.containsKey(rec.id);
     return Positioned(
       left: left,
       top: top,
@@ -1726,32 +1810,53 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           behavior: HitTestBehavior.opaque,
           onTap: () => _playLectureRecording(rec),
           onLongPress: isAdminOrOwner ? () => _confirmDeleteLectureRecording(rec) : null,
+          onPanUpdate: isAdminOrOwner ? (details) {
+            setState(() {
+              final current = _draggedRecordingPositions[rec.id] ?? Offset(rec.positionX, rec.positionY);
+              _draggedRecordingPositions[rec.id] = Offset(
+                (current.dx + details.delta.dx).clamp(8.0, pdfWidth - 36.0),
+                (current.dy + details.delta.dy).clamp(8.0, pdfHeight - 36.0),
+              );
+            });
+          } : null,
+          onPanEnd: isAdminOrOwner ? (details) {
+            final newPos = _draggedRecordingPositions.remove(rec.id);
+            if (newPos != null) {
+              final idx = _lectureRecordings.indexWhere((r) => r.id == rec.id);
+              if (idx != -1) {
+                final updated = _lectureRecordings[idx].copyWith(
+                  positionX: newPos.dx,
+                  positionY: newPos.dy,
+                );
+                setState(() {
+                  _lectureRecordings[idx] = updated;
+                });
+                _saveRecordingPosition(updated);
+              }
+            }
+          } : null,
           child: AnimatedBuilder(
             animation: _laserPulseController,
             builder: (context, _) {
               final t = (math.sin(_laserPulseController.value * 2 * math.pi) + 1.0) / 2.0;
               return Container(
-                width: 42,
-                height: 42,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
                   color: const Color(0xFF5B35F5),
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 2),
+                  border: Border.all(color: Colors.white, width: 1.8),
                   boxShadow: [
+                    // Subtle, gentle pulsating glow (الأيقونة متوهجة قليلاً)
                     BoxShadow(
-                      color: const Color(0xFF5B35F5).withValues(alpha: 0.45 + 0.45 * t),
-                      blurRadius: 10.0 + 8.0 * t,
-                      spreadRadius: 2.0 + 3.5 * t,
-                    ),
-                    BoxShadow(
-                      color: const Color(0xFF8C6CFE).withValues(alpha: 0.25 + 0.35 * t),
-                      blurRadius: 18.0 + 10.0 * t,
-                      spreadRadius: 4.0 + 4.5 * t,
+                      color: const Color(0xFF5B35F5).withValues(alpha: isDraggingThis ? 0.6 : (0.35 + 0.25 * t)),
+                      blurRadius: isDraggingThis ? 10.0 : (6.0 + 4.0 * t),
+                      spreadRadius: isDraggingThis ? 2.5 : (1.0 + 1.5 * t),
                     ),
                     const BoxShadow(
-                      color: Colors.black38,
-                      blurRadius: 6,
-                      offset: Offset(0, 2),
+                      color: Colors.black26,
+                      blurRadius: 4,
+                      offset: Offset(0, 1.5),
                     ),
                   ],
                 ),
@@ -1759,7 +1864,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   child: Icon(
                     Icons.volume_up_rounded,
                     color: Colors.white,
-                    size: 20,
+                    size: 17,
                   ),
                 ),
               );
@@ -3305,6 +3410,31 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
   SlideWorkspaceController get controller => widget.controller;
 
   @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onControllerChanged);
+  }
+
+  @override
+  void didUpdateWidget(_PdfDrawingOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_onControllerChanged);
+      widget.controller.addListener(_onControllerChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerChanged);
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (widget.index < 0 || widget.index >= controller.slides.length) {
       return const SizedBox.shrink();
@@ -3344,14 +3474,14 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
               const Positioned.fill(
                 child: ColoredBox(color: Colors.transparent),
               ),
-            // Render existing user strokes (excluding lecturer strokes that have audioTimeMs as they are rendered by PdfLecturerNotesPainter)
+            // Render existing user strokes (keep visible during lecture recording, only skip during passive replay)
             for (final obj in (slide.strokes.toList()
               ..sort((a, b) {
                 final cmp = a.zIndex.compareTo(b.zIndex);
                 if (cmp != 0) return cmp;
                 return a.creationTime.compareTo(b.creationTime);
               })))
-              if (obj is SlideStroke && obj.audioTimeMs != null)
+              if (obj is SlideStroke && obj.audioTimeMs != null && !widget.isRecordingLecture)
                 const SizedBox.shrink()
               else
                 WorkspaceRendererRegistry.render(

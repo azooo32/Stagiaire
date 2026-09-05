@@ -446,6 +446,7 @@ class PdfPointerEvent {
   final double? y;
   final List<Offset>? points;
   final int? durationMs;
+  final int? drawDurationMs;
 
   const PdfPointerEvent({
     required this.timestampMs,
@@ -455,6 +456,7 @@ class PdfPointerEvent {
     this.y,
     this.points,
     this.durationMs,
+    this.drawDurationMs,
   });
 
   Map<String, dynamic> toJson() => {
@@ -466,6 +468,7 @@ class PdfPointerEvent {
         if (points != null)
           'pts': points!.map((pt) => {'x': pt.dx, 'y': pt.dy}).toList(),
         if (durationMs != null) 'dur': durationMs,
+        if (drawDurationMs != null) 'drawDur': drawDurationMs,
       };
 
   factory PdfPointerEvent.fromJson(Map<String, dynamic> json) {
@@ -490,6 +493,7 @@ class PdfPointerEvent {
       y: json['y'] != null ? (json['y'] as num).toDouble() : null,
       points: points,
       durationMs: json['dur'] != null ? (json['dur'] as num).toInt() : null,
+      drawDurationMs: json['drawDur'] != null ? (json['drawDur'] as num).toInt() : null,
     );
   }
 }
