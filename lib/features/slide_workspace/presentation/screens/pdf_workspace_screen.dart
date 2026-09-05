@@ -82,7 +82,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   PdfLectureRecording? _activeLectureRecording;
   bool _isLecturePillCollapsed = false;
   bool _isSoundPillCollapsed = false;
-  Timer? _lectureSyncTimer;
   bool _isSyncingRecordings = false;
 
   // Recording Engine (for Admin/Owner)
@@ -697,16 +696,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       // Pre-render remaining pages in background
       _preRenderRemainingPages(pageCount);
 
-      // 5. Background sync for lecture recordings (fetch newly added audios from Supabase)
+      // 5. Background sync for lecture recordings (fetch additions/deletions from Supabase)
       await _syncLectureRecordingsInBackground(mainRepository);
-
-      // Start periodic background sync every 15s to keep recordings synchronized (additions/deletions)
-      _lectureSyncTimer?.cancel();
-      _lectureSyncTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-        if (mounted && !_isRecordingLecture && !_isSavingLecture) {
-          _syncLectureRecordingsInBackground(mainRepository);
-        }
-      });
 
     } catch (e) {
       debugPrint('Error in background PDF workspace init: $e');
@@ -1021,7 +1012,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _transformationController.dispose();
     _flingAnimationController.dispose();
     _recordTimer?.cancel();
-    _lectureSyncTimer?.cancel();
     _recordStopwatch?.stop();
     _audioRecorder.dispose();
     _laserPulseController.dispose();
