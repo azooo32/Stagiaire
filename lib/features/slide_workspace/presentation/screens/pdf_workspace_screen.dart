@@ -547,6 +547,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         if (pageNum != null && entry.value is List) {
           final objects = (entry.value as List)
               .map((item) => WorkspaceObject.fromJson(item as Map<String, dynamic>))
+              .where((item) => !(item is SlideStroke && item.audioTimeMs != null))
               .toList();
           results[pageNum] = objects;
         }
@@ -562,7 +563,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     try {
       final jsonMap = <String, dynamic>{};
       for (final entry in annotations.entries) {
-        jsonMap['${entry.key}'] = entry.value.map((o) => o.toJson()).toList();
+        final cleanList = entry.value
+            .where((item) => !(item is SlideStroke && item.audioTimeMs != null))
+            .map((o) => o.toJson())
+            .toList();
+        jsonMap['${entry.key}'] = cleanList;
       }
       File('$_cacheDirPath/saved_annotations.json')
           .writeAsString(jsonEncode(jsonMap))
@@ -572,7 +577,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   void _updatePageStrokesCache(int pageNum, List<WorkspaceObject> strokes) async {
     final currentMap = await _readLocalSavedAnnotations();
-    currentMap[pageNum] = strokes;
+    currentMap[pageNum] = strokes
+        .where((s) => !(s is SlideStroke && s.audioTimeMs != null))
+        .toList();
     _writeLocalSavedAnnotations(currentMap);
   }
 
@@ -632,15 +639,18 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
         final strokeMap = <String, WorkspaceObject>{};
         for (final s in remoteList) {
+          if (s is SlideStroke && s.audioTimeMs != null) continue;
           strokeMap[s.id] = s;
         }
         for (final s in localList) {
+          if (s is SlideStroke && s.audioTimeMs != null) continue;
           strokeMap[s.id] = s;
         }
         mergedSavedAnnotations[p] = strokeMap.values.toList();
       }
 
       _writeLocalSavedAnnotations(mergedSavedAnnotations);
+      unawaited(mainRepository.purgeLectureStrokesFromUserAnnotations(widget.pdfSlide.id));
 
       // 4. Merge annotations into controller slides
       final updatedSlides = <WorkspaceSlide>[];
@@ -1427,6 +1437,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _lectureRecordings.add(savedRec);
       }
 
+      for (final slide in controller.slides) {
+        slide.strokes.removeWhere((s) => s is SlideStroke && s.audioTimeMs != null);
+      }
+
       _isRecordingLecture = false;
       _isPausedLecture = false;
       _isSavingLecture = false;
@@ -1470,6 +1484,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     } catch (_) {}
 
     if (mounted) {
+      for (final slide in controller.slides) {
+        slide.strokes.removeWhere((s) => s is SlideStroke && s.audioTimeMs != null);
+      }
       setState(() {
         _isRecordingLecture = false;
         _isPausedLecture = false;
@@ -1555,7 +1572,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           ],
         ),
         content: const Text(
-          'هل أنت متأكد من رغبتك في حذف هذا التسجيل والشروحات المرتبطة به نهائياً؟',
+          'هل تريد حذف هذا الشرح الصوتي مع جميع الملاحظات والكتابات الخاصة به نهائياً؟',
           style: TextStyle(
             fontFamily: 'Cairo',
             color: Colors.white70,
@@ -1607,11 +1624,50 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             .writeAsString(jsonEncode(jsonList));
       }
 
+      // Collect all stroke IDs belonging to this recording
+      final deletedStrokeIds = <String>{};
+      for (final list in rec.strokesData.values) {
+        for (final s in list) {
+          deletedStrokeIds.add(s.id);
+        }
+      }
+
+      // 1. Purge strokes from in-memory controller slides
+      for (final slide in controller.slides) {
+        slide.strokes.removeWhere((s) =>
+            deletedStrokeIds.contains(s.id) ||
+            (s is SlideStroke && s.audioTimeMs != null));
+      }
+
+      // 2. Clean local disk cache of saved_annotations.json
+      if (_cacheDirPath != null) {
+        final currentMap = await _readLocalSavedAnnotations();
+        bool anyCleaned = false;
+        for (final p in currentMap.keys) {
+          final beforeLen = currentMap[p]?.length ?? 0;
+          currentMap[p]?.removeWhere((s) =>
+              deletedStrokeIds.contains(s.id) ||
+              (s is SlideStroke && s.audioTimeMs != null));
+          if ((currentMap[p]?.length ?? 0) != beforeLen) {
+            anyCleaned = true;
+          }
+        }
+        if (anyCleaned) {
+          _writeLocalSavedAnnotations(currentMap);
+        }
+      }
+
+      // 3. Purge strokes from user_pdf_workspaces in Supabase database
+      unawaited(_pdfRepository.mainRepository.purgeLectureStrokesFromUserAnnotations(
+        widget.pdfSlide.id,
+        strokeIds: deletedStrokeIds,
+      ));
+
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('تم حذف التسجيل بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+            content: Text('تم حذف التسجيل وجميع الملاحظات المرتبطة به بنجاح ✓', style: TextStyle(fontFamily: 'Cairo')),
             duration: Duration(seconds: 2),
           ),
         );
@@ -3404,6 +3460,19 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   ),
                 ),
 
+              // 2b. Live Lecturer Notes drawn during active recording session
+              if (_isRecordingLecture && (_recordingStrokes[pageNum]?.isNotEmpty ?? false))
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: PdfLecturerNotesPainter(
+                        strokes: _recordingStrokes[pageNum]!,
+                        currentAudioMs: null, // Full opacity
+                      ),
+                    ),
+                  ),
+                ),
+
               // 3. User Drawing layer & interactive gestures
               Positioned.fill(
                 child: _PdfDrawingOverlay(
@@ -3415,7 +3484,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   getAudioTimeMs: () => _recordStopwatch?.elapsedMilliseconds ?? 0,
                   onStrokeCompleted: (stroke) {
                     if (_isRecordingLecture) {
-                      _recordingStrokes.putIfAbsent(pageNum, () => []).add(stroke);
+                      setState(() {
+                        _recordingStrokes.putIfAbsent(pageNum, () => []).add(stroke);
+                      });
                     }
                   },
                   onLaserDotMoved: (pos) => _onLaserDotMoved(pageNum, pos),
@@ -3598,7 +3669,7 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
                 if (cmp != 0) return cmp;
                 return a.creationTime.compareTo(b.creationTime);
               })))
-              if (obj is SlideStroke && obj.audioTimeMs != null && !widget.isRecordingLecture)
+              if (obj is SlideStroke && obj.audioTimeMs != null)
                 const SizedBox.shrink()
               else
                 WorkspaceRendererRegistry.render(
@@ -3764,9 +3835,12 @@ class _PdfSlideRepository extends SupabaseSlideWorkspaceRepository {
     if (parts.length >= 2) {
       final pageNum = int.tryParse(parts[1]);
       if (pageNum != null) {
-        onLocalStrokesUpdated?.call(pageNum, strokes);
+        final cleanStrokes = strokes
+            .where((s) => !(s is SlideStroke && s.audioTimeMs != null))
+            .toList();
+        onLocalStrokesUpdated?.call(pageNum, cleanStrokes);
         try {
-          await mainRepository.savePdfAnnotations(pdfId, stationId, pageNum, strokes);
+          await mainRepository.savePdfAnnotations(pdfId, stationId, pageNum, cleanStrokes);
         } catch (e) {
           debugPrint('Offline/Network saving PDF annotations error: $e');
         }

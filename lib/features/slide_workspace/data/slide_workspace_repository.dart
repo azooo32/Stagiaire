@@ -60,6 +60,7 @@ abstract class SlideWorkspaceRepository {
   Future<bool> deleteWorkspaceImage(String publicUrl);
   Future<Map<int, List<WorkspaceObject>>> getPdfAnnotations(String pdfId);
   Future<void> savePdfAnnotations(String pdfId, String stationId, int pageNumber, List<WorkspaceObject> strokes);
+  Future<void> purgeLectureStrokesFromUserAnnotations(String pdfId, {Set<String>? strokeIds});
   Future<void> savePdfLastOpenedPage(String pdfId, String stationId, int pageNumber);
   Future<void> clearStationCache(String stationId);
   Future<List<PdfLectureRecording>> getPdfLectureRecordings(String pdfId);
@@ -1128,6 +1129,57 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       }, onConflict: 'user_id,pdf_id');
     } catch (e) {
       print('Error saving PDF annotations: $e');
+    }
+  }
+
+  @override
+  Future<void> purgeLectureStrokesFromUserAnnotations(
+    String pdfId, {
+    Set<String>? strokeIds,
+  }) async {
+    final user = _supabase.currentUser;
+    if (user == null) return;
+    try {
+      final existing = await _supabase.client
+          .from('user_pdf_workspaces')
+          .select('annotations')
+          .eq('user_id', user.id)
+          .eq('pdf_id', pdfId)
+          .maybeSingle();
+      if (existing == null) return;
+
+      final currentAnnotations = Map<String, dynamic>.from(
+        (existing['annotations'] as Map?) ?? {},
+      );
+
+      bool changed = false;
+      for (final key in currentAnnotations.keys) {
+        final pageMap = currentAnnotations[key];
+        if (pageMap is Map && pageMap['objects'] is List) {
+          final objects = List<dynamic>.from(pageMap['objects'] as List);
+          final beforeLen = objects.length;
+          objects.removeWhere((item) {
+            if (item is Map) {
+              if (item['audioTimeMs'] != null) return true;
+              if (strokeIds != null && strokeIds.contains(item['id'])) return true;
+            }
+            return false;
+          });
+          if (objects.length != beforeLen) {
+            changed = true;
+            currentAnnotations[key] = {'objects': objects};
+          }
+        }
+      }
+
+      if (changed) {
+        await _supabase.client.from('user_pdf_workspaces').update({
+          'annotations': currentAnnotations,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('user_id', user.id).eq('pdf_id', pdfId);
+      }
+    } catch (e) {
+      print('Error purging lecture strokes from user annotations: $e');
     }
   }
 
