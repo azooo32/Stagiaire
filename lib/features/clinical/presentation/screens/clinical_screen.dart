@@ -65,35 +65,34 @@ class ClinicalScreen extends StatelessWidget {
         user?.userMetadata?['university']) as String?;
 
     for (var subject in provider.clinicalSubjects) {
-      if (!provider.isAdminOrOwner) {
-        // Stage Filter
-        if (subject.stage != null && subject.stage!.trim().isNotEmpty) {
-          if (userStage == null || userStage.trim().isEmpty) {
-            continue;
-          }
-          final subStage = subject.stage!.trim().toLowerCase();
-          final uStage = userStage.trim().toLowerCase();
-          if (subStage != uStage &&
-              !subStage.contains(uStage) &&
-              !uStage.contains(subStage)) {
-            continue;
-          }
+      // Stage Filter — applies to all users
+      if (subject.stage != null && subject.stage!.trim().isNotEmpty) {
+        if (userStage == null || userStage.trim().isEmpty) {
+          continue;
         }
-        // University Filter
-        if (subject.university != null &&
-            subject.university!.trim().isNotEmpty) {
-          if (userUniv == null || userUniv.trim().isEmpty) {
-            continue;
-          }
-          final subUniv = subject.university!.trim().toLowerCase();
-          final uUniv = userUniv.trim().toLowerCase();
-          if (subUniv != uUniv &&
-              !subUniv.contains(uUniv) &&
-              !uUniv.contains(subUniv)) {
-            continue;
-          }
+        final subStage = subject.stage!.trim().toLowerCase();
+        final uStage = userStage.trim().toLowerCase();
+        if (subStage != uStage &&
+            !subStage.contains(uStage) &&
+            !uStage.contains(subStage)) {
+          continue;
         }
       }
+      // University Filter — applies to all users
+      if (subject.university != null &&
+          subject.university!.trim().isNotEmpty) {
+        if (userUniv == null || userUniv.trim().isEmpty) {
+          continue;
+        }
+        final subUniv = subject.university!.trim().toLowerCase();
+        final uUniv = userUniv.trim().toLowerCase();
+        if (subUniv != uUniv &&
+            !subUniv.contains(uUniv) &&
+            !uUniv.contains(subUniv)) {
+          continue;
+        }
+      }
+
 
       final nameLower = subject.name.toLowerCase().trim();
       final isCombined =

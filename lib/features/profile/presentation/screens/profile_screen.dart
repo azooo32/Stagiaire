@@ -242,6 +242,204 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _showChangeUniversitySheet(BuildContext context, AppProvider provider, String currentUniversity, bool isDark, bool isTablet) async {
+    String? selected;
+    bool isSaving = false;
+    bool isLoading = true;
+    List<String> universities = [];
+
+    final accent = isDark ? _ProfilePalette.darkAccent : _ProfilePalette.lightAccent;
+    final sheetBg = isDark ? _ProfilePalette.darkSheet : Colors.white;
+    final tileBg = isDark ? _ProfilePalette.darkTile : const Color(0xFFF8FAFC);
+    final textColor = isDark ? AppColors.text : _ProfilePalette.lightText;
+    final mutedColor = isDark ? _ProfilePalette.darkMuted : _ProfilePalette.lightMuted;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            // Load universities once on first build
+            if (isLoading) {
+              isLoading = false;
+              SupabaseService().getUniversityAccessList().then((list) {
+                final names = list
+                    .map((e) => e['university']?.toString() ?? '')
+                    .where((u) => u.isNotEmpty)
+                    .toSet()
+                    .toList()
+                  ..sort();
+                if (ctx.mounted) {
+                  setSheet(() {
+                    universities = names;
+                    selected = names.contains(currentUniversity) ? currentUniversity : null;
+                  });
+                }
+              });
+            }
+
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.75,
+              ),
+              decoration: BoxDecoration(
+                color: sheetBg,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12, bottom: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: mutedColor.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Row(
+                      children: [
+                        Icon(Icons.school_outlined, color: accent, size: 22),
+                        const SizedBox(width: 10),
+                        Text(
+                          'تغيير الجامعة',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Flexible(
+                    child: universities.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: CircularProgressIndicator(),
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: universities.length,
+                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                            itemBuilder: (_, i) {
+                              final u = universities[i];
+                              final isSelected = u == selected;
+                              return GestureDetector(
+                                onTap: () => setSheet(() => selected = u),
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(vertical: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: isSelected ? accent.withValues(alpha: 0.12) : tileBg,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isSelected ? accent : Colors.transparent,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+                                        color: isSelected ? accent : mutedColor,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Text(
+                                          u,
+                                          style: TextStyle(
+                                            fontFamily: 'Cairo',
+                                            fontSize: isTablet ? 16 : 14,
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                            color: isSelected ? accent : textColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20, 8, 20, MediaQuery.of(context).padding.bottom + 16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: (selected == null || isSaving)
+                            ? null
+                            : () async {
+                                setSheet(() => isSaving = true);
+                                final ok = await provider.updateUniversity(selected!);
+                                if (ok && ctx.mounted) {
+                                  final details = await SupabaseService().getUserDetails();
+                                  if (details != null) {
+                                    provider.refreshUserDetails(details);
+                                  }
+                                  Navigator.pop(ctx);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: const Text(
+                                          'تم تحديث الجامعة بنجاح ✓',
+                                          style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                                        ),
+                                        backgroundColor: accent,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      ),
+                                    );
+                                  }
+                                } else if (ctx.mounted) {
+                                  setSheet(() => isSaving = false);
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: accent,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: accent.withValues(alpha: 0.4),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          elevation: 0,
+                        ),
+                        child: isSaving
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              )
+                            : const Text(
+                                'حفظ التغييرات',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 15,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = Provider.of<AppProvider>(context);
@@ -451,6 +649,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       provider.isDarkTheme, isTablet,
                                     ),
                                   ),
+                                  if (provider.isAdminOrOwner) ...[
+                                    const SizedBox(height: 12),
+                                    _buildOptionTile(
+                                      icon: Icons.school_outlined,
+                                      title: 'تغيير الجامعة',
+                                      isDark: provider.isDarkTheme,
+                                      isTablet: isTablet,
+                                      trailing: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: _ProfilePalette.accent(provider.isDarkTheme).withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          university,
+                                          style: TextStyle(
+                                            fontFamily: 'Cairo',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            color: _ProfilePalette.accent(provider.isDarkTheme),
+                                          ),
+                                        ),
+                                      ),
+                                      onTap: () => _showChangeUniversitySheet(
+                                        context, provider, university,
+                                        provider.isDarkTheme, isTablet,
+                                      ),
+                                    ),
+                                  ],
                                   _buildOptionTile(
                                     icon: Icons.dark_mode_outlined,
                                     title: 'Dark Mode',

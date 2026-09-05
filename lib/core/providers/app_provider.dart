@@ -1568,6 +1568,8 @@ class AppProvider extends ChangeNotifier {
       );
   Future<bool> deleteUserSubscription(String subscriptionId) =>
       _supabase.deleteUserSubscription(subscriptionId);
+  Future<bool> updateUniversity(String newUniversity) =>
+      _supabase.updateUniversity(newUniversity);
   Future<List<Map<String, dynamic>>> getUniversityAccessList() =>
       _supabase.getUniversityAccessList();
   Future<bool> addUniversityAccess({

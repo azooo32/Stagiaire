@@ -3387,7 +3387,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               ),
 
               // 2. Synchronized Lecturer Notes (Notability Effect: Dimmed when in future, vivid on reach, pulse highlight on seek)
-              if (pageLecturerStrokes.isNotEmpty)
+              // Hidden during active recording to avoid old strokes showing during new session
+              if (pageLecturerStrokes.isNotEmpty && !_isRecordingLecture)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(

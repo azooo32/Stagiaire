@@ -112,6 +112,22 @@ class SupabaseService {
     }
   }
 
+  /// Update the user's university in the 'users' table
+  Future<bool> updateUniversity(String newUniversity) async {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      await client.from('users').update({
+        'university': newUniversity,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', user.id);
+      return true;
+    } catch (e) {
+      print('Error updating university: $e');
+      return false;
+    }
+  }
+
   // Sign Up with email, password and user metadata
   Future<AuthResponse> signUp({
     required String email,
