@@ -327,7 +327,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       if (e.type == PdfPointerType.trail &&
           e.points != null &&
           e.points!.length >= 2) {
-        final dur = e.durationMs ?? 3000;
+        final dur = e.durationMs ?? 1000;
         if (posMs >= e.timestampMs && posMs <= e.timestampMs + dur) {
           trails.add(ActiveLaserTrail(
             points: e.points!,
@@ -1526,7 +1526,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           ActiveLaserTrail(
             points: trailPoints,
             startTimeMs: now,
-            totalDurationMs: 3000,
+            totalDurationMs: 1000,
             pageNumber: pageNum,
           ),
         );
@@ -1540,7 +1540,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             timestampMs: audioTimestamp,
             type: PdfPointerType.trail,
             points: trailPoints,
-            durationMs: 3000,
+            durationMs: 1000,
           ),
         );
       }
