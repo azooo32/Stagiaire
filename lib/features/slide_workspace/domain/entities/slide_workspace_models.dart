@@ -436,6 +436,7 @@ enum PdfPointerType {
   dot,
   dotUp,
   trail,
+  viewport, // NEW: Scroll + Zoom tracking event
 }
 
 class PdfPointerEvent {
@@ -447,6 +448,7 @@ class PdfPointerEvent {
   final List<Offset>? points;
   final int? durationMs;
   final int? drawDurationMs;
+  final double? scale; // NEW: zoom scale for viewport events
 
   const PdfPointerEvent({
     required this.timestampMs,
@@ -457,6 +459,7 @@ class PdfPointerEvent {
     this.points,
     this.durationMs,
     this.drawDurationMs,
+    this.scale,
   });
 
   Map<String, dynamic> toJson() => {
@@ -469,6 +472,7 @@ class PdfPointerEvent {
           'pts': points!.map((pt) => {'x': pt.dx, 'y': pt.dy}).toList(),
         if (durationMs != null) 'dur': durationMs,
         if (drawDurationMs != null) 'drawDur': drawDurationMs,
+        if (scale != null) 'sc': scale,
       };
 
   factory PdfPointerEvent.fromJson(Map<String, dynamic> json) {
@@ -494,6 +498,7 @@ class PdfPointerEvent {
       points: points,
       durationMs: json['dur'] != null ? (json['dur'] as num).toInt() : null,
       drawDurationMs: json['drawDur'] != null ? (json['drawDur'] as num).toInt() : null,
+      scale: json['sc'] != null ? (json['sc'] as num).toDouble() : null,
     );
   }
 }

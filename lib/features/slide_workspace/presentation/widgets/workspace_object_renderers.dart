@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -7,7 +8,6 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../domain/entities/slide_workspace_models.dart';
 import '../controllers/slide_workspace_controller.dart';
-import '../screens/slide_image_crop_screen.dart';
 import '../../../../core/services/image_cache_service.dart';
 import 'stagiaire_slide_painters.dart';
 
@@ -138,93 +138,9 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
   late double _height;
   bool _isLoadingBytes = false;
 
-  Future<void> _cropImage() async {
-    final image = widget.image;
-    setState(() {
-      _isLoadingBytes = true;
-    });
-    try {
-      Uint8List? bytes;
-      if (image.localPath != null) {
-        bytes = SlideWorkspaceController.localImageCache[image.localPath!];
-        if (bytes == null) {
-          final file = File(image.localPath!);
-          if (await file.exists()) {
-            bytes = await file.readAsBytes();
-          }
-        }
-      }
-      if (bytes == null && image.imageUrl != null) {
-        final cachedPath = await ImageCacheService().getOrDownload(image.imageUrl!);
-        if (cachedPath != null) {
-          bytes = await File(cachedPath).readAsBytes();
-        }
-      }
-
-      if (bytes != null && mounted) {
-        setState(() {
-          _isLoadingBytes = false;
-        });
-        final croppedBytes = await SlideImageCropScreen.show(context, bytes);
-        if (croppedBytes != null && mounted) {
-          final isExam = !widget.controller.isStudyMode;
-          final tempId = 'picked_${DateTime.now().microsecondsSinceEpoch}';
-
-          final docDir = await getApplicationDocumentsDirectory();
-          final uploadsDir = Directory('${docDir.path}/workspace_uploads');
-          if (!await uploadsDir.exists()) {
-            await uploadsDir.create(recursive: true);
-          }
-          final file = File('${uploadsDir.path}/$tempId.png');
-          await file.writeAsBytes(croppedBytes);
-          final newLocalPath = file.path;
-
-          SlideWorkspaceController.localImageCache[newLocalPath] = croppedBytes;
-
-          final decodedImage = await decodeImageFromList(croppedBytes);
-          final double originalWidth = decodedImage.width.toDouble();
-          final double originalHeight = decodedImage.height.toDouble();
-          final double newAspectRatio = originalWidth / originalHeight;
-          final double newHeight = _width / newAspectRatio;
-
-          setState(() {
-            _height = newHeight;
-          });
-
-          final updatedImage = image.copyWith(
-            localPath: newLocalPath,
-            imageUrl: null,
-            storagePath: null,
-            state: ImageState.local,
-            height: newHeight,
-            updatedAt: DateTime.now().millisecondsSinceEpoch,
-          );
-
-          widget.controller.mutateObject(widget.controller.currentSlide.id, image.id, isExam, (_) => updatedImage);
-          widget.controller.triggerUploadForObject(widget.controller.currentSlide.id, updatedImage, isExam);
-          widget.controller.scheduleSave(widget.controller.currentSlide.id);
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _isLoadingBytes = false;
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not load image bytes for cropping')),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingBytes = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
-  }
+  // In-place cropping state
+  bool _isCropping = false;
+  Rect _cropRect = Rect.zero;
 
   @override
   void initState() {
@@ -249,14 +165,177 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
     }
   }
 
+  Future<Uint8List?> _loadOriginalBytes() async {
+    final image = widget.image;
+    Uint8List? bytes;
+    if (image.localPath != null) {
+      bytes = SlideWorkspaceController.localImageCache[image.localPath!];
+      if (bytes == null) {
+        final file = File(image.localPath!);
+        if (await file.exists()) {
+          bytes = await file.readAsBytes();
+        }
+      }
+    }
+    if (bytes == null && image.imageUrl != null) {
+      final cachedPath = await ImageCacheService().getOrDownload(image.imageUrl!);
+      if (cachedPath != null) {
+        bytes = await File(cachedPath).readAsBytes();
+      }
+    }
+    return bytes;
+  }
+
+  static Future<Uint8List?> _cropBytesWithDartUi(
+    Uint8List originalBytes, {
+    required double cropLeftFrac,
+    required double cropTopFrac,
+    required double cropWidthFrac,
+    required double cropHeightFrac,
+  }) async {
+    final codec = await ui.instantiateImageCodec(originalBytes);
+    final frame = await codec.getNextFrame();
+    final ui.Image fullImage = frame.image;
+
+    final int srcX =
+        (cropLeftFrac * fullImage.width).round().clamp(0, fullImage.width - 1);
+    final int srcY =
+        (cropTopFrac * fullImage.height).round().clamp(0, fullImage.height - 1);
+    final int srcW =
+        (cropWidthFrac * fullImage.width).round().clamp(1, fullImage.width - srcX);
+    final int srcH =
+        (cropHeightFrac * fullImage.height).round().clamp(1, fullImage.height - srcY);
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final srcRect = Rect.fromLTWH(
+      srcX.toDouble(),
+      srcY.toDouble(),
+      srcW.toDouble(),
+      srcH.toDouble(),
+    );
+    final dstRect = Rect.fromLTWH(0, 0, srcW.toDouble(), srcH.toDouble());
+    canvas.drawImageRect(
+      fullImage,
+      srcRect,
+      dstRect,
+      Paint()..filterQuality = FilterQuality.high,
+    );
+
+    final croppedUi = await recorder.endRecording().toImage(srcW, srcH);
+    final byteData = await croppedUi.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  }
+
+  void _startInPlaceCrop() {
+    setState(() {
+      _isCropping = true;
+      _cropRect = Rect.fromLTWH(0, 0, _width, _height);
+    });
+  }
+
+  void _cancelCrop() {
+    setState(() {
+      _isCropping = false;
+      _cropRect = Rect.zero;
+    });
+  }
+
+  Future<void> _confirmCrop() async {
+    if (_isLoadingBytes) return;
+    setState(() {
+      _isLoadingBytes = true;
+    });
+
+    try {
+      final bytes = await _loadOriginalBytes();
+      if (bytes == null) {
+        throw Exception('Could not load image bytes for cropping');
+      }
+
+      final croppedBytes = await _cropBytesWithDartUi(
+        bytes,
+        cropLeftFrac: _cropRect.left / _width,
+        cropTopFrac: _cropRect.top / _height,
+        cropWidthFrac: _cropRect.width / _width,
+        cropHeightFrac: _cropRect.height / _height,
+      );
+
+      if (croppedBytes != null && mounted) {
+        final isExam = !widget.controller.isStudyMode;
+        final tempId = 'picked_${DateTime.now().microsecondsSinceEpoch}';
+
+        final docDir = await getApplicationDocumentsDirectory();
+        final uploadsDir = Directory('${docDir.path}/workspace_uploads');
+        if (!await uploadsDir.exists()) {
+          await uploadsDir.create(recursive: true);
+        }
+        final file = File('${uploadsDir.path}/$tempId.png');
+        await file.writeAsBytes(croppedBytes);
+        final newLocalPath = file.path;
+
+        SlideWorkspaceController.localImageCache[newLocalPath] = croppedBytes;
+
+        final newX = _x + _cropRect.left;
+        final newY = _y + _cropRect.top;
+        final newW = _cropRect.width;
+        final newH = _cropRect.height;
+
+        setState(() {
+          _x = newX;
+          _y = newY;
+          _width = newW;
+          _height = newH;
+          _isCropping = false;
+          _cropRect = Rect.zero;
+        });
+
+        final updatedImage = widget.image.copyWith(
+          x: newX,
+          y: newY,
+          width: newW,
+          height: newH,
+          localPath: newLocalPath,
+          imageUrl: null,
+          storagePath: null,
+          state: ImageState.local,
+          updatedAt: DateTime.now().millisecondsSinceEpoch,
+        );
+
+        widget.controller.mutateObject(
+          widget.controller.currentSlide.id,
+          widget.image.id,
+          isExam,
+          (_) => updatedImage,
+        );
+        widget.controller.triggerUploadForObject(
+          widget.controller.currentSlide.id,
+          updatedImage,
+          isExam,
+        );
+        widget.controller.scheduleSave(widget.controller.currentSlide.id);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error cropping image: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingBytes = false;
+        });
+      }
+    }
+  }
+
   void _onInteractionEnd() {
-    // We should compute delta or just execute command
-    // Let's create the command using controller.executeCommand
     final oldX = widget.image.x;
     final oldY = widget.image.y;
     final oldW = widget.image.width;
     final oldH = widget.image.height;
-    
+
     if (oldX != _x || oldY != _y || oldW != _width || oldH != _height) {
       final isExam = !widget.controller.isStudyMode;
       if (oldW == _width && oldH == _height) {
@@ -293,16 +372,19 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
     }
   }
 
-  Widget _buildCornerHandle(Alignment alignment, double aspect) {
+  Widget _buildCornerHandle(Alignment alignment, double aspect, double padSide, double padTop) {
+    double left = (alignment.x == -1) ? (padSide - 36) : (padSide + _width - 36);
+    double top = (alignment.y == -1) ? (padTop - 36) : (padTop + _height - 36);
+
     return Positioned(
-      left: alignment.x == -1 ? 0 : null,
-      right: alignment.x == 1 ? 0 : null,
-      top: alignment.y == -1 ? 0 : null,
-      bottom: alignment.y == 1 ? 0 : null,
+      left: left,
+      top: top,
+      width: 72,
+      height: 72,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanStart: (details) {
-          // Intercept gesture
+          widget.controller.isInteractingWithObject.value = true;
         },
         onPanUpdate: (details) {
           setState(() {
@@ -343,7 +425,13 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
             }
           });
         },
-        onPanEnd: (details) => _onInteractionEnd(),
+        onPanEnd: (details) {
+          widget.controller.isInteractingWithObject.value = false;
+          _onInteractionEnd();
+        },
+        onPanCancel: () {
+          widget.controller.isInteractingWithObject.value = false;
+        },
         child: Container(
           width: 72,
           height: 72,
@@ -361,7 +449,7 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
+                  color: Colors.black.withValues(alpha: 0.25),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -373,6 +461,420 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
     );
   }
 
+  Widget _buildCropHandle(Alignment alignment) {
+    double hx;
+    double hy;
+
+    if (alignment.x == -1) {
+      hx = _cropRect.left;
+    } else if (alignment.x == 1) {
+      hx = _cropRect.right;
+    } else {
+      hx = _cropRect.center.dx;
+    }
+
+    if (alignment.y == -1) {
+      hy = _cropRect.top;
+    } else if (alignment.y == 1) {
+      hy = _cropRect.bottom;
+    } else {
+      hy = _cropRect.center.dy;
+    }
+
+    final isCorner = alignment.x != 0 && alignment.y != 0;
+    final isHorizontalEdge = alignment.y != 0 && alignment.x == 0;
+
+    return Positioned(
+      left: hx - 22,
+      top: hy - 22,
+      width: 44,
+      height: 44,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onPanStart: (_) {
+          widget.controller.isInteractingWithObject.value = true;
+        },
+        onPanUpdate: (details) {
+          setState(() {
+            final dx = details.delta.dx;
+            final dy = details.delta.dy;
+            double left = _cropRect.left;
+            double top = _cropRect.top;
+            double right = _cropRect.right;
+            double bottom = _cropRect.bottom;
+
+            if (alignment.x == -1) {
+              left = (left + dx).clamp(0.0, right - 30.0);
+            } else if (alignment.x == 1) {
+              right = (right + dx).clamp(left + 30.0, _width);
+            }
+
+            if (alignment.y == -1) {
+              top = (top + dy).clamp(0.0, bottom - 30.0);
+            } else if (alignment.y == 1) {
+              bottom = (bottom + dy).clamp(top + 30.0, _height);
+            }
+
+            _cropRect = Rect.fromLTRB(left, top, right, bottom);
+          });
+        },
+        onPanEnd: (_) {
+          widget.controller.isInteractingWithObject.value = false;
+        },
+        onPanCancel: () {
+          widget.controller.isInteractingWithObject.value = false;
+        },
+        child: Container(
+          width: 44,
+          height: 44,
+          color: Colors.transparent,
+          alignment: Alignment.center,
+          child: isCorner
+              ? Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFF6B4EFF),
+                      width: 2.5,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                )
+              : isHorizontalEdge
+                  ? Container(
+                      width: 24,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: const Color(0xFF6B4EFF),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Container(
+                      width: 7,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: const Color(0xFF6B4EFF),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCropOverlay() {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 4 Dimmed masks around crop rect
+        // Top mask
+        if (_cropRect.top > 0)
+          Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            height: _cropRect.top,
+            child: Container(color: Colors.black.withValues(alpha: 0.55)),
+          ),
+        // Bottom mask
+        if (_cropRect.bottom < _height)
+          Positioned(
+            left: 0,
+            top: _cropRect.bottom,
+            right: 0,
+            height: _height - _cropRect.bottom,
+            child: Container(color: Colors.black.withValues(alpha: 0.55)),
+          ),
+        // Left mask
+        if (_cropRect.left > 0)
+          Positioned(
+            left: 0,
+            top: _cropRect.top,
+            width: _cropRect.left,
+            height: _cropRect.height,
+            child: Container(color: Colors.black.withValues(alpha: 0.55)),
+          ),
+        // Right mask
+        if (_cropRect.right < _width)
+          Positioned(
+            left: _cropRect.right,
+            top: _cropRect.top,
+            width: _width - _cropRect.right,
+            height: _cropRect.height,
+            child: Container(color: Colors.black.withValues(alpha: 0.55)),
+          ),
+
+        // The active crop window (with border and rule-of-thirds grid)
+        Positioned(
+          left: _cropRect.left,
+          top: _cropRect.top,
+          width: _cropRect.width,
+          height: _cropRect.height,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (_) {
+              widget.controller.isInteractingWithObject.value = true;
+            },
+            onPanUpdate: (details) {
+              setState(() {
+                final newLeft = (_cropRect.left + details.delta.dx)
+                    .clamp(0.0, _width - _cropRect.width);
+                final newTop = (_cropRect.top + details.delta.dy)
+                    .clamp(0.0, _height - _cropRect.height);
+                _cropRect = Rect.fromLTWH(
+                  newLeft,
+                  newTop,
+                  _cropRect.width,
+                  _cropRect.height,
+                );
+              });
+            },
+            onPanEnd: (_) {
+              widget.controller.isInteractingWithObject.value = false;
+            },
+            onPanCancel: () {
+              widget.controller.isInteractingWithObject.value = false;
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white, width: 2),
+              ),
+              child: Stack(
+                children: [
+                  // Vertical 1/3 and 2/3 grid lines
+                  Positioned(
+                    left: _cropRect.width / 3,
+                    top: 0,
+                    bottom: 0,
+                    width: 1,
+                    child: Container(color: Colors.white.withValues(alpha: 0.35)),
+                  ),
+                  Positioned(
+                    left: _cropRect.width * 2 / 3,
+                    top: 0,
+                    bottom: 0,
+                    width: 1,
+                    child: Container(color: Colors.white.withValues(alpha: 0.35)),
+                  ),
+                  // Horizontal 1/3 and 2/3 grid lines
+                  Positioned(
+                    top: _cropRect.height / 3,
+                    left: 0,
+                    right: 0,
+                    height: 1,
+                    child: Container(color: Colors.white.withValues(alpha: 0.35)),
+                  ),
+                  Positioned(
+                    top: _cropRect.height * 2 / 3,
+                    left: 0,
+                    right: 0,
+                    height: 1,
+                    child: Container(color: Colors.white.withValues(alpha: 0.35)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // 8 Draggable Handles
+        _buildCropHandle(Alignment.topLeft),
+        _buildCropHandle(Alignment.topCenter),
+        _buildCropHandle(Alignment.topRight),
+        _buildCropHandle(Alignment.centerRight),
+        _buildCropHandle(Alignment.bottomRight),
+        _buildCropHandle(Alignment.bottomCenter),
+        _buildCropHandle(Alignment.bottomLeft),
+        _buildCropHandle(Alignment.centerLeft),
+      ],
+    );
+  }
+
+  Widget _buildToolbarButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Icon(
+              icon,
+              size: 19,
+              color: color ?? const Color(0xFF2D2A3E),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingToolbar() {
+    if (_isCropping) {
+      // Top crop control bar
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 12,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildToolbarButton(
+              icon: Icons.close_rounded,
+              tooltip: 'إلغاء',
+              color: Colors.redAccent,
+              onTap: _cancelCrop,
+            ),
+            Container(
+              width: 1,
+              height: 18,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Text(
+                'اقتصاص الصورة',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2D2A3E),
+                ),
+              ),
+            ),
+            Container(
+              width: 1,
+              height: 18,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
+            _buildToolbarButton(
+              icon: Icons.check_rounded,
+              tooltip: 'تطبيق',
+              color: const Color(0xFF10B981),
+              onTap: _confirmCrop,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Normal floating toolbar
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildToolbarButton(
+            icon: Icons.copy_rounded,
+            tooltip: 'نسخ',
+            onTap: () {
+              widget.controller.copyImage(widget.image);
+              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('تم نسخ الصورة'),
+                  duration: Duration(seconds: 1),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+          ),
+          if (SlideWorkspaceController.clipboardImage != null) ...[
+            const SizedBox(width: 2),
+            _buildToolbarButton(
+              icon: Icons.content_paste_rounded,
+              tooltip: 'لصق',
+              onTap: () {
+                widget.controller.pasteImage();
+              },
+            ),
+          ],
+          const SizedBox(width: 2),
+          _buildToolbarButton(
+            icon: Icons.crop_rounded,
+            tooltip: 'اقتصاص',
+            onTap: _startInPlaceCrop,
+          ),
+          if (widget.image.canDelete) ...[
+            Container(
+              width: 1,
+              height: 18,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              color: Colors.grey.withValues(alpha: 0.3),
+            ),
+            _buildToolbarButton(
+              icon: Icons.delete_outline_rounded,
+              tooltip: 'حذف',
+              color: Colors.redAccent,
+              onTap: widget.onDelete,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final image = widget.image;
@@ -380,26 +882,43 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
 
     Widget imageChild = _WorkspaceImageDisplay(image: image);
 
+    final bool toolbarAbove = _y >= 54.0;
+    final double padTop = toolbarAbove ? 54.0 : 36.0;
+    final double padBottom = toolbarAbove ? 36.0 : 54.0;
+    const double padSide = 36.0;
+
+    final containerLeft = _x - padSide;
+    final containerTop = _y - padTop;
+    final containerWidth = _width + padSide * 2;
+    final containerHeight = _height + padTop + padBottom;
+
     return Positioned(
-      left: _x - 36,
-      top: _y - 36,
-      width: _width + 72,
-      height: _height + 72,
+      left: containerLeft,
+      top: containerTop,
+      width: containerWidth,
+      height: containerHeight,
       child: ValueListenableBuilder<SlideStroke?>(
         valueListenable: widget.controller.activeStroke,
         builder: (context, activeStroke, _) => IgnorePointer(
           ignoring: activeStroke != null,
           child: Stack(
+            clipBehavior: Clip.none,
             children: [
+              // Image container
               Positioned(
-                left: 36,
-                top: 36,
+                left: padSide,
+                top: padTop,
                 width: _width,
                 height: _height,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: widget.onSelected,
-                  onPanUpdate: (widget.isSelected && image.canMove)
+                  onPanStart: (widget.isSelected && image.canMove && !_isCropping)
+                      ? (_) {
+                          widget.controller.isInteractingWithObject.value = true;
+                        }
+                      : null,
+                  onPanUpdate: (widget.isSelected && image.canMove && !_isCropping)
                       ? (details) {
                           setState(() {
                             _x = (_x + details.delta.dx).clamp(0.0, 1100.0 - _width);
@@ -407,11 +926,15 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
                           });
                         }
                       : null,
-                  onPanEnd: (widget.isSelected && image.canMove)
+                  onPanEnd: (widget.isSelected && image.canMove && !_isCropping)
                       ? (details) {
+                          widget.controller.isInteractingWithObject.value = false;
                           _onInteractionEnd();
                         }
                       : null,
+                  onPanCancel: () {
+                    widget.controller.isInteractingWithObject.value = false;
+                  },
                   child: Container(
                     decoration: BoxDecoration(
                       border: Border.all(
@@ -422,6 +945,8 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
                     child: Stack(
                       children: [
                         Positioned.fill(child: imageChild),
+                        if (_isCropping)
+                          Positioned.fill(child: _buildCropOverlay()),
                         if (_isLoadingBytes)
                           Container(
                             color: Colors.black.withValues(alpha: 0.5),
@@ -474,57 +999,27 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
                   ),
                 ),
               ),
-              if (widget.isSelected && image.state != ImageState.uploading) ...[
+
+              // Normal 4 corner resize handles
+              if (widget.isSelected && image.state != ImageState.uploading && !_isCropping) ...[
                 if (image.canResize) ...[
-                  _buildCornerHandle(Alignment.topLeft, aspect),
-                  _buildCornerHandle(Alignment.topRight, aspect),
-                  _buildCornerHandle(Alignment.bottomLeft, aspect),
-                  _buildCornerHandle(Alignment.bottomRight, aspect),
+                  _buildCornerHandle(Alignment.topLeft, aspect, padSide, padTop),
+                  _buildCornerHandle(Alignment.topRight, aspect, padSide, padTop),
+                  _buildCornerHandle(Alignment.bottomLeft, aspect, padSide, padTop),
+                  _buildCornerHandle(Alignment.bottomRight, aspect, padSide, padTop),
                 ],
+              ],
+
+              // Floating toolbar
+              if (widget.isSelected && image.state != ImageState.uploading)
                 Positioned(
-                  left: 44,
-                  top: 44,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (image.canDelete) ...[
-                          GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: widget.onDelete,
-                            child: const Padding(
-                              padding: EdgeInsets.all(4.0),
-                              child: Icon(
-                                Icons.delete_forever_rounded,
-                                color: Colors.redAccent,
-                                size: 20,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: _cropImage,
-                          child: const Padding(
-                            padding: EdgeInsets.all(4.0),
-                            child: Icon(
-                              Icons.crop_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  top: toolbarAbove ? (padTop - 46) : (padTop + _height + 8),
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: _buildFloatingToolbar(),
                   ),
                 ),
-              ],
             ],
           ),
         ),

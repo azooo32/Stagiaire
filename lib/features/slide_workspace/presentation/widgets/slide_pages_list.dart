@@ -6,6 +6,7 @@ import '../controllers/slide_workspace_controller.dart';
 import 'slide_workspace_chrome.dart';
 import 'workspace_state_provider.dart';
 import 'mobile_slide_page.dart';
+import '../../../../core/services/capacitive_stylus_service.dart';
 
 const slideCanvasWidth = 1100.0;
 const slideCanvasHeight = 608.0;
@@ -546,6 +547,8 @@ class _SlidePagesListState extends State<SlidePagesList>
                     WorkspaceScrollGestureRecognizer>(
               () => WorkspaceScrollGestureRecognizer(),
               (WorkspaceScrollGestureRecognizer instance) {
+                instance.isInteractingWithObject =
+                    () => widget.controller.isInteractingWithObject.value;
                 instance
                   ..onStart = () {
                     _flingAnimationController.stop();
@@ -612,6 +615,13 @@ class _SlidePagesListState extends State<SlidePagesList>
             child: Listener(
               onPointerDown: (event) {
                 if (_isStylus(event.kind)) {
+                  setState(() {
+                    _activeStylusPointers.add(event.pointer);
+                  });
+                } else if (event.kind == PointerDeviceKind.touch &&
+                    CapacitiveStylusService().classifyTouchAsStylus(event)) {
+                  // Capacitive stylus touch → treat like active stylus for
+                  // scroll/zoom gating purposes
                   setState(() {
                     _activeStylusPointers.add(event.pointer);
                   });
@@ -779,6 +789,7 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
   ValueChanged<Offset>? onUpdate;
   ValueChanged<Velocity>? onEnd;
   VoidCallback? onStylusDetected;
+  ValueGetter<bool>? isInteractingWithObject;
 
   final Map<int, VelocityTracker> _velocityTrackers = {};
   final Set<int> _touchPointers = {};
@@ -788,8 +799,16 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void addPointer(PointerDownEvent event) {
+    if (isInteractingWithObject?.call() == true) {
+      _isRejected = true;
+      resolve(GestureDisposition.rejected);
+      return;
+    }
+
     if (event.kind == PointerDeviceKind.stylus ||
-        event.kind == PointerDeviceKind.invertedStylus) {
+        event.kind == PointerDeviceKind.invertedStylus ||
+        (event.kind == PointerDeviceKind.touch &&
+            CapacitiveStylusService().classifyTouchAsStylus(event))) {
       onStylusDetected?.call();
       _isRejected = true;
       resolve(GestureDisposition.rejected);
@@ -808,6 +827,17 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
 
   @override
   void handleEvent(PointerEvent event) {
+    if (isInteractingWithObject?.call() == true) {
+      if (_hasStarted) {
+        _hasStarted = false;
+        onEnd?.call(Velocity.zero);
+      }
+      _isRejected = true;
+      resolve(GestureDisposition.rejected);
+      _reset();
+      return;
+    }
+
     final tracker = _velocityTrackers[event.pointer];
     if (tracker != null && event is PointerMoveEvent) {
       tracker.addPosition(event.timeStamp, event.position);

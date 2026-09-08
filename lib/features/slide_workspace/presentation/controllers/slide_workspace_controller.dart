@@ -215,6 +215,8 @@ class DuplicateObjectCommand extends WorkspaceCommand {
   final String slideId;
   final bool isExam;
   final WorkspaceObject original;
+  final double? customX;
+  final double? customY;
   late final WorkspaceObject duplicate;
 
   DuplicateObjectCommand({
@@ -222,10 +224,13 @@ class DuplicateObjectCommand extends WorkspaceCommand {
     required this.slideId,
     required this.isExam,
     required this.original,
+    this.customX,
+    this.customY,
   }) {
     final id = 'picked_${DateTime.now().microsecondsSinceEpoch}';
     if (original is ImageObject) {
-      final origPath = (original as ImageObject).localPath;
+      final orig = original as ImageObject;
+      final origPath = orig.localPath;
       String? dupPath;
       if (origPath != null) {
         if (!kIsWeb) {
@@ -236,13 +241,21 @@ class DuplicateObjectCommand extends WorkspaceCommand {
           dupPath = id;
         }
       }
-      duplicate = (original as ImageObject).copyWith(
+      final targetX = customX ??
+          (orig.x + 20).clamp(0.0, 1100.0 - orig.width);
+      final targetY = customY ??
+          (orig.y + 20).clamp(0.0, 825.0 - orig.height);
+
+      duplicate = orig.copyWith(
         id: id,
-        localPath: dupPath ?? id,
-        x: ((original as ImageObject).x + 20)
-            .clamp(0.0, 1100.0 - (original as ImageObject).width),
-        y: ((original as ImageObject).y + 20)
-            .clamp(0.0, 825.0 - (original as ImageObject).height),
+        localPath: dupPath ?? origPath,
+        imageUrl: orig.imageUrl,
+        storagePath: null,
+        state: dupPath != null
+            ? ImageState.local
+            : (orig.imageUrl != null ? ImageState.uploaded : ImageState.local),
+        x: targetX,
+        y: targetY,
         createdAt: DateTime.now().millisecondsSinceEpoch,
         updatedAt: DateTime.now().millisecondsSinceEpoch,
       );
@@ -256,7 +269,7 @@ class DuplicateObjectCommand extends WorkspaceCommand {
     if (original is ImageObject) {
       final origPath = (original as ImageObject).localPath;
       final dupPath = (duplicate as ImageObject).localPath;
-      if (origPath != null && dupPath != null) {
+      if (origPath != null && dupPath != null && origPath != dupPath) {
         if (!kIsWeb) {
           final file = File(origPath);
           if (await file.exists()) {
@@ -424,6 +437,12 @@ class SlideWorkspaceController extends ChangeNotifier {
   bool isStudyMode = true;
 
   String? selectedObjectId;
+
+  /// Buffer for copied image to allow copy/paste across slides or on current slide.
+  static ImageObject? clipboardImage;
+
+  /// Tracks whether an object is actively being touched, moved, resized, or cropped
+  final ValueNotifier<bool> isInteractingWithObject = ValueNotifier(false);
 
   void selectObject(String? id) {
     if (selectedObjectId != id) {
@@ -1419,6 +1438,26 @@ class SlideWorkspaceController extends ChangeNotifier {
       original: obj,
     );
     executeCommand(command);
+  }
+
+  void copyImage(ImageObject image) {
+    clipboardImage = image;
+    notifyListeners();
+  }
+
+  void pasteImage({double? targetX, double? targetY}) {
+    if (clipboardImage == null) return;
+    final isExam = !isStudyMode;
+    final command = DuplicateObjectCommand(
+      controller: this,
+      slideId: currentSlide.id,
+      isExam: isExam,
+      original: clipboardImage!,
+      customX: targetX,
+      customY: targetY,
+    );
+    executeCommand(command);
+    selectObject(command.duplicate.id);
   }
 
   void deleteWorkspaceObject(String id) async {

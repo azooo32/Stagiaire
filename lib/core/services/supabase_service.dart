@@ -121,6 +121,13 @@ class SupabaseService {
         'university': newUniversity,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', user.id);
+      try {
+        await client.auth.updateUser(
+          UserAttributes(data: {'university': newUniversity}),
+        );
+      } catch (authErr) {
+        print('Warning updating auth metadata: $authErr');
+      }
       return true;
     } catch (e) {
       print('Error updating university: $e');
@@ -226,7 +233,7 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getSubjects() async {
     final response = await client
         .from('subjects')
-        .select('id, name, description, total_questions')
+        .select('id, name, description, total_questions, stage, university')
         .order('name');
     final subjects = List<Map<String, dynamic>>.from(response);
     if (subjects.isNotEmpty) return subjects;

@@ -11,6 +11,7 @@ import 'slide_content_widgets.dart';
 import 'workspace_object_renderers.dart';
 import 'stagiaire_slide_painters.dart';
 import 'workspace_top_toolbar.dart';
+import '../../../../core/services/capacitive_stylus_service.dart';
 
 class MobileSlidePage extends StatefulWidget {
   final SlideWorkspaceController controller;
@@ -269,9 +270,45 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
       return;
     }
     if (!_canDraw || !_isPrimaryMouseButton(event)) return;
+
+    final slidePoint = _toSlidePoint(event.position);
+    final slideY = slidePoint.dy + _inSlideScrollOffset.value;
+    final slideX = slidePoint.dx;
+
+    final slide = controller.slides[widget.index];
+    final objects = controller.isStudyMode ? slide.strokes : slide.examStrokes;
+    final isOverImage = objects.any((obj) {
+      if (obj is! ImageObject) return false;
+      final isSelected = controller.selectedObjectId == obj.id;
+      final hitRect = isSelected
+          ? Rect.fromLTWH(
+              obj.x - 44,
+              obj.y - 70,
+              obj.width + 88,
+              obj.height + 114,
+            )
+          : Rect.fromLTWH(obj.x, obj.y, obj.width, obj.height);
+      return hitRect.contains(Offset(slideX, slideY));
+    });
+
+    if (isOverImage) {
+      return;
+    }
+
+    if (controller.selectedObjectId != null) {
+      controller.selectObject(null);
+    }
+
     final fingerDrawing = MediaQuery.sizeOf(context).width < 600 &&
         event.kind == PointerDeviceKind.touch;
+
+    // Capacitive stylus: a touch that passes the classifier counts as a stylus
+    final capStylusService = CapacitiveStylusService();
+    final isCapacitiveStylus = event.kind == PointerDeviceKind.touch &&
+        capStylusService.classifyTouchAsStylus(event);
+
     if (!_isStylus(event.kind) &&
+        !isCapacitiveStylus &&
         event.kind != PointerDeviceKind.mouse &&
         !fingerDrawing) {
       return;
@@ -280,7 +317,10 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
       controller.goToSlide(widget.index);
     }
 
-    final incomingIsStylus = _isStylus(event.kind);
+    // Prioritise true stylus over capacitive stylus or touch
+    final incomingIsStylus = _isStylus(event.kind) ||
+        (event.kind == PointerDeviceKind.touch &&
+            CapacitiveStylusService().classifyTouchAsStylus(event));
     final activeIsStylus = _isStylus(_activeKind);
     if (_activePointer != null) {
       if (incomingIsStylus && !activeIsStylus) {
@@ -323,6 +363,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
   bool _isStylus(PointerDeviceKind? kind) =>
       kind == PointerDeviceKind.stylus ||
       kind == PointerDeviceKind.invertedStylus;
+  // Note: capacitive stylus (touch) is handled separately in _handlePointerDown.
 
   Offset _toSlidePoint(Offset globalPosition) {
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;

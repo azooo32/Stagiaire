@@ -37,6 +37,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       SupabaseSlideWorkspaceRepository();
 
   bool _isLoading = true;
+  bool _isFirstLoad = true;
   List<WorkspaceSlide> _slides = [];
   Map<String, List<WorkspaceSlide>> _slidesBySubtitle = {};
   final Map<String, double> _downloadProgress = {}; // pdfId -> progress (0.0 to 1.0)
@@ -221,11 +222,13 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         _slidesBySubtitle.putIfAbsent(sub, () => []).add(s);
       }
 
-      if (_slidesBySubtitle.keys.length == 1) {
+      if (_isFirstLoad && _slidesBySubtitle.keys.length == 1) {
+        _isFirstLoad = false;
         // Bypass: open workspace screen directly for the only subtitle
-        _openSlideWorkspace(_slidesBySubtitle.keys.first);
+        _openSlideWorkspace(_slidesBySubtitle.keys.first, replace: true);
         return true;
       }
+      _isFirstLoad = false;
     }
 
     if (mounted) {
@@ -237,18 +240,24 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     return false;
   }
 
-  void _openSlideWorkspace(String subtitle) {
+  void _openSlideWorkspace(String subtitle, {bool replace = false}) async {
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SlideWorkspaceScreen(
-          stationName: '${widget.stationName} - $subtitle',
-          stationDbId: widget.stationDbId,
-          filterSubtitle: subtitle == 'General' ? '' : subtitle,
-        ),
+    final route = MaterialPageRoute(
+      builder: (context) => SlideWorkspaceScreen(
+        stationName: '${widget.stationName} - $subtitle',
+        stationDbId: widget.stationDbId,
+        filterSubtitle: subtitle == 'General' ? '' : subtitle,
       ),
     );
+
+    if (replace) {
+      Navigator.pushReplacement(context, route);
+    } else {
+      await Navigator.push(context, route);
+      if (mounted) {
+        _loadContent();
+      }
+    }
   }
 
   Future<void> _openPdfWorkspace(WorkspaceSlide pdfSlide, String path) async {
@@ -769,6 +778,14 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
               tooltip: 'ترتيب الأقسام',
               onPressed: () => _showReorderSubtitlesDialog(isDark, brandColor),
             ),
+          if (provider.isAdminOrOwner &&
+              widget.stationType == 'pdf' &&
+              _slides.length > 1)
+            IconButton(
+              icon: const Icon(Icons.swap_vert_rounded),
+              tooltip: 'ترتيب ملفات الـ PDF',
+              onPressed: () => _showReorderPdfsDialog(isDark, brandColor),
+            ),
         ],
       ),
       body: _slides.isEmpty
@@ -955,6 +972,12 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                color: brandColor,
+                tooltip: 'تعديل اسم الملف',
+                onPressed: () => _showEditPdfTitleDialog(pdfSlide),
+              ),
+              IconButton(
                 icon: const Icon(Icons.delete_outline_rounded),
                 color: Colors.redAccent,
                 tooltip: 'حذف الملف',
@@ -1005,6 +1028,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
               ),
             ),
             trailing: trailingWidget,
+            onLongPress: canManage ? () => _showEditPdfTitleDialog(pdfSlide) : null,
             onTap: () {
               if (downloading) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1025,6 +1049,125 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     );
   }
 
+  Future<void> _showEditPdfTitleDialog(WorkspaceSlide pdfSlide) async {
+    final controller = TextEditingController(text: pdfSlide.title);
+    final formKey = GlobalKey<FormState>();
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final isDark = provider.isDarkTheme;
+
+    final newTitle = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E1A2E) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF7C5CFC).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.edit_rounded, color: Color(0xFF7C5CFC), size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'تعديل اسم الملف',
+                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 18),
+              ),
+            ),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: controller,
+                autofocus: true,
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'اسم الملف',
+                  labelStyle: const TextStyle(fontFamily: 'Cairo'),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  prefixIcon: const Icon(Icons.picture_as_pdf, color: Color(0xFF7C5CFC)),
+                ),
+                validator: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return 'يرجى إدخال اسم للملف';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() == true) {
+                Navigator.pop(ctx, controller.text.trim());
+              }
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF7C5CFC),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text(
+              'حفظ التعديل',
+              style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (newTitle == null || newTitle.isEmpty || newTitle == pdfSlide.title || !mounted) {
+      return;
+    }
+
+    try {
+      setState(() {
+        final index = _slides.indexWhere((s) => s.id == pdfSlide.id);
+        if (index != -1) {
+          _slides[index] = _slides[index].copyWith(title: newTitle);
+        }
+      });
+
+      await _repository.updateSlideTitle(pdfSlide.id, newTitle);
+      unawaited(_repository.refreshSlides(widget.stationDbId));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('تم تعديل اسم الملف بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error updating PDF title: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل تعديل اسم الملف: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        await _loadContent();
+      }
+    }
+  }
+
   Future<void> _confirmDeletePdf(WorkspaceSlide pdfSlide) async {
     final provider = Provider.of<AppProvider>(context, listen: false);
     final isDark = provider.isDarkTheme;
@@ -1034,11 +1177,11 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       builder: (ctx) => AlertDialog(
         backgroundColor: isDark ? const Color(0xFF1E1A2E) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: Row(
+        title: const Row(
           children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 26),
-            const SizedBox(width: 10),
-            const Expanded(
+            Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 26),
+            SizedBox(width: 10),
+            Expanded(
               child: Text(
                 'حذف الملف',
                 style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
@@ -1145,6 +1288,350 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _showReorderPdfsDialog(bool isDark, Color brandColor) async {
+    if (_slides.length <= 1) return;
+
+    final updated = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => _ReorderPdfsDialog(
+        slides: _slides,
+        isDark: isDark,
+        brandColor: brandColor,
+        onSave: (orderedList) async {
+          if (widget.stationDbId == null || widget.stationDbId!.isEmpty) return;
+          setState(() {
+            _slides = List<WorkspaceSlide>.from(orderedList);
+          });
+          await _repository.reorderSlides(widget.stationDbId!, orderedList);
+          final fresh = await _repository.refreshSlides(widget.stationDbId);
+          if (fresh.isNotEmpty && mounted) {
+            await _processSlides(fresh);
+          }
+        },
+      ),
+    );
+
+    if (updated == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ ترتيب ملفات الـ PDF بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+}
+
+class _ReorderPdfsDialog extends StatefulWidget {
+  final List<WorkspaceSlide> slides;
+  final bool isDark;
+  final Color brandColor;
+  final Future<void> Function(List<WorkspaceSlide> ordered) onSave;
+
+  const _ReorderPdfsDialog({
+    required this.slides,
+    required this.isDark,
+    required this.brandColor,
+    required this.onSave,
+  });
+
+  @override
+  State<_ReorderPdfsDialog> createState() => _ReorderPdfsDialogState();
+}
+
+class _ReorderPdfsDialogState extends State<_ReorderPdfsDialog> {
+  late List<WorkspaceSlide> _slides;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _slides = List<WorkspaceSlide>.from(widget.slides);
+  }
+
+  Future<void> _handleSave() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+
+    try {
+      await widget.onSave(_slides);
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطأ أثناء حفظ الترتيب: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final dialogBg = isDark ? const Color(0xFF1E1A2E) : Colors.white;
+    final cardBg = isDark ? const Color(0xFF28233D) : const Color(0xFFF7F5FE);
+    final borderColor = isDark ? const Color(0xFF3B3356) : const Color(0xFFE2DCFA);
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    return PopScope(
+      canPop: !_isSaving,
+      child: Dialog(
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: Container(
+          width: 540,
+          height: MediaQuery.of(context).size.height * 0.75,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: widget.brandColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.swap_vert_rounded,
+                      color: widget.brandColor,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ترتيب ملفات الـ PDF',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'قم بسحب وإفلات الملفات لترتيبها',
+                          style: TextStyle(
+                            color: isDark ? Colors.white60 : Colors.black54,
+                            fontSize: 13,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _isSaving
+                        ? null
+                        : () {
+                            setState(() {
+                              _slides = _slides.reversed.toList();
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'تم عكس ترتيب الملفات. اضغط "حفظ الترتيب" لتأكيد الحفظ.',
+                                  style: TextStyle(fontFamily: 'Cairo'),
+                                ),
+                                duration: Duration(seconds: 2),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orangeAccent,
+                      side: const BorderSide(color: Colors.orangeAccent),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon: const Icon(Icons.flip_camera_android_rounded, size: 16),
+                    label: const Text(
+                      'عكس الترتيب',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: 'إلغاء',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+
+              // Reorderable list
+              Expanded(
+                child: ReorderableListView.builder(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: _slides.length,
+                  buildDefaultDragHandles: false,
+                  onReorder: (oldIndex, newIndex) {
+                    setState(() {
+                      if (oldIndex < newIndex) {
+                        newIndex -= 1;
+                      }
+                      final item = _slides.removeAt(oldIndex);
+                      _slides.insert(newIndex, item);
+                    });
+                  },
+                  itemBuilder: (context, index) {
+                    final pdfSlide = _slides[index];
+
+                    return KeyedSubtree(
+                      key: ValueKey(pdfSlide.id),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: borderColor, width: 1),
+                        ),
+                        child: Row(
+                          children: [
+                            ReorderableDragStartListener(
+                              index: index,
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.grab,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Icon(
+                                    Icons.drag_handle_rounded,
+                                    color: isDark ? Colors.white54 : Colors.black45,
+                                    size: 22,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Container(
+                              width: 28,
+                              height: 28,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: widget.brandColor.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${index + 1}',
+                                style: TextStyle(
+                                  color: widget.brandColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  fontFamily: 'Cairo',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Icon(
+                              Icons.picture_as_pdf,
+                              color: widget.brandColor,
+                              size: 26,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    pdfSlide.title,
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (pdfSlide.subtitle.isNotEmpty)
+                                    Text(
+                                      pdfSlide.subtitle,
+                                      style: TextStyle(
+                                        color: isDark ? Colors.white54 : Colors.black45,
+                                        fontSize: 12,
+                                        fontFamily: 'Cairo',
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+
+              // Footer
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _isSaving ? null : () => Navigator.of(context).pop(false),
+                    child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', fontSize: 15)),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _isSaving ? null : _handleSave,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: widget.brandColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.check_rounded, size: 20),
+                    label: Text(
+                      _isSaving ? 'جاري الحفظ...' : 'حفظ الترتيب',
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

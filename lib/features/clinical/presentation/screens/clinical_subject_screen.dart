@@ -2172,6 +2172,44 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                     _buildPillDivider(),
                     _buildPillStat(Icons.location_on_outlined, '$totalStations',
                         'Stations'),
+                    if (provider.isAdminOrOwner && sectionStations.length > 1) ...[
+                      _buildPillDivider(),
+                      InkWell(
+                        onTap: () => _showReorderStationsDialog(
+                          context,
+                          provider,
+                          section,
+                          sectionStations,
+                          brandColor,
+                        ),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.swap_vert_rounded,
+                                  color: Colors.white, size: 14),
+                              SizedBox(width: 2),
+                              Text(
+                                'ترتيب',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                  fontFamily: 'Cairo',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ],
@@ -2696,6 +2734,378 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Future<void> _showReorderStationsDialog(
+    BuildContext context,
+    AppProvider provider,
+    ClinicalSection section,
+    List<ClinicalSlideStation> sectionStations,
+    Color brandColor,
+  ) async {
+    final isDark = provider.isDarkTheme;
+
+    final updated = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => _ReorderStationsDialog(
+        sectionTitle: section.title,
+        stations: sectionStations,
+        isDark: isDark,
+        brandColor: brandColor,
+        onSave: (orderedList) async {
+          await provider.reorderClinicalSlideStations(
+            widget.subject,
+            orderedList,
+          );
+        },
+      ),
+    );
+
+    if (updated == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم حفظ ترتيب الستايشنات بنجاح',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+}
+
+class _ReorderStationsDialog extends StatefulWidget {
+  final String sectionTitle;
+  final List<ClinicalSlideStation> stations;
+  final bool isDark;
+  final Color brandColor;
+  final Future<void> Function(List<ClinicalSlideStation> ordered) onSave;
+
+  const _ReorderStationsDialog({
+    required this.sectionTitle,
+    required this.stations,
+    required this.isDark,
+    required this.brandColor,
+    required this.onSave,
+  });
+
+  @override
+  State<_ReorderStationsDialog> createState() => _ReorderStationsDialogState();
+}
+
+class _ReorderStationsDialogState extends State<_ReorderStationsDialog> {
+  late List<ClinicalSlideStation> _stations;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _stations = List<ClinicalSlideStation>.from(widget.stations);
+  }
+
+  Future<void> _handleSave() async {
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+
+    try {
+      await widget.onSave(_stations);
+      if (mounted) {
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('خطأ أثناء حفظ الترتيب: $e',
+                style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    final dialogBg = isDark ? const Color(0xFF1E1A2E) : Colors.white;
+    final cardBg = isDark ? const Color(0xFF28233D) : const Color(0xFFF7F5FE);
+    final borderColor =
+        isDark ? const Color(0xFF3B3356) : const Color(0xFFE2DCFA);
+    final textColor = isDark ? Colors.white : Colors.black87;
+
+    return PopScope(
+      canPop: !_isSaving,
+      child: Dialog(
+        backgroundColor: dialogBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: Container(
+          width: 540,
+          height: MediaQuery.of(context).size.height * 0.75,
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              // Header
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: widget.brandColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.swap_vert_rounded,
+                      color: widget.brandColor,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'ترتيب ستايشنات: ${widget.sectionTitle}',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'قم بسحب وإفلات الستايشنات لترتيبها',
+                          style: TextStyle(
+                            color: isDark ? Colors.white60 : Colors.black54,
+                            fontSize: 13,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _isSaving
+                        ? null
+                        : () {
+                            setState(() {
+                              _stations = _stations.reversed.toList();
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'تم عكس ترتيب الستايشنات. اضغط "حفظ الترتيب" لتأكيد الحفظ.',
+                                  style: TextStyle(fontFamily: 'Cairo'),
+                                ),
+                                duration: Duration(seconds: 2),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.orangeAccent,
+                      side: const BorderSide(color: Colors.orangeAccent),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    icon:
+                        const Icon(Icons.flip_camera_android_rounded, size: 16),
+                    label: const Text(
+                      'عكس الترتيب',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: 'إلغاء',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+
+              // Reorderable list
+              Expanded(
+                child: ReorderableListView.builder(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: _stations.length,
+                  buildDefaultDragHandles: false,
+                  onReorder: (oldIndex, newIndex) {
+                    setState(() {
+                      if (oldIndex < newIndex) {
+                        newIndex -= 1;
+                      }
+                      final item = _stations.removeAt(oldIndex);
+                      _stations.insert(newIndex, item);
+                    });
+                  },
+                  itemBuilder: (context, index) {
+                    final station = _stations[index];
+
+                    return KeyedSubtree(
+                      key: ValueKey(station.dbId ?? '${station.id}_$index'),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: cardBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: borderColor, width: 1),
+                        ),
+                        child: Row(
+                          children: [
+                            ReorderableDragStartListener(
+                              index: index,
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.grab,
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Icon(
+                                    Icons.drag_handle_rounded,
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black45,
+                                    size: 22,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Container(
+                              width: 28,
+                              height: 28,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color:
+                                    widget.brandColor.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                '${index + 1}',
+                                style: TextStyle(
+                                  color: widget.brandColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  fontFamily: 'Cairo',
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Icon(
+                              station.stationType == 'pdf'
+                                  ? Icons.picture_as_pdf
+                                  : Icons.slideshow_rounded,
+                              color: widget.brandColor,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    station.title,
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    station.stationType == 'pdf'
+                                        ? 'محطة PDF'
+                                        : station.progressText,
+                                    style: TextStyle(
+                                      color: isDark
+                                          ? Colors.white54
+                                          : Colors.black45,
+                                      fontSize: 12,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              const Divider(height: 1),
+              const SizedBox(height: 16),
+
+              // Footer
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: _isSaving
+                        ? null
+                        : () => Navigator.of(context).pop(false),
+                    child: const Text('إلغاء',
+                        style: TextStyle(fontFamily: 'Cairo', fontSize: 15)),
+                  ),
+                  const SizedBox(width: 12),
+                  FilledButton.icon(
+                    onPressed: _isSaving ? null : _handleSave,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: widget.brandColor,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.check_rounded, size: 20),
+                    label: Text(
+                      _isSaving ? 'جاري الحفظ...' : 'حفظ الترتيب',
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

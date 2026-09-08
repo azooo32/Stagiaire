@@ -11,6 +11,8 @@ import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:screen_protector/screen_protector.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sfpdf;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:record/record.dart';
 
@@ -27,6 +29,8 @@ import '../widgets/workspace_object_renderers.dart';
 import '../widgets/stagiaire_slide_painters.dart';
 import '../widgets/pdf_lecture_painters.dart';
 import '../widgets/pdf_lecture_recording_bar.dart';
+import '../widgets/pdf_text_layer.dart';
+import '../../../../core/services/capacitive_stylus_service.dart';
 
 class PdfWorkspaceScreen extends StatefulWidget {
   final String stationName;
@@ -99,6 +103,34 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   bool _isSavingLecture = false;
   String? _tempRecordingPath;
 
+  // ── Viewport Tracking (Recording) ─────────────────────────────────────────
+  /// High-frequency throttle timer for viewport events (50ms trailing window)
+  Timer? _viewportThrottleTimer;
+  int _lastRecordedViewportTimestampMs = 0;
+  double _lastRecordedScrollY = 0.0;
+  double _lastRecordedScrollX = 0.0;
+  double _lastRecordedScale = 1.0;
+
+  // ── Student Auto-Recenter & Smooth 60fps Gliding ──────────────────────────
+  /// True while the student is manually panning/zooming the PDF
+  bool _studentIsManualScrolling = false;
+  /// Fires 5s after student stops touching → smooth recenter to teacher position
+  Timer? _autoRecenterTimer;
+  /// In-flight smooth recenter animation controller
+  AnimationController? _recenterAnimController;
+  Animation<double>? _recenterTransYAnim;
+  Animation<double>? _recenterScaleAnim;
+  /// Target matrix for smooth 60fps exponential damp / glide during replay
+  Matrix4? _targetViewportMatrix;
+
+  // ── Student Screen Interaction Preferences (SharedPreferences) ────────────
+  static const _kPrefAnnotations = 'lecture_pref_show_annotations';
+  static const _kPrefAutoScroll  = 'lecture_pref_auto_scroll';
+  static const _kPrefAutoZoom    = 'lecture_pref_auto_zoom';
+  bool _showLectureAnnotations   = true;  // Laser + Strokes (default: true)
+  bool _viewportAutoScrollEnabled = false; // Auto-scroll with teacher (DEFAULT: false)
+  bool _viewportAutoZoomEnabled   = false; // Auto-zoom with teacher (DEFAULT: false)
+
   // Live and Replay Laser pointers
   Offset? _liveLaserDot;
   int? _liveLaserPage;
@@ -114,7 +146,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   // Persistent disk cache path
   String? _cacheDirPath;
-  // Cache: pageNumber -> rendered Uint8List
+  // Cache: pageNumber -> rendered Uint8List (base quality, stored on disk)
   final Map<int, Uint8List> _pageCache = {};
   // Cache: pageNumber -> page dimensions (width, height in PDF points)
   final Map<int, Size> _pageSizes = {};
@@ -122,6 +154,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   // GlobalKeys for each page widget — used to track which page is visible
   final Map<int, GlobalKey> _pageKeys = {};
+
+  // ── Hi-Res Re-Render System ────────────────────────────────────────────────
+  /// In-RAM high-DPI cache for zoomed pages. Never written to disk.
+  /// Key: pageNumber (1-indexed). Value: hi-res JPEG bytes.
+  final Map<int, Uint8List> _hiResPageCache = {};
+  final Set<int> _renderingHiResPages = {};
+  /// Last zoom scale at which we triggered a hi-res render pass.
+  double _lastKnownScale = 1.0;
+  Timer? _hiResDebounce;
+
+  // ── Text Extraction (syncfusion_flutter_pdf) ──────────────────────────────
+  /// Key: pageNumber (1-indexed). Value: list of TextLine with bounds.
+  final Map<int, List<sfpdf.TextLine>> _pageTextLines = {};
+  bool _textExtractionDone = false;
 
   @override
   void initState() {
@@ -141,6 +187,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         final now = DateTime.now().millisecondsSinceEpoch;
         _activeLaserTrails.removeWhere((t) => t.isExpired(now));
       }
+      _smoothFollowViewport();
       if (_liveLaserDot != null || _activeLaserTrails.isNotEmpty || _currentDrawingTrail.isNotEmpty) {
         if (mounted) setState(() {});
       }
@@ -156,6 +203,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
     _initAudioListeners();
     _initWorkspace();
+    _loadStudentPrefs(); // Load student interaction preferences from SharedPreferences
   }
 
   bool get _isDrawingTool =>
@@ -171,6 +219,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   bool _isStylus(PointerDeviceKind kind) {
     return kind == PointerDeviceKind.stylus ||
         kind == PointerDeviceKind.invertedStylus;
+    // Note: capacitive stylus (touch) is classified separately.
   }
 
   bool get _customPanEnabled =>
@@ -209,6 +258,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       controller.setZoom(scale.clamp(0.5, 5.0));
     }
 
+    // Trigger hi-res re-render when zoom changes meaningfully
+    if ((scale - _lastKnownScale).abs() > 0.25) {
+      _lastKnownScale = scale;
+      _scheduleHiResForVisiblePages(scale);
+    }
+
     if (_lastViewportHeight > 0 && _lastViewportWidth > 0) {
       final contentHeight = _contentHeight(_lastPageWidth);
       final horizontalBounds = _translationBounds(
@@ -241,6 +296,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
 
     _updateDockedAudioState();
+    _recordViewportIfNeeded(); // Record viewport position/scale during lecture recording
   }
 
   void _updateCurrentPageFromTranslation(double translationY, double scale) {
@@ -300,6 +356,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           _isSoundPillCollapsed = false;
           _liveLaserDot = null;
           _activeLaserTrails.clear();
+          _targetViewportMatrix = null;
+          _studentIsManualScrolling = false;
+          _autoRecenterTimer?.cancel();
+          _recenterAnimController?.stop();
         });
       }
     });
@@ -379,6 +439,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (replayLaserTip != null) {
       _liveLaserDot = replayLaserTip;
       _liveLaserPage = replayLaserTipPage;
+    }
+
+    // 3. Apply Viewport (Scroll + Zoom) if student is not manually interacting
+    if (!_studentIsManualScrolling) {
+      _applyViewportFromTimestamp(posMs, animate: false);
     }
   }
 
@@ -706,7 +771,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       // Pre-render remaining pages in background
       _preRenderRemainingPages(pageCount);
 
-      // 5. Background sync for lecture recordings (fetch additions/deletions from Supabase)
+      // 5. Extract text lines for all pages (used by PdfTextSelectionLayer)
+      unawaited(_extractTextLines());
+
+      // 6. Background sync for lecture recordings (fetch additions/deletions from Supabase)
       await _syncLectureRecordingsInBackground(mainRepository);
 
     } catch (e) {
@@ -950,11 +1018,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final page = await _pdfDocument!.getPage(pageNum);
       _pageSizes[pageNum] = Size(page.width, page.height);
       final img = await page.render(
-        width: page.width * 2.2,
-        height: page.height * 2.2,
+        width: page.width * 3.0,   // Raised from 2.2x for sharper base cache
+        height: page.height * 3.0,
         format: PdfPageImageFormat.jpeg,
         backgroundColor: '#FFFFFF',
-        quality: 92,
+        quality: 94,
       );
       await page.close();
 
@@ -992,6 +1060,108 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
+  // ── Hi-Res Re-Render Helpers ───────────────────────────────────────────────
+
+  /// Re-renders [pageNum] at [scale]*2 DPI into [_hiResPageCache] (RAM only).
+  /// No-op when [scale] < 1.5 (base cache is sufficient at low zoom).
+  Future<void> _renderHiResPage(int pageNum, double scale) async {
+    if (_pdfDocument == null) return;
+    if (_renderingHiResPages.contains(pageNum)) return;
+
+    if (scale < 1.5) {
+      if (_hiResPageCache.containsKey(pageNum) && mounted) {
+        setState(() => _hiResPageCache.remove(pageNum));
+      }
+      return;
+    }
+
+    // Render DPI = zoom * 2.0, clamped between 3.5x and 7.0x PDF points
+    final renderScale = (scale * 2.0).clamp(3.5, 7.0);
+    _renderingHiResPages.add(pageNum);
+    try {
+      final page = await _pdfDocument!.getPage(pageNum);
+      final img = await page.render(
+        width: page.width * renderScale,
+        height: page.height * renderScale,
+        format: PdfPageImageFormat.jpeg,
+        backgroundColor: '#FFFFFF',
+        quality: 96,
+      );
+      await page.close();
+      if (img != null && img.bytes.isNotEmpty && mounted) {
+        setState(() => _hiResPageCache[pageNum] = img.bytes);
+      }
+    } catch (e) {
+      debugPrint('Hi-Res render error p$pageNum: $e');
+    } finally {
+      _renderingHiResPages.remove(pageNum);
+    }
+  }
+
+  /// Debounced scheduler: waits 300 ms after the last zoom event, then
+  /// re-renders the current page ±1 at the appropriate DPI.
+  /// Frees the hi-res cache automatically when zoom drops below 1.5.
+  void _scheduleHiResForVisiblePages(double scale) {
+    _hiResDebounce?.cancel();
+    _hiResDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      if (scale < 1.5) {
+        if (_hiResPageCache.isNotEmpty) {
+          setState(() => _hiResPageCache.clear());
+        }
+        return;
+      }
+      final visible = [
+        _currentPageIndex,
+        _currentPageIndex - 1,
+        _currentPageIndex + 1,
+      ].where((i) => i >= 0 && i < controller.slides.length).toList();
+      for (final i in visible) {
+        _renderHiResPage(i + 1, scale);
+      }
+    });
+  }
+
+  // ── Text Extraction ────────────────────────────────────────────────────────
+
+  /// Extracts text lines with bounding rectangles from every page using
+  /// [syncfusion_flutter_pdf]. Runs page-by-page with yield points so it
+  /// does not freeze the UI. Results are stored in [_pageTextLines].
+  Future<void> _extractTextLines() async {
+    if (_textExtractionDone) return;
+    try {
+      final pdfBytes = await File(widget.localPdfPath).readAsBytes();
+      final sfDoc = sfpdf.PdfDocument(inputBytes: pdfBytes);
+      final extractor = sfpdf.PdfTextExtractor(sfDoc);
+      final results = <int, List<sfpdf.TextLine>>{};
+      final pageCount = sfDoc.pages.count;
+
+      for (var i = 0; i < pageCount; i++) {
+        if (!mounted) break;
+        try {
+          final lines = extractor.extractTextLines(
+            startPageIndex: i,
+            endPageIndex: i,
+          );
+          if (lines.isNotEmpty) results[i + 1] = lines;
+        } catch (_) {
+          // Page may contain no extractable text (e.g. scanned image page)
+        }
+        await Future.delayed(Duration.zero); // Yield to UI thread
+      }
+      sfDoc.dispose();
+
+      if (mounted) {
+        setState(() {
+          _pageTextLines.addAll(results);
+          _textExtractionDone = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('PDF text extraction error: $e');
+    }
+  }
+
   Future<void> _preventScreenshot() async {
     if (kIsWeb) return;
     try {
@@ -1021,6 +1191,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _transformationController.removeListener(_onTransformationChanged);
     _transformationController.dispose();
     _flingAnimationController.dispose();
+    _hiResDebounce?.cancel();         // Cancel any pending hi-res render
+    _viewportThrottleTimer?.cancel(); // Cancel viewport throttle timer
+    _autoRecenterTimer?.cancel();     // Cancel auto-recenter timer
+    _recenterAnimController?.dispose();
     _recordTimer?.cancel();
     _recordStopwatch?.stop();
     _audioRecorder.dispose();
@@ -1197,6 +1371,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _totalDuration = Duration.zero;
         _liveLaserDot = null;
         _activeLaserTrails.clear();
+        _targetViewportMatrix = null;
+        _studentIsManualScrolling = false;
+        _autoRecenterTimer?.cancel();
+        _recenterAnimController?.stop();
       });
     }
   }
@@ -1252,6 +1430,475 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
     final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
     return '$minutes:$seconds';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Student Preferences (SharedPreferences) ───────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _loadStudentPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+      setState(() {
+        _showLectureAnnotations   = prefs.getBool(_kPrefAnnotations) ?? true;
+        _viewportAutoScrollEnabled = prefs.getBool(_kPrefAutoScroll)  ?? false;
+        _viewportAutoZoomEnabled   = prefs.getBool(_kPrefAutoZoom)    ?? false;
+      });
+    } catch (e) {
+      debugPrint('Error loading student prefs: $e');
+    }
+  }
+
+  Future<void> _saveStudentPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_kPrefAnnotations, _showLectureAnnotations);
+      await prefs.setBool(_kPrefAutoScroll,  _viewportAutoScrollEnabled);
+      await prefs.setBool(_kPrefAutoZoom,    _viewportAutoZoomEnabled);
+    } catch (e) {
+      debugPrint('Error saving student prefs: $e');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Viewport Recording (Teacher) ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Called from _onTransformationChanged when recording is active.
+  /// Throttled to 50ms with trailing window so the exact final position is saved.
+  void _recordViewportIfNeeded() {
+    if (!_isRecordingLecture || _isPausedLecture) return;
+
+    final matrix = _transformationController.value;
+    final currentScale = matrix.getMaxScaleOnAxis();
+    final currentTrans = matrix.getTranslation();
+    final currentY = currentTrans.y;
+    final currentX = currentTrans.x;
+
+    // Only record if scroll or scale changed meaningfully
+    final scrollChanged = (currentY - _lastRecordedScrollY).abs() > 1.0 ||
+                          (currentX - _lastRecordedScrollX).abs() > 1.0;
+    final scaleChanged  = (currentScale - _lastRecordedScale).abs() > 0.01;
+    if (!scrollChanged && !scaleChanged) return;
+
+    final nowMs = _recordStopwatch?.elapsedMilliseconds ?? 0;
+    // 50ms throttle for high-frequency, silky recording
+    if (nowMs - _lastRecordedViewportTimestampMs < 50) {
+      _viewportThrottleTimer?.cancel();
+      _viewportThrottleTimer = Timer(const Duration(milliseconds: 50), () {
+        if (!_isRecordingLecture || !mounted) return;
+        _saveCurrentViewportEvent();
+      });
+      return;
+    }
+
+    _saveCurrentViewportEvent();
+  }
+
+  void _saveCurrentViewportEvent() {
+    final m = _transformationController.value;
+    final sc = m.getMaxScaleOnAxis();
+    final ty = m.getTranslation().y;
+    final tx = m.getTranslation().x;
+    final nowMs = _recordStopwatch?.elapsedMilliseconds ?? 0;
+
+    _lastRecordedViewportTimestampMs = nowMs;
+    _lastRecordedScrollY = ty;
+    _lastRecordedScrollX = tx;
+    _lastRecordedScale   = sc;
+
+    _recordingPointerEvents.add(
+      PdfPointerEvent(
+        timestampMs: nowMs,
+        pageNumber: _recordingPageNumber,
+        type: PdfPointerType.viewport,
+        x: tx,
+        y: ty,
+        scale: sc,
+      ),
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Viewport Application (Student Playback) ───────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Computes continuous linearly-interpolated viewport position for [posMs].
+  /// Prevents choppy discrete jumps and smoothly glides without lag.
+  void _applyViewportFromTimestamp(int posMs, {bool animate = false}) {
+    final rec = _activeLectureRecording;
+    if (rec == null) return;
+    if (!_viewportAutoScrollEnabled && !_viewportAutoZoomEnabled) return;
+    if (rec.pointerEvents.isEmpty) return;
+
+    // Filter valid viewport events with non-null coordinates
+    final viewportEvents = rec.pointerEvents
+        .where((e) => e.type == PdfPointerType.viewport && e.y != null)
+        .toList();
+    if (viewportEvents.isEmpty) return;
+
+    PdfPointerEvent? prevEvent;
+    PdfPointerEvent? nextEvent;
+
+    for (final e in viewportEvents) {
+      if (e.timestampMs <= posMs) {
+        if (prevEvent == null || e.timestampMs > prevEvent.timestampMs) {
+          prevEvent = e;
+        }
+      } else {
+        if (nextEvent == null || e.timestampMs < nextEvent.timestampMs) {
+          nextEvent = e;
+        }
+      }
+    }
+
+    double targetY;
+    double targetX;
+    double targetSc;
+
+    if (prevEvent != null && nextEvent != null) {
+      final dt = nextEvent.timestampMs - prevEvent.timestampMs;
+      if (dt > 0 && dt <= 800) {
+        final t = ((posMs - prevEvent.timestampMs) / dt).clamp(0.0, 1.0);
+        targetY = prevEvent.y! + (nextEvent.y! - prevEvent.y!) * t;
+        targetX = (prevEvent.x ?? 0.0) + ((nextEvent.x ?? 0.0) - (prevEvent.x ?? 0.0)) * t;
+        final sc1 = prevEvent.scale ?? 1.0;
+        final sc2 = nextEvent.scale ?? 1.0;
+        targetSc = sc1 + (sc2 - sc1) * t;
+      } else {
+        targetY = prevEvent.y!;
+        targetX = prevEvent.x ?? 0.0;
+        targetSc = prevEvent.scale ?? 1.0;
+      }
+    } else if (prevEvent != null) {
+      targetY = prevEvent.y!;
+      targetX = prevEvent.x ?? 0.0;
+      targetSc = prevEvent.scale ?? 1.0;
+    } else if (nextEvent != null) {
+      targetY = nextEvent.y!;
+      targetX = nextEvent.x ?? 0.0;
+      targetSc = nextEvent.scale ?? 1.0;
+    } else {
+      return;
+    }
+
+    final currentMatrix = _transformationController.value;
+    final currentSc = currentMatrix.getMaxScaleOnAxis();
+    final currentTrans = currentMatrix.getTranslation();
+
+    final applyScale = _viewportAutoZoomEnabled;
+    final toSc = applyScale ? targetSc : currentSc;
+    final toY = _viewportAutoScrollEnabled ? targetY : currentTrans.y;
+    final toX = _viewportAutoScrollEnabled ? targetX : currentTrans.x;
+
+    if (!animate) {
+      final targetMat = Matrix4.diagonal3Values(toSc, toSc, 1.0)
+        ..setTranslationRaw(toX, toY, 0);
+
+      // If user performed a large seek (> 300px), snap immediately
+      final diffY = (toY - currentTrans.y).abs();
+      if (diffY > 300) {
+        _transformationController.value = targetMat;
+      }
+      _targetViewportMatrix = targetMat;
+    } else {
+      // Smooth 500ms animation (auto-recenter after student interaction)
+      _recenterAnimController?.stop();
+      _recenterAnimController?.dispose();
+      _recenterAnimController = AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 500),
+      );
+
+      _recenterScaleAnim = Tween<double>(begin: currentSc, end: toSc)
+          .animate(CurvedAnimation(parent: _recenterAnimController!, curve: Curves.easeOutCubic));
+      _recenterTransYAnim = Tween<double>(begin: currentTrans.y, end: toY)
+          .animate(CurvedAnimation(parent: _recenterAnimController!, curve: Curves.easeOutCubic));
+      final transXAnim = Tween<double>(begin: currentTrans.x, end: toX)
+          .animate(CurvedAnimation(parent: _recenterAnimController!, curve: Curves.easeOutCubic));
+
+      _recenterAnimController!.addListener(() {
+        if (!mounted) return;
+        final sc = _recenterScaleAnim!.value;
+        final ty = _recenterTransYAnim!.value;
+        final tx = transXAnim.value;
+        final m = Matrix4.diagonal3Values(sc, sc, 1.0)
+          ..setTranslationRaw(tx, ty, 0);
+        _transformationController.value = m;
+        _targetViewportMatrix = m;
+      });
+
+      _recenterAnimController!.forward();
+    }
+  }
+
+  /// Called every 16ms (60 FPS) from _laserPulseController to smoothly glide
+  /// the transformationController towards _targetViewportMatrix without choppiness.
+  void _smoothFollowViewport() {
+    if (_playerState != PlayerState.playing ||
+        _activeLectureRecording == null ||
+        _studentIsManualScrolling ||
+        (!_viewportAutoScrollEnabled && !_viewportAutoZoomEnabled)) {
+      return;
+    }
+    final target = _targetViewportMatrix;
+    if (target == null) return;
+    final current = _transformationController.value;
+
+    final curTrans = current.getTranslation();
+    final tgtTrans = target.getTranslation();
+    final curSc = current.getMaxScaleOnAxis();
+    final tgtSc = target.getMaxScaleOnAxis();
+
+    final diffY = (tgtTrans.y - curTrans.y).abs();
+    final diffX = (tgtTrans.x - curTrans.x).abs();
+    final diffSc = (tgtSc - curSc).abs();
+
+    if (diffY < 0.2 && diffX < 0.2 && diffSc < 0.002) {
+      return;
+    }
+
+    const factor = 0.25;
+    final newY = curTrans.y + (tgtTrans.y - curTrans.y) * factor;
+    final newX = curTrans.x + (tgtTrans.x - curTrans.x) * factor;
+    final newSc = curSc + (tgtSc - curSc) * factor;
+
+    _transformationController.value = Matrix4.diagonal3Values(newSc, newSc, 1.0)
+      ..setTranslationRaw(newX, newY, 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Auto-Recenter (Student manual scroll → 5s timer → smooth return) ─────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _onStudentManualScrollStarted() {
+    _studentIsManualScrolling = true;
+    // Cancel any in-flight recenter animation
+    _recenterAnimController?.stop();
+    // Reset the 5-second timer
+    _autoRecenterTimer?.cancel();
+    _autoRecenterTimer = Timer(const Duration(seconds: 5), _onAutoRecenterTimerFired);
+  }
+
+  void _onStudentManualScrollEnded() {
+    // Re-arm the timer from the moment touch lifted
+    _autoRecenterTimer?.cancel();
+    _autoRecenterTimer = Timer(const Duration(seconds: 5), _onAutoRecenterTimerFired);
+  }
+
+  void _onAutoRecenterTimerFired() {
+    if (!mounted) return;
+    _studentIsManualScrolling = false;
+    // Only recenter if audio is currently playing
+    if (_playerState == PlayerState.playing && _activeLectureRecording != null) {
+      _applyViewportFromTimestamp(_currentPosition.inMilliseconds, animate: true);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Screen Interactions Menu (Modal Bottom Sheet) ─────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _showScreenInteractionsMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFF242038),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border(
+                top: BorderSide(color: Color(0xFF7C5CFC), width: 1.5),
+                left: BorderSide(color: Color(0xFF7C5CFC), width: 1.5),
+                right: BorderSide(color: Color(0xFF7C5CFC), width: 1.5),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black54,
+                  blurRadius: 20,
+                  offset: Offset(0, -4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Directionality(
+              textDirection: TextDirection.rtl,
+              child: SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF7C5CFC).withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.tune_rounded,
+                            color: Color(0xFF7C5CFC),
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'تفاعلات الشاشة',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              Text(
+                                'التحكم في حركة الشاشة وتأثيرات الشرح أثناء الاستماع',
+                                style: TextStyle(
+                                  fontFamily: 'Cairo',
+                                  fontSize: 12,
+                                  color: Colors.white60,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 20),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(color: Colors.white12, height: 1),
+                    const SizedBox(height: 10),
+                    // Option 1: Doctor Notes & Laser Pointer
+                    _buildScreenInteractionTile(
+                      icon: Icons.draw_rounded,
+                      title: 'ملاحظات الدكتور ومؤشر الليزر',
+                      subtitle: 'إظهار خطوط الشرح وبقعة الليزر المتزامنة',
+                      value: _showLectureAnnotations,
+                      onChanged: (val) {
+                        setState(() => _showLectureAnnotations = val);
+                        setSheetState(() {});
+                        _saveStudentPrefs();
+                      },
+                    ),
+                    // Option 2: Auto Scroll
+                    _buildScreenInteractionTile(
+                      icon: Icons.swap_vert_rounded,
+                      title: 'التمرير التلقائي (Scroll)',
+                      subtitle: 'متابعة حركة الشاشة الرأسية مع شرح الدكتور',
+                      value: _viewportAutoScrollEnabled,
+                      onChanged: (val) {
+                        setState(() => _viewportAutoScrollEnabled = val);
+                        setSheetState(() {});
+                        _saveStudentPrefs();
+                      },
+                    ),
+                    // Option 3: Auto Zoom
+                    _buildScreenInteractionTile(
+                      icon: Icons.zoom_in_rounded,
+                      title: 'التكبير التلقائي (Zoom)',
+                      subtitle: 'ضبط نسبة التكبير والتركيز تلقائياً مع الشرح',
+                      value: _viewportAutoZoomEnabled,
+                      onChanged: (val) {
+                        setState(() => _viewportAutoZoomEnabled = val);
+                        setSheetState(() {});
+                        _saveStudentPrefs();
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildScreenInteractionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: value
+                  ? const Color(0xFF7C5CFC).withValues(alpha: 0.2)
+                  : Colors.white.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              color: value ? const Color(0xFF7C5CFC) : Colors.white54,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 11,
+                    color: Colors.white54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeThumbColor: const Color(0xFF7C5CFC),
+            activeTrackColor: const Color(0xFF7C5CFC).withValues(alpha: 0.4),
+            inactiveThumbColor: Colors.white54,
+            inactiveTrackColor: Colors.white12,
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _playLectureRecording(PdfLectureRecording rec, {int initialPositionMs = 0}) async {
@@ -2175,6 +2822,30 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 const SizedBox(width: 2),
               ],
 
+              // 5b. Screen Interactions Menu Button
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _showScreenInteractionsMenu,
+                child: Tooltip(
+                  message: 'تفاعلات الشاشة',
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.tune_rounded,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 2),
+
               // 6. Fold / Collapse Button (سهم لطي المشغل وإظهار المحتوى مع استمرار تشغيل الصوت)
               GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -2401,6 +3072,29 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 ),
                 const SizedBox(width: 4),
               ],
+
+              // 6b. Screen Interactions Menu Button
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _showScreenInteractionsMenu,
+                child: Tooltip(
+                  message: 'تفاعلات الشاشة',
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.tune_rounded,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 4),
 
               // 7. Cancel / Close Button
               GestureDetector(
@@ -3039,7 +3733,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                               _lastPageWidth = pageWidth;
 
                               final gestures = <Type, GestureRecognizerFactory>{};
-                              if (_customPanEnabled) {
+                              if (!lockScroll && _customPanEnabled) {
                                 gestures[WorkspaceScrollGestureRecognizer] =
                                     GestureRecognizerFactoryWithHandlers<
                                         WorkspaceScrollGestureRecognizer>(
@@ -3048,28 +3742,37 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                     instance
                                       ..onStart = () {
                                         _flingAnimationController.stop();
+                                        // Notify auto-recenter system that student started manual scroll
+                                        if (_activeLectureRecording != null) {
+                                          _onStudentManualScrollStarted();
+                                        }
                                       }
                                       ..onUpdate = (delta) {
                                         final currentMatrix =
                                             _transformationController.value;
                                         final translation =
                                             currentMatrix.getTranslation();
-                                        final scale =
-                                            currentMatrix.getMaxScaleOnAxis();
+                                        final scale = currentMatrix
+                                            .getMaxScaleOnAxis();
 
                                         final contentHeight =
                                             _contentHeight(pageWidth);
-                                        final verticalBounds = _translationBounds(
-                                            contentHeight, viewportHeight, scale);
+                                        final verticalBounds =
+                                            _translationBounds(contentHeight,
+                                                viewportHeight, scale);
                                         final horizontalBounds =
                                             _translationBounds(
                                                 pageWidth, viewportWidth, scale);
 
-                                        final double newY = (translation.y + delta.dy)
-                                            .clamp(verticalBounds.min, verticalBounds.max)
+                                        final double newY = (translation.y +
+                                                delta.dy)
+                                            .clamp(verticalBounds.min,
+                                                verticalBounds.max)
                                             .toDouble();
-                                        final double newX = (translation.x + delta.dx)
-                                            .clamp(horizontalBounds.min, horizontalBounds.max)
+                                        final double newX = (translation.x +
+                                                delta.dx)
+                                            .clamp(horizontalBounds.min,
+                                                horizontalBounds.max)
                                             .toDouble();
 
                                         final newMatrix =
@@ -3080,6 +3783,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                             newMatrix;
                                       }
                                       ..onEnd = (velocity) {
+                                        if (_activeLectureRecording != null) {
+                                          _onStudentManualScrollEnded();
+                                        }
                                         final double velocityY =
                                             velocity.pixelsPerSecond.dy;
                                         if (velocityY.abs() > 100) {
@@ -3105,6 +3811,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                 gestures: gestures,
                                 child: Listener(
                                   onPointerDown: (event) {
+                                    if (event.kind == PointerDeviceKind.touch) {
+                                      if (_activeLectureRecording != null) {
+                                        _onStudentManualScrollStarted();
+                                      }
+                                    }
                                     if (_isStylus(event.kind)) {
                                       setState(() {
                                         _activeStylusPointers.add(event.pointer);
@@ -3140,6 +3851,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                               event.scrollDelta.dx;
                                           if (scrollDeltaY != 0 ||
                                               scrollDeltaX != 0) {
+                                            if (_activeLectureRecording != null) {
+                                              _onStudentManualScrollStarted();
+                                              _onStudentManualScrollEnded();
+                                            }
                                             final currentMatrix =
                                                 _transformationController.value;
                                             final translation =
@@ -3172,7 +3887,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                                   ..setTranslationRaw(
                                                       newX, newY, translation.z);
                                             _transformationController.value =
-                                                newMatrix;
+                                              newMatrix;
                                           }
                                         }
                                       });
@@ -3190,6 +3905,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                     maxScale: 5.0,
                                     alignment: Alignment.topLeft,
                                     constrained: false,
+                                    onInteractionStart: (details) {
+                                      if (_activeLectureRecording != null) {
+                                        _onStudentManualScrollStarted();
+                                      }
+                                    },
+                                    onInteractionEnd: (details) {
+                                      if (_activeLectureRecording != null) {
+                                        _onStudentManualScrollEnded();
+                                      }
+                                    },
                                     child: Padding(
                                       key: _contentKey,
                                       padding: const EdgeInsets.fromLTRB(
@@ -3433,18 +4158,30 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           height: pdfH,
           child: Stack(
             children: [
-              // 1. The rendered PDF page image (fills the exact PDF dimensions)
+              // 1. The rendered PDF page image (hi-res preferred, falls back to base)
               Positioned.fill(
                 child: Image.memory(
-                  cachedBytes,
+                  _hiResPageCache[pageNum] ?? cachedBytes,
                   fit: BoxFit.fill,
                   gaplessPlayback: true,
+                  filterQuality: FilterQuality.high,
                 ),
               ),
 
+              // 1b. Transparent text-selection overlay (PAN mode only — hidden
+              //     when any drawing tool is active so strokes are not blocked)
+              if (!_isDrawingTool && _pageTextLines.containsKey(pageNum))
+                Positioned.fill(
+                  child: PdfTextSelectionLayer(
+                    pdfPageWidth: pdfW,
+                    pdfPageHeight: pdfH,
+                    textLines: _pageTextLines[pageNum]!,
+                  ),
+                ),
+
               // 2. Synchronized Lecturer Notes (Notability Effect: Dimmed when in future, vivid on reach, pulse highlight on seek)
-              // Hidden during active recording to avoid old strokes showing during new session
-              if (pageLecturerStrokes.isNotEmpty && !_isRecordingLecture)
+              // Hidden during active recording to avoid old strokes showing during new session, or when student toggles annotations off
+              if (_showLectureAnnotations && pageLecturerStrokes.isNotEmpty && !_isRecordingLecture)
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
@@ -3495,7 +4232,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                   onLaserTrailMoved: (pos) => _onLaserTrailMoved(pageNum, pos),
                   onLaserTrailEnded: () => _onLaserTrailEnded(pageNum),
                   onTapCanvas: (localPos) {
-                    if (pageLecturerStrokes.isNotEmpty) {
+                    if (_showLectureAnnotations && pageLecturerStrokes.isNotEmpty) {
                       final tapped = PdfLecturerNotesPainter.findTappedStroke(
                         pageLecturerStrokes,
                         localPos,
@@ -3522,21 +4259,23 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               ),
 
               // 4. Laser Pointer Layer (Pulsing Laser Dot & Vanishing Laser Trail)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(
-                    painter: PdfLaserPainter(
-                      activeLaserDot: (_liveLaserPage == pageNum) ? _liveLaserDot : null,
-                      pulsePhase: _laserPulseController.value,
-                      activeTrails: _activeLaserTrails.where((t) => t.pageNumber == pageNum).toList(),
-                      currentTimestampMs: _activeLectureRecording != null
-                          ? _currentPosition.inMilliseconds
-                          : DateTime.now().millisecondsSinceEpoch,
-                      currentDrawingTrail: (_liveLaserPage == pageNum) ? _currentDrawingTrail : null,
+              // Only shown if _showLectureAnnotations is true (or during active teacher interaction/recording)
+              if (_showLectureAnnotations || _isRecordingLecture || _activeLectureRecording == null)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: PdfLaserPainter(
+                        activeLaserDot: (_liveLaserPage == pageNum) ? _liveLaserDot : null,
+                        pulsePhase: _laserPulseController.value,
+                        activeTrails: _activeLaserTrails.where((t) => t.pageNumber == pageNum).toList(),
+                        currentTimestampMs: _activeLectureRecording != null
+                            ? _currentPosition.inMilliseconds
+                            : DateTime.now().millisecondsSinceEpoch,
+                        currentDrawingTrail: (_liveLaserPage == pageNum) ? _currentDrawingTrail : null,
+                      ),
                     ),
                   ),
                 ),
-              ),
 
               // 5. Lecture Recording Overlays & Badges
               for (final rec in _lectureRecordings.where((r) => r.pageNumber == pageNum))
@@ -3714,7 +4453,14 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
 
     final fingerDrawing = MediaQuery.sizeOf(context).width < 600 &&
         event.kind == PointerDeviceKind.touch;
+
+    // Capacitive stylus: a touch that passes the classifier counts as stylus
+    final capStylusService = CapacitiveStylusService();
+    final isCapacitiveStylus = event.kind == PointerDeviceKind.touch &&
+        capStylusService.classifyTouchAsStylus(event);
+
     if (!_isStylus(event.kind) &&
+        !isCapacitiveStylus &&
         event.kind != PointerDeviceKind.mouse &&
         !fingerDrawing) {
       return;
@@ -3740,8 +4486,13 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
       return;
     }
 
-    final incomingIsStylus = _isStylus(event.kind);
-    final activeIsStylus = _isStylus(_activeKind);
+    // Treat capacitive stylus or true stylus as high-priority input
+    final incomingIsStylus = _isStylus(event.kind) ||
+        (event.kind == PointerDeviceKind.touch &&
+            CapacitiveStylusService().classifyTouchAsStylus(event));
+    final activeIsStylus = _isStylus(_activeKind) ||
+        (event.kind == PointerDeviceKind.touch &&
+            CapacitiveStylusService().classifyTouchAsStylus(event));
     if (_activePointer != null) {
       if (incomingIsStylus && !activeIsStylus) {
         await controller.endStroke();
@@ -3809,6 +4560,7 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
   bool _isStylus(PointerDeviceKind? kind) =>
       kind == PointerDeviceKind.stylus ||
       kind == PointerDeviceKind.invertedStylus;
+  // Note: capacitive stylus (PointerDeviceKind.touch) is classified separately.
 
   Offset _toSlidePoint(Offset globalPosition) {
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;

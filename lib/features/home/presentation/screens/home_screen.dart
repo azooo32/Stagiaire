@@ -1221,39 +1221,65 @@ class HomeScreen extends StatelessWidget {
   }
 
   Widget _buildYourSubjectsGrid(BuildContext context, AppProvider provider, [bool isTablet = false]) {
-    final Map<String, FaIconData> iconMapping = {
-      'internal medicine': FontAwesomeIcons.stethoscope,
-      'Paediatric': FontAwesomeIcons.child,
-      'Surgery': FontAwesomeIcons.userDoctor,
-      'Obstetric': FontAwesomeIcons.baby,
-      'Gynecology': FontAwesomeIcons.venus,
-    };
+    FaIconData getIconForSubject(Subject subject) {
+      final desc = subject.description.toLowerCase().trim();
+      final name = subject.name.toLowerCase().trim();
 
-    final Map<String, String> displayNameMapping = {
-      'internal medicine': 'Internal Medicine',
-      'Paediatric': 'Paediatric',
-      'Surgery': 'Surgery',
-      'Obstetric': 'Obstetric',
-      'Gynecology': 'Gynecology',
-    };
+      if (desc.startsWith('heartbeat') || desc.contains('heart')) {
+        return FontAwesomeIcons.heartPulse;
+      }
+      if (desc.startsWith('brain') || desc.contains('neuro')) {
+        return FontAwesomeIcons.brain;
+      }
+      if (desc.startsWith('eye') || desc.contains('ophtal')) {
+        return FontAwesomeIcons.eye;
+      }
+      if (desc.startsWith('bone') || desc.contains('ortho')) {
+        return FontAwesomeIcons.bone;
+      }
+      if (desc.startsWith('lungs') || desc.contains('pulmo')) {
+        return FontAwesomeIcons.lungs;
+      }
+      if (desc.startsWith('baby') ||
+          desc.contains('obstetric') ||
+          desc.contains('gyne')) {
+        return FontAwesomeIcons.baby;
+      }
+      if (desc.startsWith('child') || desc.contains('pedi')) {
+        return FontAwesomeIcons.child;
+      }
+      if (desc.startsWith('usermd') || desc.contains('surgery')) {
+        return FontAwesomeIcons.userDoctor;
+      }
+      if (desc.startsWith('siren')) {
+        return FontAwesomeIcons.truckMedical;
+      }
 
-    Subject findSubject(String name) {
-      return provider.subjects.firstWhere(
-        (s) => s.name == name,
-        orElse: () => Subject(
-          id: 0,
-          name: name,
-          description: '',
-          totalQuestions: 0,
-        ),
-      );
+      if (name.contains('medicine')) return FontAwesomeIcons.stethoscope;
+      if (name.contains('pediatric') || name.contains('paediatric')) {
+        return FontAwesomeIcons.child;
+      }
+      if (name.contains('surgery')) return FontAwesomeIcons.userDoctor;
+      if (name.contains('obstetric')) return FontAwesomeIcons.baby;
+      if (name.contains('gynecology')) return FontAwesomeIcons.venus;
+      if (name.contains('anesthesia')) return FontAwesomeIcons.vial;
+      if (name.contains('radiology')) return FontAwesomeIcons.xRay;
+      if (name.contains('psychiatry')) return FontAwesomeIcons.brain;
+      if (name.contains('ent')) return FontAwesomeIcons.earListen;
+      if (name.contains('ophthalmology')) return FontAwesomeIcons.eye;
+
+      return FontAwesomeIcons.bookMedical;
     }
 
-    final Subject medicineSub = findSubject('internal medicine');
-    final Subject surgerySub = findSubject('Surgery');
-    final Subject paediatrioSub = findSubject('Paediatric');
-    final Subject obstetrioSub = findSubject('Obstetric');
-    final Subject gyneoologySub = findSubject('Gynecology');
+    String getDisplayName(String name) {
+      final lower = name.toLowerCase().trim();
+      if (lower == 'internal medicine') return 'Internal Medicine';
+      if (lower == 'paediatric' || lower == 'pediatric') return 'Paediatric';
+      if (lower == 'surgery') return 'Surgery';
+      if (lower == 'obstetric') return 'Obstetric';
+      if (lower == 'gynecology') return 'Gynecology';
+      return name;
+    }
 
     final isDark = provider.isDarkTheme;
     final Map<String, int> answeredBySubject = {};
@@ -1269,16 +1295,13 @@ class HomeScreen extends StatelessWidget {
     Widget buildCard(Subject? subject, {double? height}) {
       final effectiveHeight = height ?? cardHeight;
       if (subject == null) return const SizedBox.shrink();
-      final FaIconData icon =
-          iconMapping[subject.name] ?? FontAwesomeIcons.bookMedical;
-      final String displayName =
-          displayNameMapping[subject.name] ?? subject.name;
+      final FaIconData icon = getIconForSubject(subject);
+      final String displayName = getDisplayName(subject.name);
       final int total = subject.totalQuestions;
       final int answered = answeredBySubject[subject.name] ?? 0;
       final int pot = total > 0 ? ((answered / total) * 100).round() : 0;
 
       final Color color = _HomePalette.accent(isDark);
-
       final isLocked = !provider.isSubjectUnlocked(subject.id);
 
       return GestureDetector(
@@ -1470,30 +1493,62 @@ class HomeScreen extends StatelessWidget {
       );
     }
 
-    return Column(
-      children: [
-        // Row 1: Internal Medicine & Surgery
-        Row(
+    final displaySubjects = provider.filteredSubjects.isNotEmpty
+        ? provider.filteredSubjects
+        : provider.subjects;
+
+    if (displaySubjects.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+        decoration: BoxDecoration(
+          color: _HomePalette.surface(isDark),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDark ? _HomePalette.darkBorder : Colors.black12,
+          ),
+        ),
+        child: Column(
           children: [
-            Expanded(child: buildCard(medicineSub)),
-            const SizedBox(width: 12),
-            Expanded(child: buildCard(surgerySub)),
+            Icon(Icons.menu_book_outlined,
+                size: 36,
+                color: isDark ? _HomePalette.dim(isDark) : Colors.grey),
+            const SizedBox(height: 8),
+            Text(
+              'لا توجد مواد مخصصة لمرحلتك حالياً',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.text : const Color(0xFF1E1E50),
+              ),
+            ),
           ],
         ),
-        SizedBox(height: isTablet ? 12 : 8),
-        // Row 2: Pediatrics & Gynecology
-        Row(
-          children: [
-            Expanded(child: buildCard(paediatrioSub)),
-            const SizedBox(width: 12),
-            Expanded(child: buildCard(gyneoologySub)),
-          ],
-        ),
-        SizedBox(height: isTablet ? 12 : 8),
-        // Row 3: Obstetrics (Full-width)
-        buildCard(obstetrioSub),
-      ],
-    );
+      );
+    }
+
+    final List<Widget> rows = [];
+    for (int i = 0; i < displaySubjects.length; i += 2) {
+      if (i > 0) {
+        rows.add(SizedBox(height: isTablet ? 12 : 8));
+      }
+      if (i + 1 < displaySubjects.length) {
+        rows.add(
+          Row(
+            children: [
+              Expanded(child: buildCard(displaySubjects[i])),
+              const SizedBox(width: 12),
+              Expanded(child: buildCard(displaySubjects[i + 1])),
+            ],
+          ),
+        );
+      } else {
+        rows.add(buildCard(displaySubjects[i]));
+      }
+    }
+
+    return Column(children: rows);
   }
 
   Widget _buildTopPerformersList(bool isDark, [bool isTablet = false]) {

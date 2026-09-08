@@ -112,6 +112,8 @@ class Question {
   final List<AudioHighlight> audioHighlights;
   final List<TextFormatRange> explanationBoldRanges;
   final List<TextFormatRange> explanationUnderlineRanges;
+  final String? stage;
+  final String? university;
   final String? updatedAt;
 
   // Local Solve states
@@ -135,6 +137,8 @@ class Question {
     this.audioHighlights = const [],
     this.explanationBoldRanges = const [],
     this.explanationUnderlineRanges = const [],
+    this.stage,
+    this.university,
     this.updatedAt,
     this.isSolved = false,
     this.userAnswer,
@@ -218,6 +222,8 @@ class Question {
       explanationBoldRanges: parseFormatRanges(json['explanation_bold_ranges']),
       explanationUnderlineRanges:
           parseFormatRanges(json['explanation_underline_ranges']),
+      stage: json['stage']?.toString(),
+      university: json['university']?.toString(),
       updatedAt: json['updated_at']?.toString(),
       isSolved: json['isSolved'] == true,
       userAnswer: _safeInt(json['userAnswer']),
@@ -243,6 +249,8 @@ class Question {
             explanationBoldRanges.map((r) => r.toJson()).toList(),
         'explanation_underline_ranges':
             explanationUnderlineRanges.map((r) => r.toJson()).toList(),
+        'stage': stage,
+        'university': university,
         'updated_at': updatedAt,
         'answers_distribution': answersDistribution
             .map((k, v) => MapEntry(k.toString(), v.toJson())),

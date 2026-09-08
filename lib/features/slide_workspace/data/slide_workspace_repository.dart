@@ -50,6 +50,7 @@ abstract class SlideWorkspaceRepository {
     String? subtitle,
   });
   Future<void> deleteSlide(String slideId);
+  Future<void> updateSlideTitle(String slideId, String title);
   Future<WorkspaceSlide> setSlideHidden(String slideId, bool isHidden);
   Future<void> reorderSlides(String stationId, List<WorkspaceSlide> slides);
   Future<void> reorderSubtitles(String stationId, List<String> orderedSubtitles);
@@ -591,6 +592,24 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
       if (subtitle != null) 'subtitle': subtitle,
     };
     await _supabase.client.from('slides').update(payload).eq('id', slideId);
+  }
+
+  @override
+  Future<void> updateSlideTitle(String slideId, String title) async {
+    final cleanTitle = title.trim();
+    if (cleanTitle.isEmpty) return;
+    await _supabase.client
+        .from('slides')
+        .update({'title': cleanTitle})
+        .eq('id', slideId);
+
+    for (final entry in _memorySlidesCache.entries) {
+      final list = entry.value;
+      final idx = list.indexWhere((s) => s.id == slideId);
+      if (idx != -1) {
+        list[idx] = list[idx].copyWith(title: cleanTitle);
+      }
+    }
   }
 
   @override

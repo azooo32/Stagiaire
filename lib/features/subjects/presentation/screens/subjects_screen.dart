@@ -86,37 +86,54 @@ class SubjectsScreen extends StatelessWidget {
       ),
       body: provider.isLoading
           ? const Center(child: LogoSpinner())
-          : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1040),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-                  child: GridView.builder(
-                    padding: const EdgeInsets.only(bottom: 90),
-                    physics: const BouncingScrollPhysics(),
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 250,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
-                      childAspectRatio: 1.08,
+          : Builder(
+              builder: (context) {
+                final displaySubjects = provider.filteredSubjects.isNotEmpty
+                    ? provider.filteredSubjects
+                    : provider.subjects;
+
+                if (displaySubjects.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'لا توجد مواد دراسية متاحة حالياً',
+                      style: TextStyle(fontFamily: 'Cairo', fontSize: 16),
                     ),
-                    itemCount: provider.subjects.length,
-                    itemBuilder: (context, index) {
-                      final subject = provider.subjects[index];
-                      final icon = iconMapping[subject.name] ??
-                          FontAwesomeIcons.bookMedical;
-                      return _buildSubjectCard(
-                        context,
-                        subject,
-                        icon,
-                        const Color(0xFF6B4EFF),
-                        provider,
-                      );
-                    },
+                  );
+                }
+
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1040),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+                      child: GridView.builder(
+                        padding: const EdgeInsets.only(bottom: 90),
+                        physics: const BouncingScrollPhysics(),
+                        gridDelegate:
+                            const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 250,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                          childAspectRatio: 1.08,
+                        ),
+                        itemCount: displaySubjects.length,
+                        itemBuilder: (context, index) {
+                          final subject = displaySubjects[index];
+                          final icon = iconMapping[subject.name] ??
+                              FontAwesomeIcons.bookMedical;
+                          return _buildSubjectCard(
+                            context,
+                            subject,
+                            icon,
+                            const Color(0xFF6B4EFF),
+                            provider,
+                          );
+                        },
+                      ),
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
     );
   }

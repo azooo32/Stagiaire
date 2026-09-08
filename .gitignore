@@ -51,4 +51,6 @@ app.*.map.json
 # Local run logs
 flutter_run_log.txt
 *.log
+.kotlin/
+**/android/.kotlin/
 

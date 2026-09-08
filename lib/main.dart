@@ -8,6 +8,7 @@ import 'core/services/app_update_service.dart';
 import 'core/services/pdf_storage_service.dart';
 import 'features/auth/presentation/screens/splash_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'core/services/capacitive_stylus_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,8 @@ void main() async {
     await CacheService().initialize();
     await AppUpdateService().initialize();
     await PdfStorageService.migrateOldPdfFiles();
+    // Load capacitive stylus profile (if any) from local storage
+    await CapacitiveStylusService().load();
   } catch (e) {
     print('Failed to initialize Stagiaire core services: $e');
   }

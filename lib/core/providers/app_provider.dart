@@ -102,6 +102,7 @@ class ClinicalSlideStation {
   final String? evaluation;
   final String? sectionId;
   final String stationType;
+  final int stationIndex;
 
   ClinicalSlideStation({
     required this.id,
@@ -114,7 +115,36 @@ class ClinicalSlideStation {
     this.evaluation,
     this.sectionId,
     this.stationType = 'slides',
+    this.stationIndex = 0,
   });
+
+  ClinicalSlideStation copyWith({
+    int? id,
+    String? dbId,
+    String? title,
+    String? progressText,
+    double? progress,
+    String? iconType,
+    String? subject,
+    String? evaluation,
+    String? sectionId,
+    String? stationType,
+    int? stationIndex,
+  }) {
+    return ClinicalSlideStation(
+      id: id ?? this.id,
+      dbId: dbId ?? this.dbId,
+      title: title ?? this.title,
+      progressText: progressText ?? this.progressText,
+      progress: progress ?? this.progress,
+      iconType: iconType ?? this.iconType,
+      subject: subject ?? this.subject,
+      evaluation: evaluation ?? this.evaluation,
+      sectionId: sectionId ?? this.sectionId,
+      stationType: stationType ?? this.stationType,
+      stationIndex: stationIndex ?? this.stationIndex,
+    );
+  }
 }
 
 class ProgressStream extends Stream<List<int>> {
@@ -342,9 +372,12 @@ class AppProvider extends ChangeNotifier {
   List<ClinicalSlideStation> getClinicalSlideStations(String subject) {
     if (_dbSlideStations.isNotEmpty &&
         _dbSlideStations.first.subject == subject) {
-      return _dbSlideStations;
+      return List<ClinicalSlideStation>.from(_dbSlideStations)
+        ..sort((a, b) => a.stationIndex.compareTo(b.stationIndex));
     }
-    return _clinicalSlideStations.where((s) => s.subject == subject).toList();
+    final list = _clinicalSlideStations.where((s) => s.subject == subject).toList();
+    list.sort((a, b) => a.stationIndex.compareTo(b.stationIndex));
+    return list;
   }
 
   String _getClinicalCacheKey(int subjectId) =>
@@ -391,6 +424,7 @@ class AppProvider extends ChangeNotifier {
           prog != null ? (prog['current_slide_index'] as int) : 1;
       final int totalSlides = map['slides_count'] as int;
       final String stationType = (map['station_type'] ?? 'slides') as String;
+      final int stationIndex = (map['station_index'] as num?)?.toInt() ?? (index + 1);
 
       return ClinicalSlideStation(
         id: index + 1,
@@ -403,8 +437,10 @@ class AppProvider extends ChangeNotifier {
         evaluation: prog != null ? prog['evaluation'] as String? : null,
         sectionId: map['section_id'] as String?,
         stationType: stationType,
+        stationIndex: stationIndex,
       );
-    }).toList();
+    }).toList()
+      ..sort((a, b) => a.stationIndex.compareTo(b.stationIndex));
 
     _dbVoiceNotes = voiceNotesList.map((map) {
       final String voiceId = map['id'] as String;
@@ -522,7 +558,8 @@ class AppProvider extends ChangeNotifier {
         _supabase.client
             .from('slide_stations')
             .select('*')
-            .eq('subject_id', subjectId),
+            .eq('subject_id', subjectId)
+            .order('station_index', ascending: true),
         _supabase.client
             .from('voice_notes')
             .select('*')
@@ -622,7 +659,8 @@ class AppProvider extends ChangeNotifier {
       final stationsFuture = _supabase.client
           .from('slide_stations')
           .select('*')
-          .eq('subject_id', subjectId);
+          .eq('subject_id', subjectId)
+          .order('station_index', ascending: true);
 
       final voiceFuture = _supabase.client
           .from('voice_notes')
@@ -1011,6 +1049,7 @@ class AppProvider extends ChangeNotifier {
     try {
       final subjectId = await _resolveClinicalSubjectId(subject);
       if (subjectId != null) {
+        final nextStationIndex = (subjectStations.map((s) => s.stationIndex).fold<int>(0, (max, v) => v > max ? v : max)) + 1;
         await _supabase.client.from('slide_stations').insert({
           'subject_id': subjectId,
           'title': title,
@@ -1018,6 +1057,7 @@ class AppProvider extends ChangeNotifier {
           'slides_count': slidesCount,
           'section_id': sectionId,
           'station_type': stationType,
+          'station_index': nextStationIndex,
         });
         await invalidateClinicalCache(subject);
         await loadClinicalData(subject);
@@ -1040,6 +1080,54 @@ class AppProvider extends ChangeNotifier {
       await loadClinicalData(subject);
     } catch (e) {
       print('Error deleting slide station: $e');
+    }
+  }
+
+  Future<void> reorderClinicalSlideStations(
+      String subject, List<ClinicalSlideStation> orderedStations) async {
+    if (orderedStations.isEmpty) return;
+
+    for (var i = 0; i < orderedStations.length; i++) {
+      final st = orderedStations[i];
+      final newIndex = i + 1;
+      final dbIdx = _dbSlideStations.indexWhere((s) => s.dbId == st.dbId);
+      if (dbIdx != -1) {
+        _dbSlideStations[dbIdx] =
+            _dbSlideStations[dbIdx].copyWith(stationIndex: newIndex);
+      }
+      final localIdx =
+          _clinicalSlideStations.indexWhere((s) => s.dbId == st.dbId);
+      if (localIdx != -1) {
+        _clinicalSlideStations[localIdx] =
+            _clinicalSlideStations[localIdx].copyWith(stationIndex: newIndex);
+      }
+    }
+    _dbSlideStations.sort((a, b) => a.stationIndex.compareTo(b.stationIndex));
+    notifyListeners();
+
+    try {
+      for (var i = 0; i < orderedStations.length; i++) {
+        final st = orderedStations[i];
+        if (st.dbId != null && st.dbId!.isNotEmpty) {
+          await _supabase.client
+              .from('slide_stations')
+              .update({'station_index': -(i + 1)})
+              .eq('id', st.dbId!);
+        }
+      }
+      for (var i = 0; i < orderedStations.length; i++) {
+        final st = orderedStations[i];
+        if (st.dbId != null && st.dbId!.isNotEmpty) {
+          await _supabase.client
+              .from('slide_stations')
+              .update({'station_index': i + 1})
+              .eq('id', st.dbId!);
+        }
+      }
+      await invalidateClinicalCache(subject);
+    } catch (e) {
+      debugPrint('Error reordering slide stations: $e');
+      await loadClinicalData(subject);
     }
   }
 
@@ -1276,6 +1364,151 @@ class AppProvider extends ChangeNotifier {
 
   List<Subject> _subjects = [];
   List<Subject> get subjects => _subjects;
+
+  /// Checks whether a target stage (from a Subject or Question) matches the student's stage.
+  /// Supports multi-stage strings like "الرابعة والخامسة", "4, 5", "5th stage, 6th stage", etc.
+  bool matchesStage(String? targetStage, String? userStage) {
+    if (targetStage == null || targetStage.trim().isEmpty) return true;
+    if (userStage == null || userStage.trim().isEmpty) return true;
+
+    final t = targetStage.trim().toLowerCase();
+    final u = userStage.trim().toLowerCase();
+
+    if (t == u || t.contains(u) || u.contains(t)) return true;
+
+    const stageKeywords = <int, List<String>>{
+      1: ['1', '1st', 'الأولى', 'الاولى', 'first'],
+      2: ['2', '2nd', 'الثانية', 'الثانيه', 'second'],
+      3: ['3', '3rd', 'الثالثة', 'الثالثه', 'third'],
+      4: ['4', '4th', 'الرابعة', 'الرابعه', 'fourth'],
+      5: ['5', '5th', 'الخامسة', 'الخامسه', 'fifth'],
+      6: ['6', '6th', 'السادسة', 'السادسه', 'sixth'],
+    };
+
+    int? userNum;
+    for (final entry in stageKeywords.entries) {
+      if (entry.value.any((k) => u.contains(k))) {
+        userNum = entry.key;
+        break;
+      }
+    }
+
+    if (userNum != null) {
+      final targetMatchesUserNum =
+          stageKeywords[userNum]!.any((k) => t.contains(k));
+      if (targetMatchesUserNum) return true;
+    }
+
+    return false;
+  }
+
+  /// Checks whether a target university (from a Subject or Question) matches the student's university.
+  /// Supports multiple universities separated by comma, semicolon, or slash.
+  bool matchesUniversity(String? targetUniv, String? userUniv) {
+    if (targetUniv == null || targetUniv.trim().isEmpty) return true;
+    if (userUniv == null || userUniv.trim().isEmpty) return true;
+
+    final t = targetUniv.trim().toLowerCase();
+    final u = userUniv.trim().toLowerCase();
+
+    if (t == u || t.contains(u) || u.contains(t)) return true;
+
+    final parts =
+        targetUniv.split(RegExp(r'[,;/،]')).map((p) => p.trim().toLowerCase());
+    for (final part in parts) {
+      if (part.isNotEmpty &&
+          (part == u || part.contains(u) || u.contains(part))) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// Returns subjects filtered by student's stage and university (with admin override if needed).
+  List<Subject> get filteredSubjects {
+    final user = currentUser;
+    final userStage = (userDetails?['stage'] ?? user?.userMetadata?['stage']) as String?;
+    final userUniv = (userDetails?['university'] ?? user?.userMetadata?['university']) as String?;
+
+    return _subjects.where((subject) {
+      final stageMatch = matchesStage(subject.stage, userStage);
+      final univMatch = matchesUniversity(subject.university, userUniv);
+      return stageMatch && univMatch;
+    }).toList();
+  }
+
+  /// Cache-first loader with background sync for regular subjects.
+  Future<void> fetchSubjectsCacheFirst() async {
+    const cacheKey = CacheService.keySubjects;
+    final cached =
+        _cache.getCache(cacheKey) ?? _cache.getCacheAllowExpired(cacheKey);
+
+    if (cached is List && cached.isNotEmpty) {
+      _subjects = cached
+          .map((s) => Subject.fromJson(Map<String, dynamic>.from(s)))
+          .toList();
+      notifyListeners();
+      unawaited(_syncSubjectsFromNetwork(cacheKey));
+      return;
+    }
+
+    await _syncSubjectsFromNetwork(cacheKey);
+  }
+
+  Future<void> _syncSubjectsFromNetwork(String cacheKey) async {
+    try {
+      final List<Map<String, dynamic>> data = await _supabase.getSubjects();
+      await _cache.setCache(cacheKey, data, CacheService.subjectsLifespan);
+      _subjects = data.map((s) => Subject.fromJson(s)).toList();
+      notifyListeners();
+    } catch (e) {
+      print('Background sync for subjects failed: $e');
+    }
+  }
+
+  Future<void> addSubject(
+      String name, String description,
+      {String? stage, String? university, int totalQuestions = 0}) async {
+    try {
+      await _supabase.client.from('subjects').insert({
+        'name': name,
+        'description': description,
+        'total_questions': totalQuestions,
+        'stage': stage,
+        'university': university,
+      });
+      await _syncSubjectsFromNetwork(CacheService.keySubjects);
+    } catch (e) {
+      print('Error adding subject: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> editSubject(
+      int subjectId, String name, String description,
+      {String? stage, String? university, int? totalQuestions}) async {
+    try {
+      final updateData = <String, dynamic>{
+        'name': name,
+        'description': description,
+        'stage': stage,
+        'university': university,
+      };
+      if (totalQuestions != null) {
+        updateData['total_questions'] = totalQuestions;
+      }
+      await _supabase.client
+          .from('subjects')
+          .update(updateData)
+          .eq('id', subjectId);
+
+      await _syncSubjectsFromNetwork(CacheService.keySubjects);
+    } catch (e) {
+      print('Error editing subject: $e');
+      rethrow;
+    }
+  }
 
   List<Subject> _clinicalSubjects = [];
   List<Subject> get clinicalSubjects => _clinicalSubjects;
@@ -1568,8 +1801,16 @@ class AppProvider extends ChangeNotifier {
       );
   Future<bool> deleteUserSubscription(String subscriptionId) =>
       _supabase.deleteUserSubscription(subscriptionId);
-  Future<bool> updateUniversity(String newUniversity) =>
-      _supabase.updateUniversity(newUniversity);
+  Future<bool> updateUniversity(String newUniversity) async {
+    final ok = await _supabase.updateUniversity(newUniversity);
+    if (ok) {
+      if (_userDetails != null) {
+        _userDetails!['university'] = newUniversity;
+      }
+      notifyListeners();
+    }
+    return ok;
+  }
   Future<List<Map<String, dynamic>>> getUniversityAccessList() =>
       _supabase.getUniversityAccessList();
   Future<bool> addUniversityAccess({
@@ -1799,21 +2040,8 @@ class AppProvider extends ChangeNotifier {
         _recalculateLocalAnswerStats();
       }
 
-      // 1. Load subjects from cache or Supabase
-      final cachedSubjects = _cache.getCache(CacheService.keySubjects) ??
-          _cache.getCacheAllowExpired(CacheService.keySubjects);
-      if (cachedSubjects != null &&
-          cachedSubjects is List &&
-          cachedSubjects.isNotEmpty) {
-        _subjects = cachedSubjects
-            .map((s) => Subject.fromJson(Map<String, dynamic>.from(s)))
-            .toList();
-      } else {
-        final List<Map<String, dynamic>> data = await _supabase.getSubjects();
-        _subjects = data.map((s) => Subject.fromJson(s)).toList();
-        await _cache.setCache(
-            CacheService.keySubjects, data, CacheService.subjectsLifespan);
-      }
+      // 1. Load subjects (Cache-first with background sync)
+      await fetchSubjectsCacheFirst();
 
       // Load clinical subjects (Cache-first with background sync)
       await fetchClinicalSubjectsCacheFirst();
@@ -2110,7 +2338,19 @@ class AppProvider extends ChangeNotifier {
 
   Future<void> _applyQuestionsForSubject(
       String subjectName, List<Map<String, dynamic>> rawQuestions) async {
-    _questions = rawQuestions.map((q) => Question.fromJson(q)).toList();
+    final user = currentUser;
+    final userStage =
+        (userDetails?['stage'] ?? user?.userMetadata?['stage']) as String?;
+    final userUniv = (userDetails?['university'] ??
+        user?.userMetadata?['university']) as String?;
+
+    final parsedQuestions =
+        rawQuestions.map((q) => Question.fromJson(q)).toList();
+    _questions = parsedQuestions.where((q) {
+      final stageMatch = matchesStage(q.stage, userStage);
+      final univMatch = matchesUniversity(q.university, userUniv);
+      return stageMatch && univMatch;
+    }).toList();
     _questions.sort((a, b) => a.id.compareTo(b.id));
 
     // Fetch titles ordering in background so UI renders questions immediately without waiting for network
