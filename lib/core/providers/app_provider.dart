@@ -2046,15 +2046,15 @@ class AppProvider extends ChangeNotifier {
       // Load clinical subjects (Cache-first with background sync)
       await fetchClinicalSubjectsCacheFirst();
 
-      // Clear questions cache once to fetch questions with comprehensive subject name case matching
-      final hasResetCache = _cache.getCache('reset_questions_cache_v5');
+      // Clear questions cache once to fetch questions with comprehensive stage & university fields
+      final hasResetCache = _cache.getCache('reset_questions_cache_v6');
       if (hasResetCache == null) {
         for (var subject in _subjects) {
           final key = _cache.getQuestionsKey(subject.name);
           await _cache.invalidateCache(key);
         }
         await _cache.setCache(
-            'reset_questions_cache_v5', true, const Duration(days: 36500));
+            'reset_questions_cache_v6', true, const Duration(days: 36500));
       }
 
       // 2. Load user progress from Supabase

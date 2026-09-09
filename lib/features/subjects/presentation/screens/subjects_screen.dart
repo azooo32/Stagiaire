@@ -88,9 +88,7 @@ class SubjectsScreen extends StatelessWidget {
           ? const Center(child: LogoSpinner())
           : Builder(
               builder: (context) {
-                final displaySubjects = provider.filteredSubjects.isNotEmpty
-                    ? provider.filteredSubjects
-                    : provider.subjects;
+                final displaySubjects = provider.filteredSubjects;
 
                 if (displaySubjects.isEmpty) {
                   return const Center(

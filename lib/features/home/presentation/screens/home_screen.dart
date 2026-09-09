@@ -1493,9 +1493,7 @@ class HomeScreen extends StatelessWidget {
       );
     }
 
-    final displaySubjects = provider.filteredSubjects.isNotEmpty
-        ? provider.filteredSubjects
-        : provider.subjects;
+    final displaySubjects = provider.filteredSubjects;
 
     if (displaySubjects.isEmpty) {
       return Container(
