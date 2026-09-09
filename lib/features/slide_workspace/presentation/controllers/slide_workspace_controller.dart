@@ -241,10 +241,12 @@ class DuplicateObjectCommand extends WorkspaceCommand {
           dupPath = id;
         }
       }
-      final targetX = customX ??
-          (orig.x + 20).clamp(0.0, 1100.0 - orig.width);
-      final targetY = customY ??
-          (orig.y + 20).clamp(0.0, 825.0 - orig.height);
+      final targetX = customX != null
+          ? (customX! - orig.width / 2).clamp(0.0, 1100.0 - orig.width)
+          : (orig.x + 20).clamp(0.0, 1100.0 - orig.width);
+      final targetY = customY != null
+          ? (customY! - orig.height / 2).clamp(0.0, 825.0 - orig.height)
+          : (orig.y + 20).clamp(0.0, 825.0 - orig.height);
 
       duplicate = orig.copyWith(
         id: id,
@@ -314,6 +316,37 @@ class DuplicateObjectCommand extends WorkspaceCommand {
         }
       }
     }
+  }
+}
+
+class CropImageCommand extends WorkspaceCommand {
+  final SlideWorkspaceController controller;
+  @override
+  final String slideId;
+  final bool isExam;
+  final ImageObject oldImage;
+  final ImageObject newImage;
+
+  CropImageCommand({
+    required this.controller,
+    required this.slideId,
+    required this.isExam,
+    required this.oldImage,
+    required this.newImage,
+  });
+
+  @override
+  Future<void> execute() async {
+    controller.mutateObject(slideId, newImage.id, isExam, (_) => newImage);
+    controller.triggerUploadForObject(slideId, newImage, isExam);
+    controller.scheduleSave(slideId);
+  }
+
+  @override
+  Future<void> undo() async {
+    controller.mutateObject(slideId, oldImage.id, isExam, (_) => oldImage);
+    controller.triggerUploadForObject(slideId, oldImage, isExam);
+    controller.scheduleSave(slideId);
   }
 }
 
@@ -1242,6 +1275,8 @@ class SlideWorkspaceController extends ChangeNotifier {
     String fileName, {
     required double originalWidth,
     required double originalHeight,
+    double? customX,
+    double? customY,
   }) async {
     if (bytes.lengthInBytes > 3 * 1024 * 1024) {
       return 'Please choose an image smaller than 3 MB.';
@@ -1267,8 +1302,12 @@ class SlideWorkspaceController extends ChangeNotifier {
       w = h * aspectRatio;
     }
 
-    final double x = (_slideCanvasWidth - w) / 2;
-    final double y = (_slideCanvasHeight - h) / 2;
+    final double x = customX != null
+        ? (customX - w / 2).clamp(0.0, _slideCanvasWidth - w)
+        : (_slideCanvasWidth - w) / 2;
+    final double y = customY != null
+        ? (customY - h / 2).clamp(0.0, _slideCanvasHeight - h)
+        : (_slideCanvasHeight - h) / 2;
 
     final imageObj = ImageObject(
       id: tempId,
@@ -1293,6 +1332,7 @@ class SlideWorkspaceController extends ChangeNotifier {
     executeCommand(command);
 
     triggerUploadForObject(currentSlide.id, imageObj, isExam);
+    selectObject(imageObj.id);
 
     return null;
   }

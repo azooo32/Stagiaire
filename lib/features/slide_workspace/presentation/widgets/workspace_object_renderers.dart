@@ -154,6 +154,9 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
   @override
   void didUpdateWidget(InteractiveImageWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.isSelected && !widget.isSelected && _isCropping) {
+      unawaited(_confirmCrop());
+    }
     if (oldWidget.image.x != widget.image.x ||
         oldWidget.image.y != widget.image.y ||
         oldWidget.image.width != widget.image.width ||
@@ -242,7 +245,7 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
   }
 
   Future<void> _confirmCrop() async {
-    if (_isLoadingBytes) return;
+    if (_isLoadingBytes || !_isCropping) return;
     setState(() {
       _isLoadingBytes = true;
     });
@@ -302,18 +305,14 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
           updatedAt: DateTime.now().millisecondsSinceEpoch,
         );
 
-        widget.controller.mutateObject(
-          widget.controller.currentSlide.id,
-          widget.image.id,
-          isExam,
-          (_) => updatedImage,
+        final command = CropImageCommand(
+          controller: widget.controller,
+          slideId: widget.controller.currentSlide.id,
+          isExam: isExam,
+          oldImage: widget.image,
+          newImage: updatedImage,
         );
-        widget.controller.triggerUploadForObject(
-          widget.controller.currentSlide.id,
-          updatedImage,
-          isExam,
-        );
-        widget.controller.scheduleSave(widget.controller.currentSlide.id);
+        widget.controller.executeCommand(command);
       }
     } catch (e) {
       if (mounted) {
@@ -461,34 +460,35 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
     );
   }
 
-  Widget _buildCropHandle(Alignment alignment) {
-    double hx;
-    double hy;
+  Widget _buildCropHandle(Alignment alignment, double padSide, double padTop) {
+    double hx = padSide;
+    double hy = padTop;
 
     if (alignment.x == -1) {
-      hx = _cropRect.left;
+      hx += _cropRect.left;
     } else if (alignment.x == 1) {
-      hx = _cropRect.right;
+      hx += _cropRect.right;
     } else {
-      hx = _cropRect.center.dx;
+      hx += _cropRect.center.dx;
     }
 
     if (alignment.y == -1) {
-      hy = _cropRect.top;
+      hy += _cropRect.top;
     } else if (alignment.y == 1) {
-      hy = _cropRect.bottom;
+      hy += _cropRect.bottom;
     } else {
-      hy = _cropRect.center.dy;
+      hy += _cropRect.center.dy;
     }
 
     final isCorner = alignment.x != 0 && alignment.y != 0;
     final isHorizontalEdge = alignment.y != 0 && alignment.x == 0;
+    const double hitSize = 64.0;
 
     return Positioned(
-      left: hx - 22,
-      top: hy - 22,
-      width: 44,
-      height: 44,
+      left: hx - hitSize / 2,
+      top: hy - hitSize / 2,
+      width: hitSize,
+      height: hitSize,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onPanStart: (_) {
@@ -525,65 +525,75 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
           widget.controller.isInteractingWithObject.value = false;
         },
         child: Container(
-          width: 44,
-          height: 44,
+          width: hitSize,
+          height: hitSize,
           color: Colors.transparent,
           alignment: Alignment.center,
           child: isCorner
               ? Container(
-                  width: 16,
-                  height: 16,
+                  width: 22,
+                  height: 22,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     shape: BoxShape.circle,
                     border: Border.all(
                       color: const Color(0xFF6B4EFF),
-                      width: 2.5,
+                      width: 3.0,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
+                        color: Colors.black.withValues(alpha: 0.35),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
                     ],
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF6B4EFF),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                   ),
                 )
               : isHorizontalEdge
                   ? Container(
-                      width: 24,
-                      height: 7,
+                      width: 32,
+                      height: 10,
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(5),
                         border: Border.all(
                           color: const Color(0xFF6B4EFF),
-                          width: 1.5,
+                          width: 2.0,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 5,
+                            offset: const Offset(0, 1.5),
                           ),
                         ],
                       ),
                     )
                   : Container(
-                      width: 7,
-                      height: 24,
+                      width: 10,
+                      height: 32,
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(5),
                         border: Border.all(
                           color: const Color(0xFF6B4EFF),
-                          width: 1.5,
+                          width: 2.0,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 5,
+                            offset: const Offset(0, 1.5),
                           ),
                         ],
                       ),
@@ -669,6 +679,12 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
             child: Container(
               decoration: BoxDecoration(
                 border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                  ),
+                ],
               ),
               child: Stack(
                 children: [
@@ -707,16 +723,6 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
             ),
           ),
         ),
-
-        // 8 Draggable Handles
-        _buildCropHandle(Alignment.topLeft),
-        _buildCropHandle(Alignment.topCenter),
-        _buildCropHandle(Alignment.topRight),
-        _buildCropHandle(Alignment.centerRight),
-        _buildCropHandle(Alignment.bottomRight),
-        _buildCropHandle(Alignment.bottomCenter),
-        _buildCropHandle(Alignment.bottomLeft),
-        _buildCropHandle(Alignment.centerLeft),
       ],
     );
   }
@@ -882,10 +888,10 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
 
     Widget imageChild = _WorkspaceImageDisplay(image: image);
 
-    final bool toolbarAbove = _y >= 54.0;
-    final double padTop = toolbarAbove ? 54.0 : 36.0;
-    final double padBottom = toolbarAbove ? 36.0 : 54.0;
-    const double padSide = 36.0;
+    final bool toolbarAbove = _y >= 56.0;
+    final double padTop = toolbarAbove ? 56.0 : 40.0;
+    final double padBottom = toolbarAbove ? 40.0 : 56.0;
+    const double padSide = 40.0;
 
     final containerLeft = _x - padSide;
     final containerTop = _y - padTop;
@@ -1010,10 +1016,22 @@ class _InteractiveImageWidgetState extends State<InteractiveImageWidget> {
                 ],
               ],
 
+              // 8 Crop handles in outer stack for unclipped hit testing extending outside
+              if (widget.isSelected && image.state != ImageState.uploading && _isCropping) ...[
+                _buildCropHandle(Alignment.topLeft, padSide, padTop),
+                _buildCropHandle(Alignment.topCenter, padSide, padTop),
+                _buildCropHandle(Alignment.topRight, padSide, padTop),
+                _buildCropHandle(Alignment.centerRight, padSide, padTop),
+                _buildCropHandle(Alignment.bottomRight, padSide, padTop),
+                _buildCropHandle(Alignment.bottomCenter, padSide, padTop),
+                _buildCropHandle(Alignment.bottomLeft, padSide, padTop),
+                _buildCropHandle(Alignment.centerLeft, padSide, padTop),
+              ],
+
               // Floating toolbar
               if (widget.isSelected && image.state != ImageState.uploading)
                 Positioned(
-                  top: toolbarAbove ? (padTop - 46) : (padTop + _height + 8),
+                  top: toolbarAbove ? (padTop - 48) : (padTop + _height + 10),
                   left: 0,
                   right: 0,
                   child: Center(

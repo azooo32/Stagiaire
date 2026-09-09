@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../domain/entities/slide_workspace_models.dart';
 import '../controllers/slide_workspace_controller.dart';
@@ -103,6 +104,16 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
                               stateProvider!.startInPlaceEdit(widget.index),
                             );
                           }
+                        }
+                      : null,
+                  onLongPressStart: allowSlideGestures
+                      ? (details) {
+                          _handleSlideLongPress(context, details.globalPosition);
+                        }
+                      : null,
+                  onSecondaryTapDown: allowSlideGestures
+                      ? (details) {
+                          _handleSlideLongPress(context, details.globalPosition);
                         }
                       : null,
                   child: SlidePaper(
@@ -369,6 +380,223 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
     final local = box?.globalToLocal(globalPosition) ?? Offset.zero;
     return Offset(local.dx, local.dy + _inSlideScrollOffset.value);
+  }
+
+  Future<void> _handleSlideLongPress(
+    BuildContext context,
+    Offset globalPosition,
+  ) async {
+    if (WorkspaceOutsideStateProvider.of(context)?.editingSlideIndex != null) {
+      return;
+    }
+    // Switch to this slide if not current
+    if (widget.index != controller.currentIndex) {
+      widget.onSlideTap?.call(widget.index);
+      controller.goToSlide(widget.index);
+    }
+    // Unselect any currently selected object
+    if (controller.selectedObjectId != null) {
+      controller.selectObject(null);
+    }
+
+    final slidePoint = _toSlidePoint(globalPosition);
+    final slideX = slidePoint.dx.clamp(0.0, 1100.0);
+    final slideY = slidePoint.dy.clamp(0.0, 608.0);
+
+    final hasClipboard = SlideWorkspaceController.clipboardImage != null;
+    final isDark = widget.isDark;
+
+    final selected = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 1, 1),
+        Offset.zero & MediaQuery.sizeOf(context),
+      ),
+      elevation: 8,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: isDark ? const Color(0xFF3F3760) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
+      color: isDark ? const Color(0xFF221D38) : Colors.white,
+      items: [
+        if (hasClipboard)
+          PopupMenuItem<String>(
+            value: 'paste',
+            height: 46,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.content_paste_rounded,
+                    size: 18,
+                    color: Color(0xFF10B981),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'لصق الصورة',
+                  style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : const Color(0xFF1E293B),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        PopupMenuItem<String>(
+          value: 'gallery',
+          height: 46,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6B4EFF).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.photo_library_outlined,
+                  size: 18,
+                  color: Color(0xFF6B4EFF),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'إضافة من المعرض',
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : const Color(0xFF1E293B),
+                ),
+              ),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'camera',
+          height: 46,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF3B82F6).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.camera_alt_outlined,
+                  size: 18,
+                  color: Color(0xFF3B82F6),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                'التقاط صورة',
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : const Color(0xFF1E293B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (selected == null || !context.mounted) return;
+
+    if (selected == 'paste') {
+      controller.pasteImage(targetX: slideX, targetY: slideY);
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('تم لصق الصورة'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else if (selected == 'gallery' || selected == 'camera') {
+      final source =
+          selected == 'camera' ? ImageSource.camera : ImageSource.gallery;
+      await _pickAndAddImageAt(context, source, slideX, slideY);
+    }
+  }
+
+  Future<void> _pickAndAddImageAt(
+    BuildContext context,
+    ImageSource source,
+    double slideX,
+    double slideY,
+  ) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1920,
+        maxHeight: 1920,
+      );
+      if (pickedFile == null) return;
+
+      final bytes = await pickedFile.readAsBytes();
+      if (bytes.lengthInBytes > 3 * 1024 * 1024) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please choose an image smaller than 3 MB.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
+
+      final decoded = await decodeImageFromList(bytes);
+
+      if (context.mounted) {
+        final error = await controller.addImageObject(
+          bytes,
+          pickedFile.name,
+          originalWidth: decoded.width.toDouble(),
+          originalHeight: decoded.height.toDouble(),
+          customX: slideX,
+          customY: slideY,
+        );
+        if (error != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(error),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error picking image: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
   }
 }
 
