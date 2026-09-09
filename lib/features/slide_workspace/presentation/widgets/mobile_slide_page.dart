@@ -272,7 +272,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
     if (!_canDraw || !_isPrimaryMouseButton(event)) return;
 
     final slidePoint = _toSlidePoint(event.position);
-    final slideY = slidePoint.dy + _inSlideScrollOffset.value;
+    final slideY = slidePoint.dy;
     final slideX = slidePoint.dx;
 
     final slide = controller.slides[widget.index];
@@ -333,7 +333,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
     _activePointer = event.pointer;
     _activeKind = event.kind;
     controller.startStroke(
-      _toSlidePoint(event.position),
+      slidePoint,
       event.kind,
       pressure: event.pressure,
     );
@@ -367,7 +367,8 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
 
   Offset _toSlidePoint(Offset globalPosition) {
     final box = _canvasKey.currentContext?.findRenderObject() as RenderBox?;
-    return box?.globalToLocal(globalPosition) ?? Offset.zero;
+    final local = box?.globalToLocal(globalPosition) ?? Offset.zero;
+    return Offset(local.dx, local.dy + _inSlideScrollOffset.value);
   }
 }
 
