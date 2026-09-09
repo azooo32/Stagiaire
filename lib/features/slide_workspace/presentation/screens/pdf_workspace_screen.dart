@@ -102,6 +102,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final List<PdfPointerEvent> _recordingPointerEvents = [];
   bool _isSavingLecture = false;
   String? _tempRecordingPath;
+  int _lastLaserDotRecordTimeMs = 0;
+  Offset? _lastRecordedLaserDotPos;
+  int? _lastRecordedLaserPage;
 
   // ── Viewport Tracking (Recording) ─────────────────────────────────────────
   /// High-frequency throttle timer for viewport events (50ms trailing window)
@@ -2338,19 +2341,42 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       _liveLaserPage = pageNum;
     });
     if (_isRecordingLecture) {
+      final nowMs = _recordStopwatch?.elapsedMilliseconds ?? 0;
+      final roundedPos = Offset(
+        (localPos.dx * 100).round() / 100.0,
+        (localPos.dy * 100).round() / 100.0,
+      );
+
+      // Avoid spamming duplicate points at 150-200fps when stationary or moving < 0.5px
+      if (_lastRecordedLaserDotPos != null &&
+          _lastRecordedLaserPage == pageNum &&
+          (roundedPos - _lastRecordedLaserDotPos!).distance < 0.5 &&
+          nowMs - _lastLaserDotRecordTimeMs < 100) {
+        return;
+      }
+      if (nowMs - _lastLaserDotRecordTimeMs < 30) {
+        return;
+      }
+
+      _lastLaserDotRecordTimeMs = nowMs;
+      _lastRecordedLaserDotPos = roundedPos;
+      _lastRecordedLaserPage = pageNum;
+
       _recordingPointerEvents.add(
         PdfPointerEvent(
           pageNumber: pageNum,
-          timestampMs: _recordStopwatch?.elapsedMilliseconds ?? 0,
+          timestampMs: nowMs,
           type: PdfPointerType.dot,
-          x: localPos.dx,
-          y: localPos.dy,
+          x: roundedPos.dx,
+          y: roundedPos.dy,
         ),
       );
     }
   }
 
   void _onLaserDotEnded(int pageNum) {
+    _lastRecordedLaserDotPos = null;
+    _lastRecordedLaserPage = null;
     setState(() {
       _liveLaserDot = null;
     });

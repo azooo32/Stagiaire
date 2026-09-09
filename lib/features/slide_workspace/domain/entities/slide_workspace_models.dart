@@ -35,6 +35,8 @@ abstract class WorkspaceObject {
   bool get canDuplicate;
 }
 
+double _round2(double val) => (val * 100).round() / 100.0;
+
 class StrokePoint {
   final double x;
   final double y;
@@ -53,10 +55,10 @@ class StrokePoint {
   Offset get offset => Offset(x, y);
 
   Map<String, dynamic> toJson() => {
-        'x': x,
-        'y': y,
-        'pressure': pressure,
-        'time': timestampMicros,
+        'x': _round2(x),
+        'y': _round2(y),
+        'pressure': _round2(pressure),
+        if (timestampMicros != 0) 'time': timestampMicros,
       };
 
   factory StrokePoint.fromJson(Map<String, dynamic> json) => StrokePoint(
@@ -466,13 +468,13 @@ class PdfPointerEvent {
         't': timestampMs,
         'p': pageNumber,
         'type': type.name,
-        if (x != null) 'x': x,
-        if (y != null) 'y': y,
+        if (x != null) 'x': _round2(x!),
+        if (y != null) 'y': _round2(y!),
         if (points != null)
-          'pts': points!.map((pt) => {'x': pt.dx, 'y': pt.dy}).toList(),
+          'pts': points!.map((pt) => {'x': _round2(pt.dx), 'y': _round2(pt.dy)}).toList(),
         if (durationMs != null) 'dur': durationMs,
         if (drawDurationMs != null) 'drawDur': drawDurationMs,
-        if (scale != null) 'sc': scale,
+        if (scale != null) 'sc': _round2(scale!),
       };
 
   factory PdfPointerEvent.fromJson(Map<String, dynamic> json) {
@@ -581,8 +583,8 @@ class PdfLectureRecording {
       if (localAudioPath != null) 'local_audio_path': localAudioPath,
       'duration_ms': durationMs,
       'page_number': pageNumber,
-      'position_x': positionX,
-      'position_y': positionY,
+      'position_x': _round2(positionX),
+      'position_y': _round2(positionY),
       'strokes_data': strokesMap,
       'pointer_events': pointerEvents.map((e) => e.toJson()).toList(),
       if (createdBy != null) 'created_by': createdBy,
