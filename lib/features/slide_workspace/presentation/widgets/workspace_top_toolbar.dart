@@ -68,8 +68,6 @@ class WorkspaceTopToolbar extends StatelessWidget {
   final bool showLaserTool;
   final VoidCallback? onRecordLecture;
   final bool isRecordingLecture;
-  final VoidCallback? onRedownloadPdf;  // Re-download PDF file button
-  final bool isRedownloadingPdf;        // Shows loading indicator during re-download
 
   const WorkspaceTopToolbar({
     super.key,
@@ -91,8 +89,6 @@ class WorkspaceTopToolbar extends StatelessWidget {
     this.showLaserTool = false,
     this.onRecordLecture,
     this.isRecordingLecture = false,
-    this.onRedownloadPdf,
-    this.isRedownloadingPdf = false,
   });
 
   static const _toolOrder = [
@@ -809,55 +805,13 @@ class WorkspaceTopToolbar extends StatelessWidget {
     required double iconExtent,
     required double iconSize,
   }) {
-    final backBtn = WorkspaceIconButton(
+    return WorkspaceIconButton(
       icon: Icons.arrow_back_rounded,
       tooltip: 'Back',
       foregroundColor: _foreground,
       size: iconExtent,
       iconSize: iconSize,
       onTap: onBack,
-    );
-
-    if (onRedownloadPdf == null) return backBtn;
-
-    // When re-download is available, show back + re-download button as a Row
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        backBtn,
-        const SizedBox(width: 2),
-        _redownloadButton(iconExtent: iconExtent, iconSize: iconSize),
-      ],
-    );
-  }
-
-  Widget _redownloadButton({
-    required double iconExtent,
-    required double iconSize,
-  }) {
-    if (isRedownloadingPdf) {
-      return SizedBox(
-        width: iconExtent,
-        height: iconExtent,
-        child: Center(
-          child: SizedBox(
-            width: iconSize,
-            height: iconSize,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: _foreground,
-            ),
-          ),
-        ),
-      );
-    }
-    return WorkspaceIconButton(
-      icon: Icons.cloud_download_outlined,
-      tooltip: 'إعادة تحميل الملف',
-      foregroundColor: _foreground.withValues(alpha: 0.7),
-      size: iconExtent,
-      iconSize: iconSize - 2,
-      onTap: onRedownloadPdf,
     );
   }
 }

@@ -983,6 +983,13 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                 tooltip: 'حذف الملف',
                 onPressed: () => _confirmDeletePdf(pdfSlide),
               ),
+              if (isDownloaded)
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded),
+                  color: brandColor,
+                  tooltip: 'إعادة تحميل الملف',
+                  onPressed: () => _confirmRedownloadPdf(pdfSlide),
+                ),
               Icon(
                 isDownloaded ? Icons.play_circle_fill : Icons.download_for_offline,
                 color: brandColor,
@@ -991,10 +998,22 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
             ],
           );
         } else {
-          trailingWidget = Icon(
-            isDownloaded ? Icons.play_circle_fill : Icons.download_for_offline,
-            color: brandColor,
-            size: 32,
+          trailingWidget = Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isDownloaded)
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded),
+                  color: isDark ? Colors.white70 : Colors.black54,
+                  tooltip: 'إعادة تحميل الملف',
+                  onPressed: () => _confirmRedownloadPdf(pdfSlide),
+                ),
+              Icon(
+                isDownloaded ? Icons.play_circle_fill : Icons.download_for_offline,
+                color: brandColor,
+                size: 32,
+              ),
+            ],
           );
         }
 
@@ -1247,6 +1266,80 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('فشل حذف الملف: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmRedownloadPdf(WorkspaceSlide pdfSlide) async {
+    final provider = Provider.of<AppProvider>(context, listen: false);
+    final isDark = provider.isDarkTheme;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1E1A2E) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.cloud_download_outlined, color: Color(0xFF7C5CFC), size: 26),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'إعادة تحميل الملف',
+                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'هل تريد إعادة تحميل ملف "${pdfSlide.title}" من السيرفر؟\n\n✅ ملاحظاتك ورسوماتك ومشاركاتك محفوظة في السحابة ولن تُحذف.',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            color: isDark ? Colors.white70 : Colors.black87,
+            fontSize: 13,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('إعادة التحميل', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF7C5CFC),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final cacheDir = await PdfStorageService.getPdfCacheDirectory();
+      final localPath = '${cacheDir.path}/${pdfSlide.id}.pdf';
+      await _cleanupCorruptedPdf(pdfSlide.id, localPath);
+
+      if (mounted) {
+        setState(() {
+          _localPdfPaths.remove(pdfSlide.id);
+        });
+        await _downloadPdf(pdfSlide);
+      }
+    } catch (e) {
+      debugPrint('Error re-downloading PDF (${pdfSlide.id}): $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل إعادة تحميل الملف: $e', style: const TextStyle(fontFamily: 'Cairo')),
             backgroundColor: Colors.redAccent,
           ),
         );

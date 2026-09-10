@@ -72,8 +72,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final Map<String, PdfSoundAnnotation> _extractedSounds = {};
   /// annotIds currently being extracted (to show loading spinner)
   final Set<String> _extractingSounds = {};
-  // ── Re-download PDF state ─────────────────────────────────────────────────
-  bool _isRedownloadingPdf = false;
   bool _isLoadingPdf = true;
   int _currentPageIndex = 0;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -339,6 +337,23 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (bestIndex != _currentPageIndex) {
       setState(() => _currentPageIndex = bestIndex);
       controller.goToSlide(bestIndex, clearHistory: false);
+      _prunePageCache(bestIndex + 1);
+    }
+  }
+
+  void _prunePageCache(int currentPage) {
+    // Keep a buffer of pages around current page in memory
+    const int keepBefore = 8;
+    const int keepAfter = 16;
+    final keysToRemove = <int>[];
+    for (final pageNum in _pageCache.keys) {
+      if (pageNum < currentPage - keepBefore || pageNum > currentPage + keepAfter) {
+        keysToRemove.add(pageNum);
+      }
+    }
+    for (final k in keysToRemove) {
+      _pageCache.remove(k);
+      _hiResPageCache.remove(k);
     }
   }
 
@@ -583,8 +598,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         _pageKeys[i] = GlobalKey(debugLabel: 'pdf_page_$i');
       }
 
-      // Load already rendered pages from disk cache asynchronously
-      for (var i = 1; i <= pageCount; i++) {
+      // Fast-load only the initial sliding window (pages 1 to 6) from disk cache into RAM
+      final initialWindowEnd = math.min(6, pageCount);
+      for (var i = 1; i <= initialWindowEnd; i++) {
         final diskFile = File('$_cacheDirPath/page_$i.jpg');
         if (await diskFile.exists()) {
           final bytes = await diskFile.readAsBytes();
@@ -1074,12 +1090,31 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   Future<void> _preRenderRemainingPages(int pageCount) async {
-    for (var i = 1; i <= pageCount; i++) {
+    // Prioritize pages near current viewport first, then outwards
+    final order = <int>[];
+    for (var d = 1; d <= pageCount; d++) {
+      final forward = (_currentPageIndex + 1) + d;
+      final backward = (_currentPageIndex + 1) - d;
+      if (forward <= pageCount) order.add(forward);
+      if (backward >= 1) order.add(backward);
+    }
+    for (final i in order) {
       if (!mounted) return;
       if (!_pageCache.containsKey(i)) {
+        final diskFile = File('$_cacheDirPath/page_$i.jpg');
+        if (await diskFile.exists()) {
+          // If exists on disk, no need to force render in background loop
+          continue;
+        }
         await _renderAndCacheSinglePage(i);
-        if (mounted) setState(() {});
-        await Future.delayed(const Duration(milliseconds: 40));
+        // Only trigger UI update if the rendered page is within the active visible window
+        if (mounted) {
+          final isWithinActive = (i >= _currentPageIndex - 1 && i <= _currentPageIndex + 9);
+          if (isWithinActive) {
+            setState(() {});
+          }
+        }
+        await Future.delayed(const Duration(milliseconds: 60));
       }
     }
   }
@@ -1088,7 +1123,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (!_pageCache.containsKey(pageNum) && !_renderingPages.contains(pageNum)) {
       _renderAndCacheSinglePage(pageNum).then((bytes) {
         if (bytes != null && mounted) {
-          setState(() {});
+          final isWithinActive = (pageNum >= _currentPageIndex - 1 && pageNum <= _currentPageIndex + 9);
+          if (isWithinActive) {
+            setState(() {});
+          }
         }
       });
     }
@@ -1181,7 +1219,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         } catch (_) {
           // Page may contain no extractable text (e.g. scanned image page)
         }
-        await Future.delayed(Duration.zero); // Yield to UI thread
+        await Future.delayed(const Duration(milliseconds: 10)); // Yield to UI thread
       }
       sfDoc.dispose();
 
@@ -1334,100 +1372,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
-  // ── Re-download PDF File ──────────────────────────────────────────────────
 
-  /// Deletes the local PDF file cache and re-downloads it from the server.
-  /// User annotations/drawings stored in Supabase are NOT affected.
-  Future<void> _redownloadPdfFile() async {
-    if (_isRedownloadingPdf) return;
-    final remoteUrl = widget.pdfSlide.imageAsset; // URL stored in imageAsset field
-    if (remoteUrl.isEmpty || !(remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://'))) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('لا يمكن إعادة التحميل: رابط الملف غير متوفر'),
-            backgroundColor: Color(0xFF3D3D3D),
-          ),
-        );
-      }
-      return;
-    }
-
-    setState(() => _isRedownloadingPdf = true);
-
-    try {
-      // 1. Stop any active audio
-      await _cancelAudio();
-
-      // 2. Delete local PDF file
-      final localFile = File(widget.localPdfPath);
-      if (await localFile.exists()) {
-        await localFile.delete();
-      }
-
-      // 3. Delete page cache (rendered images) but keep saved_annotations.json
-      if (_cacheDirPath != null) {
-        final cacheDir = Directory(_cacheDirPath!);
-        if (await cacheDir.exists()) {
-          final files = cacheDir.listSync();
-          for (final f in files) {
-            if (f is File) {
-              final name = f.uri.pathSegments.last;
-              // Keep user annotations & lecture recordings, delete page renders & sound files
-              if (name.startsWith('page_') ||
-                  name == 'page_sizes.json' ||
-                  name == 'sound_annotations_meta.json' ||
-                  name == 'sound_annotations.json' ||
-                  name.startsWith('pdf_sound_') ||
-                  name.endsWith('.wav')) {
-                try { await f.delete(); } catch (_) {}
-              }
-            }
-          }
-        }
-      }
-
-      // 4. Re-download from server
-      final client = HttpClient();
-      try {
-        final req = await client.getUrl(Uri.parse(remoteUrl));
-        final res = await req.close();
-        if (res.statusCode == 200) {
-          final sink = localFile.openWrite();
-          await res.pipe(sink);
-        } else {
-          throw Exception('HTTP ${res.statusCode}');
-        }
-      } finally {
-        client.close();
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('✅ تم إعادة تحميل الملف بنجاح'),
-            backgroundColor: Color(0xFF2D7A4F),
-            duration: Duration(seconds: 3),
-          ),
-        );
-        // Restart the workspace to reload the PDF
-        Navigator.of(context).pop();
-      }
-    } catch (e) {
-      debugPrint('[RedownloadPDF] Error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('❌ فشل إعادة التحميل: $e'),
-            backgroundColor: const Color(0xFF7A2D2D),
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isRedownloadingPdf = false);
-    }
-  }
 
   double? _getSoundScreenY(PdfSoundAnnotation sound) {
     if (_lastPageWidth <= 0 || _lastViewportHeight <= 0) return null;
@@ -3953,52 +3898,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                           }
                         }
                       },
-                      isRedownloadingPdf: _isRedownloadingPdf,
-                      onRedownloadPdf: () async {
-                        // Confirmation dialog before re-downloading
-                        final confirmed = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            backgroundColor: isDark ? const Color(0xFF1E1B2E) : Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            title: Text(
-                              'إعادة تحميل الملف',
-                              style: TextStyle(
-                                color: isDark ? Colors.white : const Color(0xFF1E1B2E),
-                                fontFamily: 'Cairo',
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            content: Text(
-                              'سيتم حذف نسخة الملف المحفوظة محلياً وإعادة تحميله من الخادم.\n\n✅ ملاحظاتك ورسوماتك محفوظة في السحابة ولن تُحذف.',
-                              style: TextStyle(
-                                color: isDark ? Colors.white70 : Colors.black87,
-                                fontFamily: 'Cairo',
-                                fontSize: 13,
-                              ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
-                              ),
-                              ElevatedButton.icon(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                icon: const Icon(Icons.cloud_download_outlined, size: 16),
-                                label: const Text('إعادة التحميل', style: TextStyle(fontFamily: 'Cairo')),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF5B35F5),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                        if (confirmed == true) {
-                          await _redownloadPdfFile();
-                        }
-                      },
                     ),
                     Expanded(
                       child: Stack(
@@ -4388,18 +4287,38 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Widget _buildPdfPageCanvas(int index, bool isDark, List<PdfSoundAnnotationMeta> pageSounds, bool isSmallPhone) {
     final pageNum = index + 1;
-    final cachedBytes = _pageCache[pageNum];
-    final pageSize = _pageSizes[pageNum];
+    final pageSize = _pageSizes[pageNum] ?? _pageSizes[1] ?? const Size(595, 842);
+    final double pdfW = pageSize.width;
+    final double pdfH = pageSize.height;
+    final double aspect = pdfW / pdfH;
 
-    if (cachedBytes == null) {
-      _ensurePageLoaded(pageNum);
-      final double placeholderAspect = pageSize != null ? (pageSize.width / pageSize.height) : (595 / 842);
+    // Sliding Window: Only mount full image & heavy layers for active window (2 pages above, 8 pages below)
+    final bool isWithinWindow = (pageNum >= _currentPageIndex - 1 && pageNum <= _currentPageIndex + 9);
+
+    if (!isWithinWindow) {
       return AspectRatio(
-        aspectRatio: placeholderAspect,
+        aspectRatio: aspect,
         child: Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF242038) : Colors.white,
+            color: isDark ? const Color(0xFF1E1B2E) : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          ),
+        ),
+      );
+    }
+
+    final cachedBytes = _pageCache[pageNum];
+
+    if (cachedBytes == null) {
+      _ensurePageLoaded(pageNum);
+      return AspectRatio(
+        aspectRatio: aspect,
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E1B2E) : Colors.white,
             borderRadius: BorderRadius.circular(8),
             boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
           ),
@@ -4407,16 +4326,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             child: SizedBox(
               width: 24,
               height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF7C5CFC)),
             ),
           ),
         ),
       );
     }
-
-    final double pdfW = pageSize?.width ?? 595;
-    final double pdfH = pageSize?.height ?? 842;
-    final double aspect = pdfW / pdfH;
 
     // Collect lecturer strokes for this page (for Notability dimming effect & tap-seeking)
     final List<SlideStroke> pageLecturerStrokes;
