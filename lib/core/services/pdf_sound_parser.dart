@@ -40,9 +40,208 @@ class PdfSoundAnnotation {
   }
 }
 
+/// Lightweight metadata about a Sound Annotation — no audio is extracted.
+/// Used for Lazy Loading: icons are shown immediately, audio extracted on-demand.
+class PdfSoundAnnotationMeta {
+  final String annotId;
+  final int pageNumber;
+  final List<double> rect; // [left, bottom, right, top] in PDF coordinates
+
+  const PdfSoundAnnotationMeta({
+    required this.annotId,
+    required this.pageNumber,
+    required this.rect,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'annotId': annotId,
+        'pageNumber': pageNumber,
+        'rect': rect,
+      };
+
+  factory PdfSoundAnnotationMeta.fromJson(Map<String, dynamic> json) {
+    return PdfSoundAnnotationMeta(
+      annotId: json['annotId'] as String? ?? '',
+      pageNumber: json['pageNumber'] as int? ?? 1,
+      rect: (json['rect'] as List? ?? []).map((e) => (e as num).toDouble()).toList(),
+    );
+  }
+}
+
 class PdfSoundParser {
-  /// Parses the PDF file at [pdfPath] and extracts all /Sound annotations.
-  /// Saves extracted audio streams as temporary WAV files and returns a list of annotations.
+  /// [LAZY LOADING — FAST] Scans the PDF file and returns lightweight metadata
+  /// about all Sound Annotations WITHOUT extracting any audio.
+  /// This is extremely fast and safe to call at PDF open time.
+  static Future<List<PdfSoundAnnotationMeta>> scanAnnotationsOnly(
+    String pdfPath,
+  ) async {
+    final file = File(pdfPath);
+    if (!await file.exists()) return const [];
+
+    final bytes = await file.readAsBytes();
+    final results = <PdfSoundAnnotationMeta>[];
+
+    try {
+      final objects = _parsePdfObjects(bytes);
+      final objectsMap = <String, _PdfObject>{};
+      for (final obj in objects) {
+        objectsMap[obj.id] = obj;
+      }
+
+      // Map page objects
+      final pageIdToIndex = <String, int>{};
+      final pageAnnotsMap = <int, List<String>>{};
+      int pageIndex = 1;
+
+      for (final obj in objects) {
+        final dict = obj.dictionaryText;
+        if (dict.contains('/Type') && _getDictValue(dict, '/Type') == '/Page') {
+          pageIdToIndex[obj.id] = pageIndex;
+          final annotsVal = _getDictValue(dict, '/Annots');
+          if (annotsVal != null) {
+            final refs = _resolveAnnotationRefs(annotsVal, objectsMap);
+            pageAnnotsMap[pageIndex] = refs;
+          }
+          pageIndex++;
+        }
+      }
+
+      // Find all Sound Annotations — metadata only, no stream extraction
+      for (final obj in objects) {
+        final dict = obj.dictionaryText;
+        if (dict.contains('/Subtype') && _getDictValue(dict, '/Subtype') == '/Sound') {
+          final rectVal = _getDictValue(dict, '/Rect');
+          final soundVal = _getDictValue(dict, '/Sound');
+          final pageVal = _getDictValue(dict, '/P');
+
+          if (rectVal != null && soundVal != null) {
+            final rect = _parseRect(rectVal);
+            final pageRef = pageVal != null ? _cleanRef(pageVal) : null;
+
+            int? targetPage;
+            if (pageRef != null && pageIdToIndex.containsKey(pageRef)) {
+              targetPage = pageIdToIndex[pageRef];
+            }
+            if (targetPage == null) {
+              for (final pEntry in pageAnnotsMap.entries) {
+                if (pEntry.value.contains(obj.id)) {
+                  targetPage = pEntry.key;
+                  break;
+                }
+              }
+            }
+            targetPage ??= 1;
+
+            results.add(PdfSoundAnnotationMeta(
+              annotId: obj.id,
+              pageNumber: targetPage,
+              rect: rect,
+            ));
+          }
+        }
+      }
+    } catch (_) {}
+
+    return results;
+  }
+
+  /// [LAZY LOADING — ON-DEMAND] Extracts audio for a single Sound Annotation
+  /// identified by [annotId]. Saves the WAV file to [tempDir] and returns
+  /// a [PdfSoundAnnotation] with the path, or null on failure.
+  static Future<PdfSoundAnnotation?> extractSingleAnnotation({
+    required String pdfPath,
+    required String annotId,
+    required int pageNumber,
+    required List<double> rect,
+    required String tempDir,
+  }) async {
+    final file = File(pdfPath);
+    if (!await file.exists()) return null;
+
+    final expectedPath = '$tempDir/pdf_sound_${annotId}_p$pageNumber.wav';
+
+    // If already extracted and cached on disk, return immediately
+    final existing = File(expectedPath);
+    if (await existing.exists() && await existing.length() > 0) {
+      // We don't have audio params but the file is valid — use defaults
+      return PdfSoundAnnotation(
+        pageNumber: pageNumber,
+        rect: rect,
+        tempAudioPath: expectedPath,
+        sampleRate: 22050,
+        bitsPerSample: 16,
+        channels: 1,
+      );
+    }
+
+    final bytes = await file.readAsBytes();
+
+    try {
+      final objects = _parsePdfObjects(bytes);
+      final objectsMap = <String, _PdfObject>{};
+      for (final obj in objects) {
+        objectsMap[obj.id] = obj;
+      }
+
+      // Find the target annotation object
+      _PdfObject? annotObj;
+      for (final obj in objects) {
+        if (obj.id == annotId) {
+          annotObj = obj;
+          break;
+        }
+      }
+      if (annotObj == null) return null;
+
+      final annotDict = annotObj.dictionaryText;
+      final soundVal = _getDictValue(annotDict, '/Sound');
+      if (soundVal == null) return null;
+
+      final soundRef = _cleanRef(soundVal);
+      final streamObj = objectsMap[soundRef];
+      if (streamObj == null || streamObj.streamBytes == null) return null;
+
+      final dict = streamObj.dictionaryText;
+      final rate = int.tryParse(
+              _getDictValue(dict, '/R') ?? _getDictValue(dict, '/Rate') ?? '22050') ??
+          22050;
+      final bits = int.tryParse(
+              _getDictValue(dict, '/B') ?? _getDictValue(dict, '/Bits') ?? '16') ??
+          16;
+      final channels = int.tryParse(
+              _getDictValue(dict, '/C') ?? _getDictValue(dict, '/Channels') ?? '1') ??
+          1;
+      final encoding =
+          _getDictValue(dict, '/E') ?? _getDictValue(dict, '/Encoding') ?? '/Signed';
+
+      Uint8List pcmAudio = streamObj.streamBytes!;
+      final filter = _getDictValue(dict, '/Filter');
+      if (filter == '/FlateDecode' || filter == '/Fl') {
+        try {
+          pcmAudio = Uint8List.fromList(zlib.decode(pcmAudio));
+        } catch (_) {}
+      }
+
+      final wavBytes = _createWavFileBytes(pcmAudio, rate, bits, channels, encoding);
+      final tempFile = File(expectedPath);
+      await tempFile.writeAsBytes(wavBytes);
+
+      return PdfSoundAnnotation(
+        pageNumber: pageNumber,
+        rect: rect,
+        tempAudioPath: tempFile.path,
+        sampleRate: rate,
+        bitsPerSample: bits,
+        channels: channels,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// [LEGACY — kept for backward compat] Parses the PDF file and extracts ALL
+  /// /Sound annotations at once. Prefer [scanAnnotationsOnly] + [extractSingleAnnotation]
+  /// for better performance on large files.
   static Future<List<PdfSoundAnnotation>> parseAndExtract(
     String pdfPath,
     String tempDir,

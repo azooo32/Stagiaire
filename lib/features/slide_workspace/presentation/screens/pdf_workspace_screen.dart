@@ -65,7 +65,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final Set<int> _activeStylusPointers = {};
 
   PdfDocument? _pdfDocument;
-  List<PdfSoundAnnotation> _soundAnnotations = [];
+  // ── Lazy-Loading Sound Annotations ──────────────────────────────────────
+  /// Lightweight metadata (page + rect) — populated at open time via fast scan
+  List<PdfSoundAnnotationMeta> _soundAnnotationMetas = [];
+  /// annotId -> extracted PdfSoundAnnotation (populated on-demand when user taps)
+  final Map<String, PdfSoundAnnotation> _extractedSounds = {};
+  /// annotIds currently being extracted (to show loading spinner)
+  final Set<String> _extractingSounds = {};
+  // ── Re-download PDF state ─────────────────────────────────────────────────
+  bool _isRedownloadingPdf = false;
   bool _isLoadingPdf = true;
   int _currentPageIndex = 0;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -488,17 +496,34 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         await p1.close();
       }
 
-      // Fast-load cached sound annotations if available
-      final soundCacheFile = File('$_cacheDirPath/sound_annotations.json');
-      if (await soundCacheFile.exists()) {
+      // Fast-load cached sound annotation METADATA (no audio extraction)
+      final soundMetaCacheFile = File('$_cacheDirPath/sound_annotations_meta.json');
+      if (await soundMetaCacheFile.exists()) {
         try {
-          final jsonStr = await soundCacheFile.readAsString();
+          final jsonStr = await soundMetaCacheFile.readAsString();
           final list = jsonDecode(jsonStr) as List;
-          _soundAnnotations = list
-              .map((item) => PdfSoundAnnotation.fromJson(item as Map<String, dynamic>))
-              .where((annot) => File(annot.tempAudioPath).existsSync())
+          _soundAnnotationMetas = list
+              .map((item) => PdfSoundAnnotationMeta.fromJson(item as Map<String, dynamic>))
+              .where((m) => m.annotId.isNotEmpty)
               .toList();
         } catch (_) {}
+      }
+
+      // Fast-load previously extracted sound audios from disk cache
+      if (_cacheDirPath != null) {
+        for (final meta in _soundAnnotationMetas) {
+          final wavPath = '$_cacheDirPath/pdf_sound_${meta.annotId}_p${meta.pageNumber}.wav';
+          if (File(wavPath).existsSync()) {
+            _extractedSounds[meta.annotId] = PdfSoundAnnotation(
+              pageNumber: meta.pageNumber,
+              rect: meta.rect,
+              tempAudioPath: wavPath,
+              sampleRate: 22050,
+              bitsPerSample: 16,
+              channels: 1,
+            );
+          }
+        }
       }
 
       // Fast-load cached synchronized lecture recordings if available
@@ -672,17 +697,23 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         File('$_cacheDirPath/page_sizes.json').writeAsString(jsonEncode(sizesMap)).ignore();
       }
 
-      // 2. Parse sound annotations & embedded PDF drawings if not cached
-      if (_soundAnnotations.isEmpty && _cacheDirPath != null) {
-        _soundAnnotations = await PdfSoundParser.parseAndExtract(
-          widget.localPdfPath,
-          _cacheDirPath!,
-        );
-        if (_soundAnnotations.isNotEmpty) {
-          final jsonList = _soundAnnotations.map((a) => a.toJson()).toList();
-          File('$_cacheDirPath/sound_annotations.json')
+      // 2. [LAZY LOADING] Quick scan for Sound Annotation metadata (no audio extraction)
+      // Only scan if not already cached
+      if (_soundAnnotationMetas.isEmpty && _cacheDirPath != null) {
+        final metas = await PdfSoundParser.scanAnnotationsOnly(widget.localPdfPath);
+        if (metas.isNotEmpty) {
+          // Cache the metadata for fast future loads
+          final jsonList = metas.map((m) => m.toJson()).toList();
+          File('$_cacheDirPath/sound_annotations_meta.json')
               .writeAsString(jsonEncode(jsonList))
               .ignore();
+          if (mounted) {
+            setState(() {
+              _soundAnnotationMetas = metas;
+            });
+          } else {
+            _soundAnnotationMetas = metas;
+          }
         }
       }
 
@@ -1251,11 +1282,150 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   PdfSoundAnnotation? get _activeSound {
     if (_activeAudioPath == null) return null;
     try {
-      return _soundAnnotations
-          .where((s) => s.tempAudioPath == _activeAudioPath)
-          .firstOrNull;
+      // Search in extracted sounds map (lazy-loaded)
+      for (final sound in _extractedSounds.values) {
+        if (sound.tempAudioPath == _activeAudioPath) return sound;
+      }
+      return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  // ── On-Demand Sound Extraction (Lazy Loading) ──────────────────────────────
+
+  /// Called when the user taps a Sound Annotation icon.
+  /// If already extracted, plays immediately. Otherwise extracts first, then plays.
+  Future<void> _onSoundAnnotationTapped(PdfSoundAnnotationMeta meta) async {
+    // Already extracted — play immediately
+    final existing = _extractedSounds[meta.annotId];
+    if (existing != null) {
+      await _togglePlayPause(existing.tempAudioPath);
+      return;
+    }
+
+    // Guard: avoid duplicate extraction
+    if (_extractingSounds.contains(meta.annotId)) return;
+    if (_cacheDirPath == null) return;
+
+    if (mounted) setState(() => _extractingSounds.add(meta.annotId));
+
+    try {
+      final sound = await PdfSoundParser.extractSingleAnnotation(
+        pdfPath: widget.localPdfPath,
+        annotId: meta.annotId,
+        pageNumber: meta.pageNumber,
+        rect: meta.rect,
+        tempDir: _cacheDirPath!,
+      );
+
+      if (sound != null && mounted) {
+        setState(() {
+          _extractedSounds[meta.annotId] = sound;
+          _extractingSounds.remove(meta.annotId);
+        });
+        await _togglePlayPause(sound.tempAudioPath);
+      } else {
+        if (mounted) setState(() => _extractingSounds.remove(meta.annotId));
+      }
+    } catch (e) {
+      debugPrint('[SoundAnnotation] Error extracting ${meta.annotId}: $e');
+      if (mounted) setState(() => _extractingSounds.remove(meta.annotId));
+    }
+  }
+
+  // ── Re-download PDF File ──────────────────────────────────────────────────
+
+  /// Deletes the local PDF file cache and re-downloads it from the server.
+  /// User annotations/drawings stored in Supabase are NOT affected.
+  Future<void> _redownloadPdfFile() async {
+    if (_isRedownloadingPdf) return;
+    final remoteUrl = widget.pdfSlide.imageAsset; // URL stored in imageAsset field
+    if (remoteUrl.isEmpty || !(remoteUrl.startsWith('http://') || remoteUrl.startsWith('https://'))) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('لا يمكن إعادة التحميل: رابط الملف غير متوفر'),
+            backgroundColor: Color(0xFF3D3D3D),
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isRedownloadingPdf = true);
+
+    try {
+      // 1. Stop any active audio
+      await _cancelAudio();
+
+      // 2. Delete local PDF file
+      final localFile = File(widget.localPdfPath);
+      if (await localFile.exists()) {
+        await localFile.delete();
+      }
+
+      // 3. Delete page cache (rendered images) but keep saved_annotations.json
+      if (_cacheDirPath != null) {
+        final cacheDir = Directory(_cacheDirPath!);
+        if (await cacheDir.exists()) {
+          final files = cacheDir.listSync();
+          for (final f in files) {
+            if (f is File) {
+              final name = f.uri.pathSegments.last;
+              // Keep user annotations & lecture recordings, delete page renders & sound files
+              if (name.startsWith('page_') ||
+                  name == 'page_sizes.json' ||
+                  name == 'sound_annotations_meta.json' ||
+                  name == 'sound_annotations.json' ||
+                  name.startsWith('pdf_sound_') ||
+                  name.endsWith('.wav')) {
+                try { await f.delete(); } catch (_) {}
+              }
+            }
+          }
+        }
+      }
+
+      // 4. Re-download from server
+      final client = HttpClient();
+      try {
+        final req = await client.getUrl(Uri.parse(remoteUrl));
+        final res = await req.close();
+        if (res.statusCode == 200) {
+          final sink = localFile.openWrite();
+          await res.pipe(sink);
+        } else {
+          throw Exception('HTTP ${res.statusCode}');
+        }
+      } finally {
+        client.close();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ تم إعادة تحميل الملف بنجاح'),
+            backgroundColor: Color(0xFF2D7A4F),
+            duration: Duration(seconds: 3),
+          ),
+        );
+        // Restart the workspace to reload the PDF
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      debugPrint('[RedownloadPDF] Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ فشل إعادة التحميل: $e'),
+            backgroundColor: const Color(0xFF7A2D2D),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRedownloadingPdf = false);
     }
   }
 
@@ -3147,17 +3317,22 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   Widget _buildSoundAnnotationOverlay(
-    PdfSoundAnnotation sound,
+    PdfSoundAnnotationMeta meta,
     double pdfWidth,
     double pdfHeight,
   ) {
-    final isActive = _activeAudioPath == sound.tempAudioPath;
-    final left = sound.rect[0];
-    final double rectTop = sound.rect.length >= 4 ? sound.rect[3] : 0.0;
+    final extractedSound = _extractedSounds[meta.annotId];
+    final isExtracting = _extractingSounds.contains(meta.annotId);
+    final isActive = extractedSound != null &&
+        _activeAudioPath == extractedSound.tempAudioPath;
+
+    final left = meta.rect[0];
+    final double rectTop = meta.rect.length >= 4 ? meta.rect[3] : 0.0;
     final top = (pdfHeight - rectTop).clamp(0.0, pdfHeight);
 
+    // ── Active: sound is playing / paused ─────────────────────────────────────
     if (isActive) {
-      // When docked under toolbar, show active compact glowing icon on the page
+      // When docked under toolbar, show compact glowing icon
       if (_isDockedAudioVisible) {
         return Positioned(
           left: left,
@@ -3166,7 +3341,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           height: 44,
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => _togglePlayPause(sound.tempAudioPath),
+            onTap: () => _togglePlayPause(extractedSound.tempAudioPath),
             child: Container(
               decoration: BoxDecoration(
                 color: const Color(0xFF5B35F5),
@@ -3206,7 +3381,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                 children: [
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () => _togglePlayPause(sound.tempAudioPath),
+                    onTap: () => _togglePlayPause(extractedSound.tempAudioPath),
                     child: Container(
                       width: 42,
                       height: 42,
@@ -3281,12 +3456,49 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       return Positioned(
         left: adjustedLeft,
         top: adjustedTop,
-        child: _buildAudioPillPlayer(sound, pdfWidth, pdfHeight),
+        child: _buildAudioPillPlayer(extractedSound, pdfWidth, pdfHeight),
       );
     }
 
-    final width = (sound.rect[2] - sound.rect[0]).abs();
-    final height = ((sound.rect.length >= 4 ? sound.rect[3] : 0.0) - sound.rect[1]).abs();
+    // ── Loading: currently extracting audio on-demand ─────────────────────────
+    if (isExtracting) {
+      final width = (meta.rect[2] - meta.rect[0]).abs();
+      final height = ((meta.rect.length >= 4 ? meta.rect[3] : 0.0) - meta.rect[1]).abs();
+      final clickWidth = width.clamp(36.0, 56.0);
+      final clickHeight = height.clamp(36.0, 56.0);
+
+      return Positioned(
+        left: left,
+        top: top,
+        width: clickWidth,
+        height: clickHeight,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF5B35F5),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black38,
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: const Padding(
+            padding: EdgeInsets.all(10),
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ── Idle: show tap-to-play icon ───────────────────────────────────────────
+    final width = (meta.rect[2] - meta.rect[0]).abs();
+    final height = ((meta.rect.length >= 4 ? meta.rect[3] : 0.0) - meta.rect[1]).abs();
 
     final clickWidth = width.clamp(36.0, 56.0);
     final clickHeight = height.clamp(36.0, 56.0);
@@ -3298,7 +3510,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       height: clickHeight,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => _togglePlayPause(sound.tempAudioPath),
+        onTap: () => _onSoundAnnotationTapped(meta),
         child: Container(
           decoration: BoxDecoration(
             color: const Color(0xFF5B35F5),
@@ -3741,6 +3953,52 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                           }
                         }
                       },
+                      isRedownloadingPdf: _isRedownloadingPdf,
+                      onRedownloadPdf: () async {
+                        // Confirmation dialog before re-downloading
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            backgroundColor: isDark ? const Color(0xFF1E1B2E) : Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            title: Text(
+                              'إعادة تحميل الملف',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : const Color(0xFF1E1B2E),
+                                fontFamily: 'Cairo',
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            content: Text(
+                              'سيتم حذف نسخة الملف المحفوظة محلياً وإعادة تحميله من الخادم.\n\n✅ ملاحظاتك ورسوماتك محفوظة في السحابة ولن تُحذف.',
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black87,
+                                fontFamily: 'Cairo',
+                                fontSize: 13,
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                icon: const Icon(Icons.cloud_download_outlined, size: 16),
+                                label: const Text('إعادة التحميل', style: TextStyle(fontFamily: 'Cairo')),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF5B35F5),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed == true) {
+                          await _redownloadPdfFile();
+                        }
+                      },
                     ),
                     Expanded(
                       child: Stack(
@@ -3958,7 +4216,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                               Builder(builder: (context) {
                                                 final pageNum = index + 1;
                                                 final pageSounds =
-                                                    _soundAnnotations
+                                                    _soundAnnotationMetas
                                                         .where((s) =>
                                                             s.pageNumber == pageNum)
                                                         .toList();
@@ -4128,7 +4386,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
-  Widget _buildPdfPageCanvas(int index, bool isDark, List<PdfSoundAnnotation> pageSounds, bool isSmallPhone) {
+  Widget _buildPdfPageCanvas(int index, bool isDark, List<PdfSoundAnnotationMeta> pageSounds, bool isSmallPhone) {
     final pageNum = index + 1;
     final cachedBytes = _pageCache[pageNum];
     final pageSize = _pageSizes[pageNum];
