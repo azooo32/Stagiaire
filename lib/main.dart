@@ -9,9 +9,13 @@ import 'core/services/pdf_storage_service.dart';
 import 'features/auth/presentation/screens/splash_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'core/services/capacitive_stylus_service.dart';
+import 'core/services/security_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // تسجيل handler الأمان مرة واحدة فقط قبل أي شيء آخر
+  SecurityService.init();
 
   // Set larger image cache limits to keep loaded slide images in RAM/VRAM
   // and prevent reloading/flickering when navigating between screens.

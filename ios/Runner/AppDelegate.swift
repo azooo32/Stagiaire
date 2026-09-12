@@ -3,48 +3,70 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
-  private var secureField: UITextField?
+
+  // نگه‌داری فیلدهای secure برای هر UIWindow جداگانه
+  private var secureFields: [UIWindow: UITextField] = [:]
+  private var isSecureEnabled: Bool = false
+  private var pollTimer: Timer?
+  private var securityChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    let controller : FlutterViewController = window?.rootViewController as! FlutterViewController
-    let securityChannel = FlutterMethodChannel(name: "com.invetstecur.stagiaire/security",
-                                              binaryMessenger: controller.binaryMessenger)
+    let controller: FlutterViewController = window?.rootViewController as! FlutterViewController
+    let channel = FlutterMethodChannel(
+      name: "com.invetstecur.stagiaire/security",
+      binaryMessenger: controller.binaryMessenger
+    )
+    self.securityChannel = channel
 
-    securityChannel.setMethodCallHandler({
-      [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) -> Void in
+    channel.setMethodCallHandler({ [weak self] (call, result) in
       guard let self = self else { return }
-      if call.method == "enableSecure" {
+      switch call.method {
+      case "enableSecure":
         DispatchQueue.main.async {
-          self.makeWindowSecure()
+          self.enableSecureOnAllWindows()
           result(true)
         }
-      } else if call.method == "disableSecure" {
+      case "disableSecure":
         DispatchQueue.main.async {
-          self.makeWindowUnsecure()
+          self.disableSecureOnAllWindows()
           result(true)
         }
-      } else if call.method == "isCaptured" {
+      case "isCaptured":
         if #available(iOS 11.0, *) {
           result(UIScreen.main.isCaptured)
         } else {
           result(false)
         }
-      } else {
+      default:
         result(FlutterMethodNotImplemented)
       }
     })
 
+    // --- الإشعار الرسمي من iOS ---
     if #available(iOS 11.0, *) {
       NotificationCenter.default.addObserver(
         forName: UIScreen.capturedDidChangeNotification,
         object: nil,
         queue: OperationQueue.main
-      ) { _ in
-        let isCaptured = UIScreen.main.isCaptured
-        securityChannel.invokeMethod("onScreenCaptureChanged", arguments: isCaptured)
+      ) { [weak self] _ in
+        self?.handleCaptureChange()
+      }
+    }
+
+    // --- استمع لإنشاء UIWindows جديدة (مثلاً عند Split View) ---
+    if #available(iOS 13.0, *) {
+      NotificationCenter.default.addObserver(
+        forName: UIWindow.didBecomeVisibleNotification,
+        object: nil,
+        queue: OperationQueue.main
+      ) { [weak self] notification in
+        guard let self = self, self.isSecureEnabled else { return }
+        if let newWindow = notification.object as? UIWindow {
+          self.addSecureField(to: newWindow)
+        }
       }
     }
 
@@ -52,8 +74,37 @@ import UIKit
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  private func makeWindowSecure() {
-    guard secureField == nil, let window = self.window else { return }
+  // MARK: - تفعيل الحماية على جميع الـ UIWindows
+
+  private func enableSecureOnAllWindows() {
+    isSecureEnabled = true
+
+    // أضف secureField لكل UIWindow موجود حالياً
+    for window in getAllWindows() {
+      addSecureField(to: window)
+    }
+
+    // ابدأ Polling كل ثانية كخط دفاع ثانٍ (يغطي Split View / Slide Over)
+    startPolling()
+  }
+
+  private func disableSecureOnAllWindows() {
+    isSecureEnabled = false
+    stopPolling()
+
+    // أزل جميع secureFields من جميع الـ windows
+    for (window, field) in secureFields {
+      _ = window  // suppress unused warning
+      field.removeFromSuperview()
+    }
+    secureFields.removeAll()
+  }
+
+  // MARK: - إضافة/إزالة secureField من UIWindow معيّن
+
+  private func addSecureField(to window: UIWindow) {
+    // تجنّب التكرار
+    guard secureFields[window] == nil else { return }
 
     let field = UITextField()
     field.isSecureTextEntry = true
@@ -61,18 +112,41 @@ import UIKit
     field.frame = CGRect.zero
     window.addSubview(field)
     field.translatesAutoresizingMaskIntoConstraints = false
-    field.centerYAnchor.constraint(equalTo: window.centerYAnchor).isActive = true
     field.centerXAnchor.constraint(equalTo: window.centerXAnchor).isActive = true
+    field.centerYAnchor.constraint(equalTo: window.centerYAnchor).isActive = true
 
-    self.secureField = field
+    secureFields[window] = field
   }
 
-  private func makeWindowUnsecure() {
-    guard let field = secureField else { return }
+  // MARK: - جلب جميع UIWindows (iOS 13+ يستخدم UIWindowScene)
 
-    field.removeFromSuperview()
-    self.secureField = nil
+  private func getAllWindows() -> [UIWindow] {
+    if #available(iOS 13.0, *) {
+      return UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .flatMap { $0.windows }
+    } else {
+      return UIApplication.shared.windows
+    }
   }
 
+  // MARK: - Polling كخط دفاع ثانٍ
+
+  private func startPolling() {
+    stopPolling()
+    pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+      self?.handleCaptureChange()
+    }
+  }
+
+  private func stopPolling() {
+    pollTimer?.invalidate()
+    pollTimer = nil
+  }
+
+  private func handleCaptureChange() {
+    guard #available(iOS 11.0, *) else { return }
+    let isCaptured = UIScreen.main.isCaptured
+    securityChannel?.invokeMethod("onScreenCaptureChanged", arguments: isCaptured)
+  }
 }
-

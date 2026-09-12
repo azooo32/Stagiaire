@@ -8,9 +8,16 @@ class SecurityService {
   static bool _isSecure = false;
   static bool get isSecure => _isSecure;
 
+  // يضمن أن init() تُنفَّذ مرة واحدة فقط طوال عمر التطبيق
+  static bool _initialized = false;
+
   static ValueNotifier<bool> isScreenRecording = ValueNotifier<bool>(false);
 
+  /// يجب استدعاؤها مرة واحدة فقط من main.dart
   static void init() {
+    if (_initialized) return;
+    _initialized = true;
+
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onScreenCaptureChanged') {
         final bool captured = call.arguments == true;
@@ -21,10 +28,11 @@ class SecurityService {
 
   static Future<void> enableSecure() async {
     try {
-      init();
+      // لا نستدعي init() هنا — تم استدعاؤها مسبقاً من main.dart
       await _channel.invokeMethod('enableSecure');
       _isSecure = true;
 
+      // اقرأ الحالة الحالية فوراً
       final bool? captured = await _channel.invokeMethod<bool>('isCaptured');
       if (captured != null) {
         isScreenRecording.value = captured;
