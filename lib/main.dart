@@ -66,6 +66,59 @@ class StagiaireApp extends StatelessWidget {
             ],
             home: const SplashScreen(),
             debugShowCheckedModeBanner: false,
+            // ─── حماية عالمية فوق كل المسارات بما فيها Chewie Fullscreen ───
+            builder: (context, child) {
+              return ValueListenableBuilder<bool>(
+                valueListenable: SecurityService.isScreenRecording,
+                builder: (context, isRecording, _) {
+                  return Stack(
+                    children: [
+                      child!,
+                      // يظهر فوق كل شيء عند اكتشاف Screen Recording
+                      if (isRecording)
+                        const Positioned.fill(
+                          child: Material(
+                            color: Colors.black,
+                            child: SafeArea(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.shield_rounded,
+                                      color: Colors.redAccent, size: 56),
+                                  SizedBox(height: 16),
+                                  Text(
+                                    'شاشة محمية بالكامل',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                  SizedBox(height: 8),
+                                  Padding(
+                                    padding:
+                                        EdgeInsets.symmetric(horizontal: 40),
+                                    child: Text(
+                                      'يُمنع تسجيل الشاشة للحفاظ على حقوق المحتوى.',
+                                      style: TextStyle(
+                                        color: Colors.white60,
+                                        fontSize: 13,
+                                        fontFamily: 'Cairo',
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              );
+            },
           );
         },
       ),

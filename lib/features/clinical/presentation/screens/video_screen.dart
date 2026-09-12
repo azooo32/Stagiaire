@@ -52,6 +52,7 @@ class _VideoScreenState extends State<VideoScreen>
   void initState() {
     super.initState();
     SecurityService.enableSecure();
+    SecurityService.isScreenRecording.addListener(_onScreenRecordingChanged);
     _spinnerController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
@@ -516,8 +517,20 @@ class _VideoScreenState extends State<VideoScreen>
     );
   }
 
+  void _onScreenRecordingChanged() {
+    if (SecurityService.isScreenRecording.value) {
+      _videoPlayerController?.pause();
+      if (_chewieController?.isFullScreen == true) {
+        try {
+          _chewieController?.exitFullScreen();
+        } catch (_) {}
+      }
+    }
+  }
+
   @override
   void dispose() {
+    SecurityService.isScreenRecording.removeListener(_onScreenRecordingChanged);
     _videoSpeedHideTimer?.cancel();
     _spinnerController.dispose();
 

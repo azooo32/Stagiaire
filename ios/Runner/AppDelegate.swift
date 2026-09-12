@@ -134,9 +134,11 @@ import UIKit
 
   private func startPolling() {
     stopPolling()
-    pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+    let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
       self?.handleCaptureChange()
     }
+    RunLoop.main.add(timer, forMode: .common)
+    pollTimer = timer
   }
 
   private func stopPolling() {
@@ -147,6 +149,8 @@ import UIKit
   private func handleCaptureChange() {
     guard #available(iOS 11.0, *) else { return }
     let isCaptured = UIScreen.main.isCaptured
-    securityChannel?.invokeMethod("onScreenCaptureChanged", arguments: isCaptured)
+    DispatchQueue.main.async { [weak self] in
+      self?.securityChannel?.invokeMethod("onScreenCaptureChanged", arguments: isCaptured)
+    }
   }
 }
