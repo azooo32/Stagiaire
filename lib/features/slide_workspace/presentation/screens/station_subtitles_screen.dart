@@ -78,7 +78,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     } catch (_) {}
   }
 
-  Future<bool> _isPdfValid(String localPath) async {
+  Future<bool> _isPdfValid(String localPath, {bool quickCheckOnly = false}) async {
     try {
       final file = File(localPath);
       if (!await file.exists()) return false;
@@ -91,6 +91,9 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       if (headerBytes.length < 4) return false;
       final headerStr = String.fromCharCodes(headerBytes);
       if (!headerStr.startsWith('%PDF')) return false;
+
+      // Quick check verifies header and minimum size in <1ms without blocking UI
+      if (quickCheckOnly) return true;
 
       final pdfDoc = await PdfDocument.openFile(localPath);
       final count = pdfDoc.pagesCount;
@@ -203,7 +206,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
 
         final file = File(localPath);
         if (await file.exists()) {
-          final isValid = await _isPdfValid(localPath);
+          final isValid = await _isPdfValid(localPath, quickCheckOnly: true);
           if (isValid) {
             _localPdfPaths[slide.id] = localPath;
           } else {
@@ -263,8 +266,8 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   Future<void> _openPdfWorkspace(WorkspaceSlide pdfSlide, String path) async {
     if (!mounted) return;
 
-    // Verify file validity before opening
-    final isValid = await _isPdfValid(path);
+    // Fast header & size check (<1ms) to eliminate touch latency
+    final isValid = await _isPdfValid(path, quickCheckOnly: true);
     if (!isValid) {
       await _cleanupCorruptedPdf(pdfSlide.id, path);
       if (mounted) {

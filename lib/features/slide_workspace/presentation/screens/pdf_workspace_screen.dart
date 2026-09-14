@@ -172,6 +172,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   /// Last zoom scale at which we triggered a hi-res render pass.
   double _lastKnownScale = 1.0;
   Timer? _hiResDebounce;
+  Timer? _pageLoadedBatchTimer;
 
   // ── Text Extraction (syncfusion_flutter_pdf) ──────────────────────────────
   /// Key: pageNumber (1-indexed). Value: list of TextLine with bounds.
@@ -209,6 +210,25 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _strokeHighlightController.addListener(() {
       if (mounted) setState(() {});
     });
+
+    // Synchronously initialize repository and controller so toolbar is ready on frame 0
+    final mainRepository = SupabaseSlideWorkspaceRepository();
+    _pdfRepository = _PdfSlideRepository(
+      pdfId: widget.pdfSlide.id,
+      stationId: widget.stationDbId ?? '',
+      mainRepository: mainRepository,
+      onLocalStrokesUpdated: (pageNum, strokes) {
+        _updatePageStrokesCache(pageNum, strokes);
+      },
+    );
+
+    controller = SlideWorkspaceController(
+      repository: _pdfRepository,
+      stationId: widget.pdfSlide.id,
+    );
+    controller.slides = [widget.pdfSlide];
+    controller.selectedTool = WorkspaceTool.pan; // Default tool is PAN (Hand Mode)
+    controller.isLoading = false;
 
     _initAudioListeners();
     _initWorkspace();
@@ -573,22 +593,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         );
       }
 
-      // Setup proxy repository for PDF saving
-      final mainRepository = SupabaseSlideWorkspaceRepository();
-      _pdfRepository = _PdfSlideRepository(
-        pdfId: widget.pdfSlide.id,
-        stationId: widget.stationDbId ?? '',
-        mainRepository: mainRepository,
-        onLocalStrokesUpdated: (pageNum, strokes) {
-          _updatePageStrokesCache(pageNum, strokes);
-        },
-      );
-
-      // Initialize Controller with dummy slides and default to PAN/HAND tool
-      controller = SlideWorkspaceController(
-        repository: _pdfRepository,
-        stationId: widget.pdfSlide.id,
-      );
+      // Update Controller with dummy slides and default to PAN/HAND tool
       controller.slides = dummySlides;
       controller.selectedTool = WorkspaceTool.pan; // Default tool is PAN (Hand Mode)
       controller.isLoading = false;
@@ -629,7 +634,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       // Run background parsing for remaining page sizes, remote annotations & sound AFTER frame renders smoothly
       Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) {
-          _runBackgroundWorkspaceInit(pageCount, mainRepository);
+          _runBackgroundWorkspaceInit(pageCount, _pdfRepository.mainRepository);
         }
       });
 
@@ -812,10 +817,24 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         unawaited(ImageCacheService().preloadUrls(imageUrls));
       }
 
-      if (mounted) {
+      bool slidesChanged = false;
+      if (controller.slides.length != updatedSlides.length) {
+        slidesChanged = true;
+      } else {
+        for (var i = 0; i < updatedSlides.length; i++) {
+          if (controller.slides[i].strokes.length != updatedSlides[i].strokes.length) {
+            slidesChanged = true;
+            break;
+          }
+        }
+      }
+
+      if (slidesChanged && mounted) {
         setState(() {
           controller.slides = updatedSlides;
         });
+      } else {
+        controller.slides = updatedSlides;
       }
 
       // Pre-render remaining pages in background
@@ -917,7 +936,14 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final updatedRecordings = <PdfLectureRecording>[];
       final audioClient = HttpClient();
       for (final rec in remoteRecordings) {
-        final localAudioFile = File('$_cacheDirPath/lecture_${rec.id}.m4a');
+        String ext = 'm4a';
+        try {
+          final uPath = Uri.parse(rec.audioUrl).path;
+          if (uPath.contains('.')) {
+            ext = uPath.split('.').last.toLowerCase();
+          }
+        } catch (_) {}
+        final localAudioFile = File('$_cacheDirPath/lecture_${rec.id}.$ext');
         if (!await localAudioFile.exists() && rec.audioUrl.isNotEmpty) {
           try {
             final req = await audioClient.getUrl(Uri.parse(rec.audioUrl));
@@ -1068,11 +1094,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final page = await _pdfDocument!.getPage(pageNum);
       _pageSizes[pageNum] = Size(page.width, page.height);
       final img = await page.render(
-        width: page.width * 3.0,   // Raised from 2.2x for sharper base cache
-        height: page.height * 3.0,
+        width: page.width * 2.2,   // Fast 2.2x base DPI (hi-res system handles zoom)
+        height: page.height * 2.2,
         format: PdfPageImageFormat.jpeg,
         backgroundColor: '#FFFFFF',
-        quality: 94,
+        quality: 90,
       );
       await page.close();
 
@@ -1107,16 +1133,25 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           continue;
         }
         await _renderAndCacheSinglePage(i);
-        // Only trigger UI update if the rendered page is within the active visible window
+        // Coalesce UI updates so multiple page renders don't thrash the main thread
         if (mounted) {
           final isWithinActive = (i >= _currentPageIndex - 1 && i <= _currentPageIndex + 9);
           if (isWithinActive) {
-            setState(() {});
+            _schedulePageLoadedRebuild();
           }
         }
         await Future.delayed(const Duration(milliseconds: 60));
       }
     }
+  }
+
+  void _schedulePageLoadedRebuild() {
+    if (_pageLoadedBatchTimer?.isActive == true) return;
+    _pageLoadedBatchTimer = Timer(const Duration(milliseconds: 80), () {
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   void _ensurePageLoaded(int pageNum) {
@@ -1125,7 +1160,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         if (bytes != null && mounted) {
           final isWithinActive = (pageNum >= _currentPageIndex - 1 && pageNum <= _currentPageIndex + 9);
           if (isWithinActive) {
-            setState(() {});
+            _schedulePageLoadedRebuild();
           }
         }
       });
@@ -1238,6 +1273,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (kIsWeb) return;
     try {
       if (Platform.isAndroid || Platform.isIOS) {
+        // Delay protection until screen transition animation finishes (400ms)
+        // to prevent Android hardware buffer destruction (FLAG_SECURE flicker)
+        await Future.delayed(const Duration(milliseconds: 400));
+        if (!mounted) return;
         await ScreenProtector.preventScreenshotOn();
       }
     } catch (e) {
@@ -1264,6 +1303,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _transformationController.dispose();
     _flingAnimationController.dispose();
     _hiResDebounce?.cancel();         // Cancel any pending hi-res render
+    _pageLoadedBatchTimer?.cancel();  // Cancel batched page loaded timer
     _viewportThrottleTimer?.cancel(); // Cancel viewport throttle timer
     _autoRecenterTimer?.cancel();     // Cancel auto-recenter timer
     _recenterAnimController?.dispose();
@@ -1279,9 +1319,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _audioPlayer.dispose();
     _pdfDocument?.close();
     _scrollController.dispose();
-    if (!_isLoadingPdf) {
-      controller.dispose();
-    }
+    controller.dispose();
     super.dispose();
   }
 
@@ -2021,10 +2059,26 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Future<void> _playLectureRecording(PdfLectureRecording rec, {int initialPositionMs = 0}) async {
     try {
+      String ext = 'm4a';
+      try {
+        final uPath = Uri.parse(rec.audioUrl).path;
+        if (uPath.contains('.')) {
+          ext = uPath.split('.').last.toLowerCase();
+        }
+      } catch (_) {}
+
+      final directFile = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.$ext') : null;
+      final fallbackM4a = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.m4a') : null;
+      final fallbackMp3 = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.mp3') : null;
+
       final audioSourcePath = rec.localAudioPath ??
-          (_cacheDirPath != null && File('$_cacheDirPath/lecture_${rec.id}.m4a').existsSync()
-              ? '$_cacheDirPath/lecture_${rec.id}.m4a'
-              : rec.audioUrl);
+          (directFile?.existsSync() == true
+              ? directFile!.path
+              : (fallbackM4a?.existsSync() == true
+                  ? fallbackM4a!.path
+                  : (fallbackMp3?.existsSync() == true
+                      ? fallbackMp3!.path
+                      : rec.audioUrl)));
 
       if (audioSourcePath.isEmpty) return;
 
@@ -3821,14 +3875,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     final provider = Provider.of<AppProvider>(context);
     final isDark = provider.isDarkTheme;
 
-    if (_isLoadingPdf) {
-      return Scaffold(
-        backgroundColor: isDark ? const Color(0xFF171428) : const Color(0xFFF9F8FD),
-        body: const Center(
-          child: LogoSpinner(size: 78, logoSize: 42),
-        ),
-      );
-    }
+
 
     return PopScope(
       canPop: false,
@@ -3900,8 +3947,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                       },
                     ),
                     Expanded(
-                      child: Stack(
-                        children: [
+                      child: _isLoadingPdf
+                          ? const Center(
+                              child: LogoSpinner(size: 78, logoSize: 42),
+                            )
+                          : Stack(
+                              children: [
                           // Interactive Zoom & Vertical scrollable PDF pages (Same gesture engine as Slide Workspace)
                           LayoutBuilder(
                             builder: (context, constraints) {
