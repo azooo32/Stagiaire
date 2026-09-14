@@ -173,11 +173,36 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   double _lastKnownScale = 1.0;
   Timer? _hiResDebounce;
   Timer? _pageLoadedBatchTimer;
+  Timer? _idlePreRenderTimer;
+  bool _isPreRendering = false;
+  Timer? _idleTextExtractTimer;
+  final Set<int> _extractingTextPages = {};
+  Uint8List? _cachedPdfBytes;
+  Map<int, List<PdfSoundAnnotationMeta>> _soundsByPage = {};
+  Map<int, List<SlideStroke>> _lectureStrokesByPage = {};
+  final Set<String> _cachingLectureAudioIds = {};
+
+  void _rebuildSoundsByPage() {
+    final map = <int, List<PdfSoundAnnotationMeta>>{};
+    for (final s in _soundAnnotationMetas) {
+      map.putIfAbsent(s.pageNumber, () => []).add(s);
+    }
+    _soundsByPage = map;
+  }
+
+  void _rebuildLectureStrokesByPage() {
+    final map = <int, List<SlideStroke>>{};
+    for (final rec in _lectureRecordings) {
+      for (final entry in rec.strokesData.entries) {
+        map.putIfAbsent(entry.key, () => []).addAll(entry.value);
+      }
+    }
+    _lectureStrokesByPage = map;
+  }
 
   // ── Text Extraction (syncfusion_flutter_pdf) ──────────────────────────────
   /// Key: pageNumber (1-indexed). Value: list of TextLine with bounds.
   final Map<int, List<sfpdf.TextLine>> _pageTextLines = {};
-  bool _textExtractionDone = false;
 
   @override
   void initState() {
@@ -541,6 +566,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               .map((item) => PdfSoundAnnotationMeta.fromJson(item as Map<String, dynamic>))
               .where((m) => m.annotId.isNotEmpty)
               .toList();
+          _rebuildSoundsByPage();
         } catch (_) {}
       }
 
@@ -570,6 +596,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           _lectureRecordings = list
               .map((item) => PdfLectureRecording.fromJson(item as Map<String, dynamic>))
               .toList();
+          _rebuildLectureStrokesByPage();
         } catch (_) {}
       }
 
@@ -630,6 +657,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           _isLoadingPdf = false;
         });
       }
+
+      // Schedule background tasks smoothly without starving the main thread
+      _scheduleLazyTextExtraction(1);
+      _scheduleIdlePreRender(pageCount);
 
       // Run background parsing for remaining page sizes, remote annotations & sound AFTER frame renders smoothly
       Future.delayed(const Duration(milliseconds: 300), () {
@@ -731,9 +762,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           if (mounted) {
             setState(() {
               _soundAnnotationMetas = metas;
+              _rebuildSoundsByPage();
             });
           } else {
             _soundAnnotationMetas = metas;
+            _rebuildSoundsByPage();
           }
         }
       }
@@ -837,14 +870,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         controller.slides = updatedSlides;
       }
 
-      // Pre-render remaining pages in background
-      _preRenderRemainingPages(pageCount);
-
-      // 5. Extract text lines for all pages (used by PdfTextSelectionLayer)
-      unawaited(_extractTextLines());
-
-      // 6. Background sync for lecture recordings (fetch additions/deletions from Supabase)
+      // 5. Background sync for lecture recordings metadata (no heavy audio download at startup)
       await _syncLectureRecordingsInBackground(mainRepository);
+
+      // 6. Schedule idle pre-render & lazy text extraction (only executes when user stops scrolling)
+      _scheduleIdlePreRender(pageCount);
+      _scheduleLazyTextExtraction(_currentPageIndex + 1);
 
     } catch (e) {
       debugPrint('Error in background PDF workspace init: $e');
@@ -932,9 +963,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         } catch (_) {}
       }
 
-      // Download missing audio files for active recordings
+      // Reconcile recordings with local cache without downloading heavy audio files eagerly
       final updatedRecordings = <PdfLectureRecording>[];
-      final audioClient = HttpClient();
       for (final rec in remoteRecordings) {
         String ext = 'm4a';
         try {
@@ -944,25 +974,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           }
         } catch (_) {}
         final localAudioFile = File('$_cacheDirPath/lecture_${rec.id}.$ext');
-        if (!await localAudioFile.exists() && rec.audioUrl.isNotEmpty) {
-          try {
-            final req = await audioClient.getUrl(Uri.parse(rec.audioUrl));
-            final res = await req.close();
-            if (res.statusCode == 200) {
-              final sink = localAudioFile.openWrite();
-              await res.pipe(sink);
-            }
-          } catch (err) {
-            debugPrint('Error downloading lecture audio ${rec.id}: $err');
-          }
-        }
         updatedRecordings.add(
           localAudioFile.existsSync()
               ? rec.copyWith(localAudioPath: localAudioFile.path)
               : rec,
         );
       }
-      audioClient.close();
 
       try {
         final jsonList = updatedRecordings.map((r) => r.toJson()).toList();
@@ -986,6 +1003,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               }
             }
           });
+          _rebuildLectureStrokesByPage();
         }
       }
     } catch (e) {
@@ -1115,33 +1133,48 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     return null;
   }
 
-  Future<void> _preRenderRemainingPages(int pageCount) async {
-    // Prioritize pages near current viewport first, then outwards
-    final order = <int>[];
-    for (var d = 1; d <= pageCount; d++) {
-      final forward = (_currentPageIndex + 1) + d;
-      final backward = (_currentPageIndex + 1) - d;
-      if (forward <= pageCount) order.add(forward);
-      if (backward >= 1) order.add(backward);
-    }
-    for (final i in order) {
-      if (!mounted) return;
-      if (!_pageCache.containsKey(i)) {
-        final diskFile = File('$_cacheDirPath/page_$i.jpg');
-        if (await diskFile.exists()) {
-          // If exists on disk, no need to force render in background loop
-          continue;
-        }
-        await _renderAndCacheSinglePage(i);
-        // Coalesce UI updates so multiple page renders don't thrash the main thread
-        if (mounted) {
-          final isWithinActive = (i >= _currentPageIndex - 1 && i <= _currentPageIndex + 9);
-          if (isWithinActive) {
-            _schedulePageLoadedRebuild();
-          }
-        }
-        await Future.delayed(const Duration(milliseconds: 60));
+  void _scheduleIdlePreRender(int pageCount) {
+    _idlePreRenderTimer?.cancel();
+    _idlePreRenderTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted && !_studentIsManualScrolling && !_isPreRendering) {
+        _preRenderRemainingPages(pageCount);
       }
+    });
+  }
+
+  Future<void> _preRenderRemainingPages(int pageCount) async {
+    if (_isPreRendering) return;
+    _isPreRendering = true;
+    try {
+      // Prioritize pages near current viewport first, then outwards
+      final order = <int>[];
+      for (var d = 1; d <= pageCount; d++) {
+        final forward = (_currentPageIndex + 1) + d;
+        final backward = (_currentPageIndex + 1) - d;
+        if (forward <= pageCount) order.add(forward);
+        if (backward >= 1) order.add(backward);
+      }
+      for (final i in order) {
+        if (!mounted || _studentIsManualScrolling) break; // IMMEDIATELY YIELD TO SCROLL GESTURES!
+        if (!_pageCache.containsKey(i)) {
+          final diskFile = File('$_cacheDirPath/page_$i.jpg');
+          if (await diskFile.exists()) {
+            // If exists on disk, no need to force render in background loop
+            continue;
+          }
+          await _renderAndCacheSinglePage(i);
+          // Coalesce UI updates so multiple page renders don't thrash the main thread
+          if (mounted) {
+            final isWithinActive = (i >= _currentPageIndex - 1 && i <= _currentPageIndex + 9);
+            if (isWithinActive) {
+              _schedulePageLoadedRebuild();
+            }
+          }
+          await Future.delayed(const Duration(milliseconds: 120));
+        }
+      }
+    } finally {
+      _isPreRendering = false;
     }
   }
 
@@ -1229,43 +1262,43 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     });
   }
 
-  // ── Text Extraction ────────────────────────────────────────────────────────
+  // ── Lazy On-Demand Text Extraction ────────────────────────────────────────
 
-  /// Extracts text lines with bounding rectangles from every page using
-  /// [syncfusion_flutter_pdf]. Runs page-by-page with yield points so it
-  /// does not freeze the UI. Results are stored in [_pageTextLines].
-  Future<void> _extractTextLines() async {
-    if (_textExtractionDone) return;
+  void _scheduleLazyTextExtraction(int pageNum) {
+    if (_pageTextLines.containsKey(pageNum)) return;
+    _idleTextExtractTimer?.cancel();
+    _idleTextExtractTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted && !_studentIsManualScrolling && !_isDrawingTool) {
+        _extractTextForPage(pageNum);
+      }
+    });
+  }
+
+  /// Extracts text lines with bounding rectangles for a SINGLE page on-demand.
+  /// Executes only when the user is idle, taking ~25ms and never blocking the UI thread.
+  Future<void> _extractTextForPage(int pageNum) async {
+    if (_pageTextLines.containsKey(pageNum) || _extractingTextPages.contains(pageNum)) return;
+    _extractingTextPages.add(pageNum);
     try {
-      final pdfBytes = await File(widget.localPdfPath).readAsBytes();
-      final sfDoc = sfpdf.PdfDocument(inputBytes: pdfBytes);
-      final extractor = sfpdf.PdfTextExtractor(sfDoc);
-      final results = <int, List<sfpdf.TextLine>>{};
-      final pageCount = sfDoc.pages.count;
-
-      for (var i = 0; i < pageCount; i++) {
-        if (!mounted) break;
-        try {
-          final lines = extractor.extractTextLines(
-            startPageIndex: i,
-            endPageIndex: i,
-          );
-          if (lines.isNotEmpty) results[i + 1] = lines;
-        } catch (_) {
-          // Page may contain no extractable text (e.g. scanned image page)
+      _cachedPdfBytes ??= await File(widget.localPdfPath).readAsBytes();
+      final sfDoc = sfpdf.PdfDocument(inputBytes: _cachedPdfBytes!);
+      if (pageNum <= sfDoc.pages.count) {
+        final extractor = sfpdf.PdfTextExtractor(sfDoc);
+        final lines = extractor.extractTextLines(
+          startPageIndex: pageNum - 1,
+          endPageIndex: pageNum - 1,
+        );
+        if (lines.isNotEmpty && mounted) {
+          setState(() {
+            _pageTextLines[pageNum] = lines;
+          });
         }
-        await Future.delayed(const Duration(milliseconds: 10)); // Yield to UI thread
       }
       sfDoc.dispose();
-
-      if (mounted) {
-        setState(() {
-          _pageTextLines.addAll(results);
-          _textExtractionDone = true;
-        });
-      }
     } catch (e) {
-      debugPrint('PDF text extraction error: $e');
+      debugPrint('PDF text extraction error for p$pageNum: $e');
+    } finally {
+      _extractingTextPages.remove(pageNum);
     }
   }
 
@@ -1304,6 +1337,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _flingAnimationController.dispose();
     _hiResDebounce?.cancel();         // Cancel any pending hi-res render
     _pageLoadedBatchTimer?.cancel();  // Cancel batched page loaded timer
+    _idlePreRenderTimer?.cancel();    // Cancel idle pre-render timer
+    _idleTextExtractTimer?.cancel();  // Cancel idle text extraction timer
+    _cachedPdfBytes = null;
     _viewportThrottleTimer?.cancel(); // Cancel viewport throttle timer
     _autoRecenterTimer?.cancel();     // Cancel auto-recenter timer
     _recenterAnimController?.dispose();
@@ -1830,6 +1866,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   void _onStudentManualScrollStarted() {
     _studentIsManualScrolling = true;
+    _idlePreRenderTimer?.cancel();
+    _idleTextExtractTimer?.cancel();
     // Cancel any in-flight recenter animation
     _recenterAnimController?.stop();
     // Reset the 5-second timer
@@ -1838,6 +1876,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   void _onStudentManualScrollEnded() {
+    _studentIsManualScrolling = false;
+    _scheduleLazyTextExtraction(_currentPageIndex + 1);
+    if (_pdfDocument != null) {
+      _scheduleIdlePreRender(_pdfDocument!.pagesCount);
+    }
     // Re-arm the timer from the moment touch lifted
     _autoRecenterTimer?.cancel();
     _autoRecenterTimer = Timer(const Duration(seconds: 5), _onAutoRecenterTimerFired);
@@ -2071,16 +2114,20 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final fallbackM4a = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.m4a') : null;
       final fallbackMp3 = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.mp3') : null;
 
-      final audioSourcePath = rec.localAudioPath ??
-          (directFile?.existsSync() == true
-              ? directFile!.path
-              : (fallbackM4a?.existsSync() == true
-                  ? fallbackM4a!.path
-                  : (fallbackMp3?.existsSync() == true
-                      ? fallbackMp3!.path
-                      : rec.audioUrl)));
+      final cachedPath = directFile?.existsSync() == true
+          ? directFile!.path
+          : (fallbackM4a?.existsSync() == true
+              ? fallbackM4a!.path
+              : (fallbackMp3?.existsSync() == true ? fallbackMp3!.path : null));
+
+      final audioSourcePath = rec.localAudioPath ?? cachedPath ?? rec.audioUrl;
 
       if (audioSourcePath.isEmpty) return;
+
+      // If audio is playing from network URL and not yet cached, quietly cache it in the background
+      if (cachedPath == null && directFile != null && rec.audioUrl.isNotEmpty) {
+        unawaited(_cacheSingleLectureAudioInBackground(rec, directFile));
+      }
 
       _activeAudioPath = null;
       _activeLectureRecording = rec;
@@ -2103,6 +2150,44 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       }
     } catch (e) {
       debugPrint('Error playing lecture recording: $e');
+    }
+  }
+
+  Future<void> _cacheSingleLectureAudioInBackground(
+      PdfLectureRecording rec, File targetFile) async {
+    if (_cachingLectureAudioIds.contains(rec.id) ||
+        targetFile.existsSync() ||
+        rec.audioUrl.isEmpty) {
+      return;
+    }
+    _cachingLectureAudioIds.add(rec.id);
+    try {
+      final client = HttpClient();
+      final req = await client.getUrl(Uri.parse(rec.audioUrl));
+      final res = await req.close();
+      if (res.statusCode == 200) {
+        final sink = targetFile.openWrite();
+        await res.pipe(sink);
+        if (mounted) {
+          final idx = _lectureRecordings.indexWhere((r) => r.id == rec.id);
+          if (idx != -1) {
+            final updated =
+                _lectureRecordings[idx].copyWith(localAudioPath: targetFile.path);
+            setState(() {
+              _lectureRecordings[idx] = updated;
+              if (_activeLectureRecording?.id == rec.id) {
+                _activeLectureRecording = updated;
+              }
+            });
+            _rebuildLectureStrokesByPage();
+          }
+        }
+      }
+      client.close();
+    } catch (e) {
+      debugPrint('Error caching single lecture audio: $e');
+    } finally {
+      _cachingLectureAudioIds.remove(rec.id);
     }
   }
 
@@ -3976,10 +4061,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                     instance
                                       ..onStart = () {
                                         _flingAnimationController.stop();
-                                        // Notify auto-recenter system that student started manual scroll
-                                        if (_activeLectureRecording != null) {
-                                          _onStudentManualScrollStarted();
-                                        }
+                                        _onStudentManualScrollStarted();
                                       }
                                       ..onUpdate = (delta) {
                                         final currentMatrix =
@@ -4017,9 +4099,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                             newMatrix;
                                       }
                                       ..onEnd = (velocity) {
-                                        if (_activeLectureRecording != null) {
-                                          _onStudentManualScrollEnded();
-                                        }
+                                        _onStudentManualScrollEnded();
                                         final double velocityY =
                                             velocity.pixelsPerSecond.dy;
                                         if (velocityY.abs() > 100) {
@@ -4046,9 +4126,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                 child: Listener(
                                   onPointerDown: (event) {
                                     if (event.kind == PointerDeviceKind.touch) {
-                                      if (_activeLectureRecording != null) {
-                                        _onStudentManualScrollStarted();
-                                      }
+                                      _onStudentManualScrollStarted();
                                     }
                                     if (_isStylus(event.kind)) {
                                       setState(() {
@@ -4085,10 +4163,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                               event.scrollDelta.dx;
                                           if (scrollDeltaY != 0 ||
                                               scrollDeltaX != 0) {
-                                            if (_activeLectureRecording != null) {
-                                              _onStudentManualScrollStarted();
-                                              _onStudentManualScrollEnded();
-                                            }
+                                            _onStudentManualScrollStarted();
+                                            _onStudentManualScrollEnded();
                                             final currentMatrix =
                                                 _transformationController.value;
                                             final translation =
@@ -4140,14 +4216,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                     alignment: Alignment.topLeft,
                                     constrained: false,
                                     onInteractionStart: (details) {
-                                      if (_activeLectureRecording != null) {
-                                        _onStudentManualScrollStarted();
-                                      }
+                                      _onStudentManualScrollStarted();
                                     },
                                     onInteractionEnd: (details) {
-                                      if (_activeLectureRecording != null) {
-                                        _onStudentManualScrollEnded();
-                                      }
+                                      _onStudentManualScrollEnded();
                                     },
                                     child: Padding(
                                       key: _contentKey,
@@ -4165,11 +4237,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                                 index++) ...[
                                               Builder(builder: (context) {
                                                 final pageNum = index + 1;
-                                                final pageSounds =
-                                                    _soundAnnotationMetas
-                                                        .where((s) =>
-                                                            s.pageNumber == pageNum)
-                                                        .toList();
                                                 return Padding(
                                                   key: _pageKeys[pageNum],
                                                   padding:
@@ -4178,7 +4245,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                                   child: _buildPdfPageCanvas(
                                                       index,
                                                       isDark,
-                                                      pageSounds,
                                                       isSmallPhone),
                                                 );
                                               }),
@@ -4336,7 +4402,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     );
   }
 
-  Widget _buildPdfPageCanvas(int index, bool isDark, List<PdfSoundAnnotationMeta> pageSounds, bool isSmallPhone) {
+  Widget _buildPdfPageCanvas(int index, bool isDark, bool isSmallPhone) {
     final pageNum = index + 1;
     final pageSize = _pageSizes[pageNum] ?? _pageSizes[1] ?? const Size(595, 842);
     final double pdfW = pageSize.width;
@@ -4384,20 +4450,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       );
     }
 
-    // Collect lecturer strokes for this page (for Notability dimming effect & tap-seeking)
-    final List<SlideStroke> pageLecturerStrokes;
-    if (_activeLectureRecording != null) {
-      pageLecturerStrokes = _activeLectureRecording!.strokesData[pageNum] ?? const [];
-    } else {
-      final strokes = <SlideStroke>[];
-      for (final rec in _lectureRecordings) {
-        final s = rec.strokesData[pageNum];
-        if (s != null) strokes.addAll(s);
-      }
-      pageLecturerStrokes = strokes;
-    }
+    // O(1) instant lookup for lecturer strokes on this page
+    final List<SlideStroke> pageLecturerStrokes = _activeLectureRecording != null
+        ? (_activeLectureRecording!.strokesData[pageNum] ?? const [])
+        : (_lectureStrokesByPage[pageNum] ?? const []);
 
     final provider = Provider.of<AppProvider>(context, listen: false);
+
+    // O(1) instant lookup for sound annotations on this page
+    final pageSounds = _soundsByPage[pageNum] ?? const [];
 
     return AspectRatio(
       aspectRatio: aspect,
