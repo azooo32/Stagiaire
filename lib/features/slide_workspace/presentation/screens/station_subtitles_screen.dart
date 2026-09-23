@@ -48,7 +48,14 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
   @override
   void initState() {
     super.initState();
-    _loadContent();
+    // IMPORTANT: Must use addPostFrameCallback to defer _loadContent() until
+    // after the first frame is rendered. Without this, the synchronous cache path
+    // (_getCachedSlidesSync) can trigger _openSlideWorkspace(replace: true) which
+    // calls Navigator.pushReplacement(context) while the widget is still mounting —
+    // causing a crash on stations with a single subtitle (e.g. Obs and Gynae).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadContent();
+    });
   }
 
   @override

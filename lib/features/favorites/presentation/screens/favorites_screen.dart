@@ -303,9 +303,17 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   if (_mode == 'theory') _buildTheoryTools(provider, isDark),
                   if (_mode == 'theory') const SizedBox(height: 10),
                   Expanded(
+                    child: RefreshIndicator(
+                      color: const Color(0xFF6B4EFF),
+                      backgroundColor:
+                          isDark ? AppColors.surface : Colors.white,
+                      displacement: 20,
+                      onRefresh: _loadFavorites,
                       child: _mode == 'theory'
                           ? _buildTheoryBody(provider, isDark)
-                          : _buildClinicalBody(provider, isDark)),
+                          : _buildClinicalBody(provider, isDark),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -568,7 +576,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       return _emptyState(isDark, 'لا توجد أسئلة مفضلة لهذه المادة');
 
     return ListView.builder(
-      physics: const BouncingScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics()),
       padding: const EdgeInsets.only(left: 20, right: 20, bottom: 92),
       itemCount: topicsGroup.keys.length,
       itemBuilder: (_, index) {
@@ -760,7 +769,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     final stationItems = items.where((item) => item.type == 'station').toList();
 
     return ListView(
-      physics: const BouncingScrollPhysics(),
+      physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics()),
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 92),
       children: [
         if (voiceCount > 0)
@@ -886,19 +896,26 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   }
 
   Widget _emptyState(bool isDark, String title) {
-    return Center(
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(Icons.bookmark_border_rounded,
-            size: 76,
-            color: isDark ? AppColors.textMuted : const Color(0xFFCBD5E1)),
-        const SizedBox(height: 12),
-        Text(title,
-            style: TextStyle(
-                fontFamily: 'Cairo',
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: isDark ? AppColors.text : const Color(0xFF111827))),
-      ]),
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics()),
+      children: [
+        const SizedBox(height: 120),
+        Center(
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.bookmark_border_rounded,
+                size: 76,
+                color: isDark ? AppColors.textMuted : const Color(0xFFCBD5E1)),
+            const SizedBox(height: 12),
+            Text(title,
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? AppColors.text : const Color(0xFF111827))),
+          ]),
+        ),
+      ],
     );
   }
 

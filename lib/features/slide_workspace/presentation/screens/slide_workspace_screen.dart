@@ -551,6 +551,9 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
     }
   }
 
+
+
+
   @override
   Widget build(BuildContext context) {
     return WorkspaceOutsideStateProvider(
@@ -612,6 +615,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
 
               final provider = Provider.of<AppProvider>(context);
               final canManageSlides = provider.isAdminOrOwner;
+              final isOwner = provider.isOwner;
               final isDark = provider.isDarkTheme;
               final width = MediaQuery.of(context).size.width;
               final compact = width < 760;
@@ -667,6 +671,7 @@ class _SlideWorkspaceScreenState extends State<SlideWorkspaceScreen>
                             ? null
                             : _refreshCache,
                         isRefreshing: controller.isRefreshing,
+                        isOwner: isOwner,
                       ),
                       if (!controller.hasSlides)
                         Expanded(

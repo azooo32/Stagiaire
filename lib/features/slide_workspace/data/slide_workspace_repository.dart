@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../../../core/services/cache_service.dart';
 import '../../../core/services/supabase_service.dart';
 import '../domain/entities/slide_workspace_models.dart';
+import '../domain/utils/stroke_compressor.dart';
 
 abstract class SlideWorkspaceRepository {
   Future<List<WorkspaceSlide>> getSlides(String? stationId);
@@ -204,10 +205,20 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     final drawingBySlide = <String, List<WorkspaceObject>>{};
     final examDrawingBySlide = <String, List<WorkspaceObject>>{};
     for (final row in List<Map<String, dynamic>>.from(workspaceRows)) {
-      drawingBySlide[row['slide_id'].toString()] =
-          _objectsFromJson(row['notes_layer']);
-      examDrawingBySlide[row['slide_id'].toString()] =
-          _objectsFromJson(row['exam_layer']);
+      final slideId = row['slide_id'].toString();
+      final rawNotes = row['notes_layer'];
+      final rawExam = row['exam_layer'];
+
+      drawingBySlide[slideId] = _objectsFromJson(rawNotes);
+      examDrawingBySlide[slideId] = _objectsFromJson(rawExam);
+
+      // Lazy Migration: إذا وجدنا strokes قديمة (v1) نضغطها في الخلفية
+      if (StrokeCompressor.layerNeedsMigration(rawNotes)) {
+        _migrateLayerInBackground(slideId, drawingBySlide[slideId]!, isExamMode: false);
+      }
+      if (StrokeCompressor.layerNeedsMigration(rawExam)) {
+        _migrateLayerInBackground(slideId, examDrawingBySlide[slideId]!, isExamMode: true);
+      }
     }
 
     final pending = _pendingObjects(stationId, isExamMode: false);
@@ -1354,7 +1365,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         'slide_id': slideId,
         'station_id': stationId,
         fieldName: {
-          'objects': strokes.map((stroke) => stroke.toJson()).toList(),
+          // v2: strokes مضغوطة، الصور تُحفظ بالتنسيق القديم كما هي
+          'objects': _serializeObjectsV2(strokes),
         },
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'user_id,slide_id');
@@ -1382,7 +1394,7 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
             'slide_id': entry.key,
             'station_id': stationId,
             fieldName: {
-              'objects': entry.value.map((obj) => obj.toJson()).toList(),
+              'objects': _serializeObjectsV2(entry.value),
             },
             'updated_at': DateTime.now().toIso8601String(),
           }, onConflict: 'user_id,slide_id');
@@ -1654,6 +1666,41 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
         .whereType<WorkspaceQuestion>()
         .where((question) => question.prompt.trim().isNotEmpty)
         .toList();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Serialize v2: strokes → تنسيق مضغوط، images → تنسيق قديم كما هو
+  // ─────────────────────────────────────────────────────────────
+  List<Map<String, dynamic>> _serializeObjectsV2(
+      List<WorkspaceObject> objects) {
+    return objects.map((obj) {
+      if (obj is SlideStroke) {
+        return StrokeCompressor.serializeStrokeV2(
+          StrokeCompressor.compressStroke(obj),
+        );
+      }
+      // الصور (ImageObject) وغيرها تُحفظ بالتنسيق القديم بدون تغيير
+      return obj.toJson();
+    }).toList();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Lazy Migration: اضغط layer قديم في الخلفية دون إيقاف التطبيق
+  // ─────────────────────────────────────────────────────────────
+  void _migrateLayerInBackground(
+    String slideId,
+    List<WorkspaceObject> strokes, {
+    required bool isExamMode,
+  }) {
+    // نشغلها بدون await — الطالب يرى الرسم فوراً والحفظ يحدث في الخلفية
+    Future.microtask(() async {
+      try {
+        await saveSlideStrokes(slideId, strokes, isExamMode: isExamMode);
+        // ✅ السلايد محفوظ الآن بالتنسيق v2 في السيرفر
+      } catch (_) {
+        // فشل الـ migration لا يؤثر على عمل التطبيق
+      }
+    });
   }
 
   List<WorkspaceObject> _objectsFromJson(dynamic raw) {

@@ -24,9 +24,15 @@ class ProgressScreen extends StatelessWidget {
       textDirection: TextDirection.ltr,
       child: Scaffold(
         backgroundColor: palette.bg,
-        body: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
+        body: RefreshIndicator(
+          color: const Color(0xFF6B4EFF),
+          backgroundColor: palette.card,
+          displacement: 40,
+          onRefresh: () => provider.initializeData(),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics()),
+            slivers: [
             SliverAppBar(
               pinned: true,
               expandedHeight: 132,
@@ -160,7 +166,8 @@ class ProgressScreen extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }
 

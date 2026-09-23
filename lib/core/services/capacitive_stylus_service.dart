@@ -171,10 +171,13 @@ class CapacitiveStylusService extends ChangeNotifier {
   static const String _keyEnabled = 'capacitive_stylus_enabled';
   static const String _keyCalibrated = 'capacitive_stylus_calibrated';
   static const String _keyProfile = 'capacitive_stylus_profile';
+  static const String _keyTouchDrawingMode =
+      'capacitive_stylus_touch_drawing_mode';
 
   bool _enabled = false;
   bool _calibrated = false;
   StylusProfile? _profile;
+  bool _touchDrawingMode = false;
   bool _loaded = false;
 
   // ── Public getters ──────────────────────────────────────────────────────────
@@ -182,6 +185,14 @@ class CapacitiveStylusService extends ChangeNotifier {
   bool get isCalibrated => _calibrated;
   StylusProfile? get profile => _profile;
   bool get isReady => _enabled && _calibrated && _profile != null;
+  bool get isTouchDrawingMode => _touchDrawingMode;
+
+  Future<void> setTouchDrawingMode(bool value) async {
+    _touchDrawingMode = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyTouchDrawingMode, value);
+    notifyListeners();
+  }
 
   // ── Initialisation ──────────────────────────────────────────────────────────
 
@@ -192,6 +203,7 @@ class CapacitiveStylusService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _enabled = prefs.getBool(_keyEnabled) ?? false;
     _calibrated = prefs.getBool(_keyCalibrated) ?? false;
+    _touchDrawingMode = prefs.getBool(_keyTouchDrawingMode) ?? false;
     final profileJson = prefs.getString(_keyProfile);
     if (profileJson != null) {
       try {

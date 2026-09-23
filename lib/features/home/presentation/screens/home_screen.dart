@@ -58,9 +58,15 @@ class HomeScreen extends StatelessWidget {
       textDirection: TextDirection.ltr,
       child: Scaffold(
         backgroundColor: _HomePalette.bg(isDark),
-        body: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
+        body: RefreshIndicator(
+          color: const Color(0xFF6B4EFF),
+          backgroundColor: isDark ? _HomePalette.darkSurface : Colors.white,
+          displacement: 40,
+          onRefresh: () => provider.initializeData(),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics()),
+            slivers: [
             // ─── Pinned SliverAppBar with Overview Header ───
             SliverAppBar(
               pinned: true,
@@ -228,7 +234,8 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildHeaderOverview({

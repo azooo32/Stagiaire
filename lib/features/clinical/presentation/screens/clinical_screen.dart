@@ -193,30 +193,53 @@ class ClinicalScreen extends StatelessWidget {
 
                   // Grid content
                   Expanded(
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1040),
-                        child: GridView.builder(
-                          padding: const EdgeInsets.only(
-                            left: 20.0,
-                            right: 20.0,
-                            top: 24.0,
-                            bottom: 100.0, // Clear the floating navigation bar
-                          ),
-                          physics: const BouncingScrollPhysics(),
-                          gridDelegate:
-                              const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 240,
-                            crossAxisSpacing: 16,
-                            mainAxisSpacing: 16,
-                            childAspectRatio: 0.92,
-                          ),
-                          itemCount: categories.length,
-                          itemBuilder: (context, index) {
-                            final category = categories[index];
-                            return _buildCategoryCard(
-                                context, category, provider);
-                          },
+                    child: RefreshIndicator(
+                      color: const Color(0xFF6B4EFF),
+                      backgroundColor:
+                          provider.isDarkTheme ? AppColors.surface : Colors.white,
+                      displacement: 20,
+                      onRefresh: () => provider.refreshClinicalSubjects(),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1040),
+                          child: categories.isEmpty
+                              ? ListView(
+                                  physics: const AlwaysScrollableScrollPhysics(
+                                      parent: BouncingScrollPhysics()),
+                                  children: const [
+                                    SizedBox(height: 120),
+                                    Center(
+                                      child: Text(
+                                        'لا توجد مواد سريرية متاحة حالياً',
+                                        style: TextStyle(
+                                            fontFamily: 'Cairo', fontSize: 16),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : GridView.builder(
+                                  padding: const EdgeInsets.only(
+                                    left: 20.0,
+                                    right: 20.0,
+                                    top: 24.0,
+                                    bottom: 100.0, // Clear the floating navigation bar
+                                  ),
+                                  physics: const AlwaysScrollableScrollPhysics(
+                                      parent: BouncingScrollPhysics()),
+                                  gridDelegate:
+                                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                                    maxCrossAxisExtent: 240,
+                                    crossAxisSpacing: 16,
+                                    mainAxisSpacing: 16,
+                                    childAspectRatio: 0.92,
+                                  ),
+                                  itemCount: categories.length,
+                                  itemBuilder: (context, index) {
+                                    final category = categories[index];
+                                    return _buildCategoryCard(
+                                        context, category, provider);
+                                  },
+                                ),
                         ),
                       ),
                     ),

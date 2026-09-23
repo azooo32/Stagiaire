@@ -30,6 +30,8 @@ void main() async {
     await PdfStorageService.migrateOldPdfFiles();
     // Load capacitive stylus profile (if any) from local storage
     await CapacitiveStylusService().load();
+    // فحص سلامة الجهاز واكتشاف الروت
+    await SecurityService.checkIntegrity();
   } catch (e) {
     print('Failed to initialize Stagiaire core services: $e');
   }

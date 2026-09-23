@@ -207,6 +207,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   @override
   void initState() {
     super.initState();
+    CapacitiveStylusService().addListener(_onStylusServiceChanged);
     _preventScreenshot();
     WidgetsBinding.instance.addObserver(this);
     _flingAnimationController = AnimationController.unbounded(vsync: this);
@@ -268,7 +269,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       controller.selectedTool == WorkspaceTool.laserTrail;
 
   bool get _phoneDrawingMode =>
-      MediaQuery.sizeOf(context).width < 600 && _isDrawingTool;
+      (MediaQuery.sizeOf(context).width < 600 ||
+          CapacitiveStylusService().isTouchDrawingMode) &&
+      _isDrawingTool;
 
   bool _isStylus(PointerDeviceKind kind) {
     return kind == PointerDeviceKind.stylus ||
@@ -1330,6 +1333,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   @override
   void dispose() {
+    CapacitiveStylusService().removeListener(_onStylusServiceChanged);
     _allowScreenshot();
     WidgetsBinding.instance.removeObserver(this);
     _transformationController.removeListener(_onTransformationChanged);
@@ -1357,6 +1361,10 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _scrollController.dispose();
     controller.dispose();
     super.dispose();
+  }
+
+  void _onStylusServiceChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -3983,14 +3991,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
             final currentPageNum = _currentPageIndex + 1;
             final totalPages = controller.slides.length;
 
-            // Lock scroll on small phones when any draw tool is active
+            // Lock scroll on small phones or when touch drawing mode is enabled
             final isPenActive =
                 controller.selectedTool == WorkspaceTool.pen ||
                 controller.selectedTool == WorkspaceTool.highlighter ||
                 controller.selectedTool == WorkspaceTool.eraser ||
                 controller.selectedTool == WorkspaceTool.laserDot ||
                 controller.selectedTool == WorkspaceTool.laserTrail;
-            final lockScroll = isPenActive && isSmallPhone;
+            final lockScroll = isPenActive &&
+                (isSmallPhone || CapacitiveStylusService().isTouchDrawingMode);
 
             return Scaffold(
               resizeToAvoidBottomInset: false,
@@ -4125,13 +4134,21 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                 gestures: gestures,
                                 child: Listener(
                                   onPointerDown: (event) {
-                                    if (event.kind == PointerDeviceKind.touch) {
-                                      _onStudentManualScrollStarted();
-                                    }
                                     if (_isStylus(event.kind)) {
                                       setState(() {
                                         _activeStylusPointers.add(event.pointer);
                                       });
+                                    } else if (event.kind == PointerDeviceKind.touch &&
+                                        CapacitiveStylusService().classifyTouchAsStylus(event)) {
+                                      // Capacitive stylus touch → treat like active stylus for
+                                      // scroll/zoom gating purposes
+                                      setState(() {
+                                        _activeStylusPointers.add(event.pointer);
+                                      });
+                                    } else if (event.kind == PointerDeviceKind.touch) {
+                                      if (!_phoneDrawingMode) {
+                                        _onStudentManualScrollStarted();
+                                      }
                                     }
                                   },
                                   onPointerUp: (event) {
@@ -4762,7 +4779,8 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
   Future<void> _handlePointerDown(PointerDownEvent event) async {
     if (!_canDraw || !_isPrimaryMouseButton(event)) return;
 
-    final fingerDrawing = MediaQuery.sizeOf(context).width < 600 &&
+    final fingerDrawing = (MediaQuery.sizeOf(context).width < 600 ||
+            CapacitiveStylusService().isTouchDrawingMode) &&
         event.kind == PointerDeviceKind.touch;
 
     // Capacitive stylus: a touch that passes the classifier counts as stylus
@@ -4956,7 +4974,9 @@ class WorkspaceScrollGestureRecognizer extends OneSequenceGestureRecognizer {
   @override
   void addPointer(PointerDownEvent event) {
     if (event.kind == PointerDeviceKind.stylus ||
-        event.kind == PointerDeviceKind.invertedStylus) {
+        event.kind == PointerDeviceKind.invertedStylus ||
+        (event.kind == PointerDeviceKind.touch &&
+            CapacitiveStylusService().classifyTouchAsStylus(event))) {
       onStylusDetected?.call();
       _isRejected = true;
       resolve(GestureDisposition.rejected);

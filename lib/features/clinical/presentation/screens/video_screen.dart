@@ -998,7 +998,13 @@ class _VideoScreenState extends State<VideoScreen>
             const SizedBox(height: 12),
 
             Expanded(
-              child: isLandscapeTablet
+              child: RefreshIndicator(
+                color: brandColor,
+                backgroundColor:
+                    provider.isDarkTheme ? AppColors.surface : Colors.white,
+                displacement: 20,
+                onRefresh: () => provider.refreshClinicalData(widget.subject),
+                child: isLandscapeTablet
                   ? Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1055,7 +1061,8 @@ class _VideoScreenState extends State<VideoScreen>
                       ],
                     )
                   : SingleChildScrollView(
-                      physics: const BouncingScrollPhysics(),
+                      physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics()),
                       child: Column(
                         children: [
                           // Video Player Card Container (Fixed)
@@ -1110,6 +1117,7 @@ class _VideoScreenState extends State<VideoScreen>
                         ],
                       ),
                     ),
+              ),
             ),
           ],
         ),

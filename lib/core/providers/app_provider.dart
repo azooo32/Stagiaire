@@ -284,10 +284,10 @@ class AppProvider extends ChangeNotifier {
   List<ClinicalVoiceNote> _dbVoiceNotes = [];
   List<ClinicalVideo> _dbVideos = [];
   List<ClinicalSlideStation> _dbSlideStations = [];
-  RealtimeChannel? _clinicalRealtimeChannel;
-  Timer? _clinicalRealtimeDebounce;
-  int? _activeClinicalSubjectId;
+  // --- Smart Polling (replaces Realtime WebSocket) ---
+  Timer? _clinicalPollingTimer;
   String? _activeClinicalSubjectName;
+  static const Duration _clinicalPollingInterval = Duration(minutes: 5);
 
   final Map<String, double> _clinicalSubjectProgress = {};
   Map<String, double> get clinicalSubjectProgress => _clinicalSubjectProgress;
@@ -734,81 +734,46 @@ class AppProvider extends ChangeNotifier {
     await _cache.invalidateCache(cacheKey);
   }
 
-  Future<void> subscribeToClinicalRealtime(String subjectName) async {
-    final subjectId = await _resolveClinicalSubjectId(subjectName);
-    if (subjectId == null) return;
-    if (_activeClinicalSubjectId == subjectId &&
-        _clinicalRealtimeChannel != null) return;
+  /// بدء Smart Polling — يحل محل Realtime WebSocket بشكل كامل.
+  /// يُفعَّل عند دخول شاشة المادة السريرية، ويُلغى عند الخروج.
+  void startClinicalPolling(String subjectName) {
+    // تجنب إعادة البدء إذا كانت المادة نفسها محملة بالفعل
+    if (_activeClinicalSubjectName == subjectName &&
+        _clinicalPollingTimer != null &&
+        _clinicalPollingTimer!.isActive) return;
 
-    await unsubscribeFromClinicalRealtime();
-    _activeClinicalSubjectId = subjectId;
+    stopClinicalPolling();
     _activeClinicalSubjectName = subjectName;
-    _clinicalRealtimeChannel =
-        _supabase.client.channel('clinical_subject_$subjectId')
-          ..onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            table: 'voice_notes',
-            filter: PostgresChangeFilter(
-                type: PostgresChangeFilterType.eq,
-                column: 'subject_id',
-                value: subjectId),
-            callback: (_) => _scheduleClinicalRealtimeRefresh(subjectId),
-          )
-          ..onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            table: 'videos',
-            filter: PostgresChangeFilter(
-                type: PostgresChangeFilterType.eq,
-                column: 'subject_id',
-                value: subjectId),
-            callback: (_) => _scheduleClinicalRealtimeRefresh(subjectId),
-          )
-          ..onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            table: 'clinical_sections',
-            filter: PostgresChangeFilter(
-                type: PostgresChangeFilterType.eq,
-                column: 'subject_id',
-                value: subjectId),
-            callback: (_) => _scheduleClinicalRealtimeRefresh(subjectId),
-          )
-          ..onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            table: 'slide_stations',
-            filter: PostgresChangeFilter(
-                type: PostgresChangeFilterType.eq,
-                column: 'subject_id',
-                value: subjectId),
-            callback: (_) => _scheduleClinicalRealtimeRefresh(subjectId),
-          )
-          ..subscribe();
-  }
 
-  void _scheduleClinicalRealtimeRefresh(int subjectId) {
-    if (_activeClinicalSubjectId != subjectId ||
-        _activeClinicalSubjectName == null) return;
-    _clinicalRealtimeDebounce?.cancel();
-    _clinicalRealtimeDebounce =
-        Timer(const Duration(milliseconds: 700), () async {
-      await _cache.invalidateCache(_getClinicalCacheKey(subjectId));
-      await loadClinicalData(_activeClinicalSubjectName!);
+    // بدء Timer يُعيد تحميل البيانات كل 5 دقائق فقط إذا كانت الشاشة مفتوحة
+    _clinicalPollingTimer =
+        Timer.periodic(_clinicalPollingInterval, (_) async {
+      if (_activeClinicalSubjectName != null) {
+        final subjectId =
+            await _resolveClinicalSubjectId(_activeClinicalSubjectName!);
+        if (subjectId != null) {
+          // مسح كاش هذه المادة فقط ثم إعادة التحميل
+          await _cache.invalidateCache(_getClinicalCacheKey(subjectId));
+        }
+        await loadClinicalData(_activeClinicalSubjectName!);
+      }
     });
   }
 
-  Future<void> unsubscribeFromClinicalRealtime() async {
-    _clinicalRealtimeDebounce?.cancel();
-    _clinicalRealtimeDebounce = null;
-    final channel = _clinicalRealtimeChannel;
-    _clinicalRealtimeChannel = null;
-    _activeClinicalSubjectId = null;
+  /// إيقاف Polling عند الخروج من شاشة المادة السريرية.
+  void stopClinicalPolling() {
+    _clinicalPollingTimer?.cancel();
+    _clinicalPollingTimer = null;
     _activeClinicalSubjectName = null;
-    if (channel != null) {
-      await _supabase.client.removeChannel(channel);
+  }
+
+  /// تحديث فوري للبيانات (يُستدعى من Pull-to-Refresh في الشاشة).
+  Future<void> refreshClinicalData(String subjectName) async {
+    final subjectId = await _resolveClinicalSubjectId(subjectName);
+    if (subjectId != null) {
+      await _cache.invalidateCache(_getClinicalCacheKey(subjectId));
     }
+    await loadClinicalData(subjectName);
   }
 
   // Mutations
@@ -1467,6 +1432,11 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// تحديث فوري للمواد الدراسية (يُستدعى من Pull-to-Refresh).
+  Future<void> refreshSubjects() async {
+    await _syncSubjectsFromNetwork(CacheService.keySubjects);
+  }
+
   Future<void> addSubject(
       String name, String description,
       {String? stage, String? university, int totalQuestions = 0}) async {
@@ -1558,6 +1528,11 @@ class AppProvider extends ChangeNotifier {
     } catch (e) {
       print('Background sync for clinical subjects failed: $e');
     }
+  }
+
+  /// تحديث فوري للمواد السريرية (يُستدعى من Pull-to-Refresh).
+  Future<void> refreshClinicalSubjects() async {
+    await _syncClinicalSubjectsFromNetwork('clinical_subjects_cache_v1');
   }
 
   List<Question> _questions = [];
@@ -2279,8 +2254,15 @@ class AppProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print('Background questions sync failed for $subjectName: $e');
+      print('Background sync for questions failed: $e');
     }
+  }
+
+  /// تحديث فوري لأسئلة ومواضيع مادة معينة (يُستدعى من Pull-to-Refresh).
+  Future<void> refreshSubjectQuestions(String subjectName) async {
+    final cacheKey = _cache.getQuestionsKey(subjectName);
+    await _refreshSubjectQuestionsCache(subjectName, cacheKey);
+    await fetchTitlesOrders(subjectName);
   }
 
   Map<String, int> _topicOrders = {};

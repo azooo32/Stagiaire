@@ -68,6 +68,7 @@ class WorkspaceTopToolbar extends StatelessWidget {
   final bool showLaserTool;
   final VoidCallback? onRecordLecture;
   final bool isRecordingLecture;
+  final bool isOwner;
 
   const WorkspaceTopToolbar({
     super.key,
@@ -89,6 +90,7 @@ class WorkspaceTopToolbar extends StatelessWidget {
     this.showLaserTool = false,
     this.onRecordLecture,
     this.isRecordingLecture = false,
+    this.isOwner = false,
   });
 
   static const _toolOrder = [

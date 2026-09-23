@@ -1,4 +1,5 @@
 import 'dart:ui';
+import '../utils/stroke_compressor.dart';
 
 enum WorkspaceTool { pan, pen, highlighter, eraser, lasso, shape, text, laserDot, laserTrail }
 
@@ -11,9 +12,14 @@ abstract class WorkspaceObject {
   Map<String, dynamic> toJson();
 
   factory WorkspaceObject.fromJson(Map<String, dynamic> json) {
-    final type = json['type'] as String?;
+    // دعم كلا التنسيقين: 'type' (v1 القديم) و 'tp' (v2 المضغوط)
+    final type = json['type'] as String? ?? json['tp'] as String?;
     switch (type) {
       case 'stroke':
+        // التوافق العكسي: إذا كان v2 نقرأه بـ StrokeCompressor، وإلا نقرأه كـ v1
+        if (json['v'] == 2) {
+          return StrokeCompressor.deserializeStrokeV2(json);
+        }
         return SlideStroke.fromJson(json);
       case 'image':
         return ImageObject.fromJson(json);

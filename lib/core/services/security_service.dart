@@ -8,10 +8,32 @@ class SecurityService {
   static bool _isSecure = false;
   static bool get isSecure => _isSecure;
 
+  static bool isDeviceRooted = false;
+  static bool isDeviceCompromised = false;
+
   // يضمن أن init() تُنفَّذ مرة واحدة فقط طوال عمر التطبيق
   static bool _initialized = false;
 
   static ValueNotifier<bool> isScreenRecording = ValueNotifier<bool>(false);
+
+  /// فحص سلامة الجهاز واكتشاف الروت وكسر الحماية
+  static Future<Map<String, bool>> checkIntegrity() async {
+    try {
+      final res = await _channel.invokeMethod<Map>('checkDeviceIntegrity');
+      if (res != null) {
+        isDeviceRooted = res['isRooted'] == true;
+        isDeviceCompromised = res['isCompromised'] == true;
+        return {
+          'isRooted': isDeviceRooted,
+          'isEmulator': res['isEmulator'] == true,
+          'isCompromised': isDeviceCompromised,
+        };
+      }
+    } catch (e) {
+      debugPrint('Error checking device integrity: $e');
+    }
+    return {'isRooted': false, 'isEmulator': false, 'isCompromised': false};
+  }
 
   /// يجب استدعاؤها مرة واحدة فقط من main.dart
   static void init() {

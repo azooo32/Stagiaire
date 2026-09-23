@@ -310,7 +310,8 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
       controller.selectObject(null);
     }
 
-    final fingerDrawing = MediaQuery.sizeOf(context).width < 600 &&
+    final fingerDrawing = (MediaQuery.sizeOf(context).width < 600 ||
+            CapacitiveStylusService().isTouchDrawingMode) &&
         event.kind == PointerDeviceKind.touch;
 
     // Capacitive stylus: a touch that passes the classifier counts as a stylus

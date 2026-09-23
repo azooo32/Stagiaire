@@ -105,9 +105,30 @@ class SupabaseService {
         'stage': newStage,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', user.id);
+      try {
+        await client.auth.updateUser(
+          UserAttributes(data: {'stage': newStage}),
+        );
+      } catch (authErr) {
+        print('Warning updating auth metadata: $authErr');
+      }
       return true;
     } catch (e) {
       print('Error updating stage: $e');
+      return false;
+    }
+  }
+
+  /// Update any user's stage in the 'users' table (for admin/owner)
+  Future<bool> updateUserStage(String userId, String newStage) async {
+    try {
+      await client.from('users').update({
+        'stage': newStage,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', userId);
+      return true;
+    } catch (e) {
+      print('Error updating user stage: $e');
       return false;
     }
   }

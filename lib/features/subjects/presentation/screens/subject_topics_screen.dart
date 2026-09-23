@@ -1138,17 +1138,37 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
 
                             // ─── Topics Accordion List ───
                             Expanded(
-                              child: topicsGroup.isEmpty
-                                  ? const Center(
-                                      child: Text(
-                                          'لا توجد مواضيع متاحة للمصدر المحدّد.'))
-                                  : ListView.builder(
-                                      physics: const BouncingScrollPhysics(),
-                                      padding: const EdgeInsets.only(
-                                          left: 20.0,
-                                          right: 20.0,
-                                          top: 0,
-                                          bottom: 90.0),
+                              child: RefreshIndicator(
+                                color: const Color(0xFF6B4EFF),
+                                backgroundColor: provider.isDarkTheme
+                                    ? AppColors.surface
+                                    : Colors.white,
+                                displacement: 20,
+                                onRefresh: () => provider.refreshSubjectQuestions(
+                                    widget.subjectName),
+                                child: topicsGroup.isEmpty
+                                    ? ListView(
+                                        physics:
+                                            const AlwaysScrollableScrollPhysics(
+                                                parent:
+                                                    BouncingScrollPhysics()),
+                                        children: const [
+                                          SizedBox(height: 80),
+                                          Center(
+                                              child: Text(
+                                                  'لا توجد مواضيع متاحة للمصدر المحدّد.')),
+                                        ],
+                                      )
+                                    : ListView.builder(
+                                        physics:
+                                            const AlwaysScrollableScrollPhysics(
+                                                parent:
+                                                    BouncingScrollPhysics()),
+                                        padding: const EdgeInsets.only(
+                                            left: 20.0,
+                                            right: 20.0,
+                                            top: 0,
+                                            bottom: 90.0),
                                       itemCount: sortedTopicTitles.length,
                                       itemBuilder: (context, index) {
                                         final topicTitle =
@@ -1687,6 +1707,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                         );
                                       },
                                     ),
+                                ),
                             ),
                           ],
                         ),

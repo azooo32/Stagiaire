@@ -1821,14 +1821,15 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
         return;
       }
       provider.loadClinicalData(widget.subject);
-      provider.subscribeToClinicalRealtime(widget.subject);
+      // بدء Smart Polling بدلاً من Realtime WebSocket
+      provider.startClinicalPolling(widget.subject);
     });
   }
 
   @override
   void dispose() {
-    Provider.of<AppProvider>(context, listen: false)
-        .unsubscribeFromClinicalRealtime();
+    // إيقاف Polling عند الخروج من الشاشة لتوفير موارد السيرفر
+    Provider.of<AppProvider>(context, listen: false).stopClinicalPolling();
     super.dispose();
   }
 
@@ -1936,13 +1937,20 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
             ),
 
             Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1120),
-                    child: Column(
-                      children: [
+              child: RefreshIndicator(
+                color: const Color(0xFF6B4EFF),
+                backgroundColor:
+                    provider.isDarkTheme ? AppColors.bg : Colors.white,
+                displacement: 20,
+                onRefresh: () => provider.refreshClinicalData(widget.subject),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics()),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1120),
+                      child: Column(
+                        children: [
                         if (provider.isClinicalLoading)
                           Padding(
                             padding: const EdgeInsets.only(top: 120.0),
@@ -2097,10 +2105,11 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildDynamicSlideSectionCard(

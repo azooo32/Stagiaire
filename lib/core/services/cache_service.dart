@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:crypto/crypto.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CacheService {
@@ -8,6 +9,20 @@ class CacheService {
   CacheService._internal();
 
   late SharedPreferences _prefs;
+
+  // Anti-tampering internal HMAC secret
+  static final List<int> _hmacKey =
+      utf8.encode('stagiaire_cache_anti_tamper_#9928@sec_key_v1');
+
+  static String _generateSignature(String payload) {
+    final hmac = Hmac(sha256, _hmacKey);
+    return hmac.convert(utf8.encode(payload)).toString();
+  }
+
+  static bool _verifySignature(String payload, String expectedSig) {
+    final sig = _generateSignature(payload);
+    return sig == expectedSig;
+  }
 
   // Initialize Cache Service (Call this in main.dart)
   Future<void> initialize() async {
@@ -27,11 +42,17 @@ class CacheService {
     return id;
   }
 
-  // Generic Cache Methods with Timestamp
+  // Generic Cache Methods with Timestamp and HMAC Integrity Signature
   Future<void> setCache(String key, dynamic data, Duration lifespan) async {
+    final int expiry = DateTime.now().add(lifespan).millisecondsSinceEpoch;
+    final String encodedData = jsonEncode(data);
+    final String payloadToSign = '$key:$expiry:$encodedData';
+    final String signature = _generateSignature(payloadToSign);
+
     final Map<String, dynamic> cacheWrapper = {
       'data': data,
-      'expiry': DateTime.now().add(lifespan).millisecondsSinceEpoch,
+      'expiry': expiry,
+      'sig': signature,
     };
     await _prefs.setString(key, jsonEncode(cacheWrapper));
   }
@@ -46,9 +67,21 @@ class CacheService {
       if (DateTime.now().millisecondsSinceEpoch > expiry) {
         return null;
       }
+
+      // Anti-tamper verification: if signature exists, verify it
+      final String? sig = cacheWrapper['sig'];
+      if (sig != null) {
+        final String encodedData = jsonEncode(cacheWrapper['data']);
+        final String payload = '$key:$expiry:$encodedData';
+        if (!_verifySignature(payload, sig)) {
+          // Data was tampered with! Discard immediately
+          invalidateCache(key);
+          return null;
+        }
+      }
+
       return cacheWrapper['data'];
     } catch (e) {
-      print('Error parsing cache for $key: $e');
       return null;
     }
   }
@@ -59,9 +92,21 @@ class CacheService {
 
     try {
       final Map<String, dynamic> cacheWrapper = jsonDecode(cachedStr);
+
+      // Anti-tamper verification
+      final String? sig = cacheWrapper['sig'];
+      final int expiry = cacheWrapper['expiry'] ?? 0;
+      if (sig != null) {
+        final String encodedData = jsonEncode(cacheWrapper['data']);
+        final String payload = '$key:$expiry:$encodedData';
+        if (!_verifySignature(payload, sig)) {
+          invalidateCache(key);
+          return null;
+        }
+      }
+
       return cacheWrapper['data'];
     } catch (e) {
-      print('Error parsing stale cache for $key: $e');
       return null;
     }
   }

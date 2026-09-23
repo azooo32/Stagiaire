@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/services/supabase_service.dart';
+import '../../../../core/services/security_service.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../../main_navigation_shell.dart';
 import 'login_screen.dart';
 import 'onboarding_screen.dart';
+import 'security_block_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -52,6 +54,14 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _navigateToNext() async {
     if (!mounted) return;
+
+    // فحص أمان الجهاز: حظر الأجهزة المروّتة لحماية المحتوى
+    if (SecurityService.isDeviceRooted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const SecurityBlockScreen()),
+      );
+      return;
+    }
 
     final supabase = SupabaseService();
     final prefs = await SharedPreferences.getInstance();

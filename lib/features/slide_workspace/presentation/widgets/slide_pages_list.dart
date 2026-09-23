@@ -273,7 +273,9 @@ class _SlidePagesListState extends State<SlidePagesList>
       widget.controller.selectedTool == WorkspaceTool.eraser;
 
   bool get _phoneDrawingMode =>
-      MediaQuery.sizeOf(context).width < 600 && _isDrawingTool;
+      (MediaQuery.sizeOf(context).width < 600 ||
+          CapacitiveStylusService().isTouchDrawingMode) &&
+      _isDrawingTool;
 
   bool _isStylus(PointerDeviceKind kind) {
     return kind == PointerDeviceKind.stylus ||
@@ -292,6 +294,7 @@ class _SlidePagesListState extends State<SlidePagesList>
   @override
   void initState() {
     super.initState();
+    CapacitiveStylusService().addListener(_onStylusServiceChanged);
     widget.transformationController.addListener(_onTransformChanged);
     _flingAnimationController = AnimationController.unbounded(vsync: this);
     _flingAnimationController.addListener(_onFlingTick);
@@ -301,6 +304,10 @@ class _SlidePagesListState extends State<SlidePagesList>
         _alignToCurrentSlide();
       }
     });
+  }
+
+  void _onStylusServiceChanged() {
+    if (mounted) setState(() {});
   }
 
   void _alignToCurrentSlide() {
@@ -489,6 +496,7 @@ class _SlidePagesListState extends State<SlidePagesList>
 
   @override
   void dispose() {
+    CapacitiveStylusService().removeListener(_onStylusServiceChanged);
     widget.transformationController.removeListener(_onTransformChanged);
     _flingAnimationController.dispose();
     super.dispose();

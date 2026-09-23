@@ -454,8 +454,15 @@ class _VoiceScreenState extends State<VoiceScreen> {
 
             // Content Area (Scrollable)
             Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
+              child: RefreshIndicator(
+                color: brandColor,
+                backgroundColor:
+                    provider.isDarkTheme ? AppColors.surface : Colors.white,
+                displacement: 20,
+                onRefresh: () => provider.refreshClinicalData(widget.subject),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics()),
                 child: Center(
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
@@ -623,10 +630,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
-    );
+    ));
   }
 
   Widget _buildRecordingCard(int index, ClinicalVoiceNote item,

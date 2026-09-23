@@ -174,6 +174,16 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
             const SizedBox(height: 12),
             _buildInfoBanner(isDark, accentColor),
 
+            const SizedBox(height: 16),
+            // Phone-style touch drawing mode (lock scrolling during drawing)
+            _buildTouchDrawingTile(
+              isDark: isDark,
+              tileBg: tileBg,
+              textColor: textColor,
+              mutedColor: mutedColor,
+              accentColor: accentColor,
+            ),
+
             // Recalibrate tile — only when enabled & calibrated
             if (_service.isEnabled && _service.isCalibrated) ...[
               const SizedBox(height: 20),
@@ -312,6 +322,72 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTouchDrawingTile({
+    required bool isDark,
+    required Color tileBg,
+    required Color textColor,
+    required Color mutedColor,
+    required Color accentColor,
+  }) {
+    final isEnabled = _service.isTouchDrawingMode;
+    return Container(
+      decoration: BoxDecoration(
+        color: tileBg,
+        borderRadius: BorderRadius.circular(16),
+        border: isEnabled
+            ? Border.all(color: accentColor.withValues(alpha: 0.4), width: 1.5)
+            : null,
+      ),
+      child: SwitchListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        value: isEnabled,
+        onChanged: (val) async {
+          await _service.setTouchDrawingMode(val);
+          if (mounted) setState(() {});
+        },
+        activeThumbColor: accentColor,
+        title: Text(
+          'قفل التمرير أثناء الرسم (نمط الموبايل)',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: textColor,
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: Text(
+            isEnabled
+                ? 'مفعّل — يتم قفل حركة الـ PDF والسلايدات تماماً أثناء الكتابة بالقلم أو اللمس، وتكتب الشاشة دون أي اهتزاز. للتمرير يتم إيقاف القلم أو اختيار اليد.'
+                : 'حل لأقلام الجوكر: يقفل تحريك وتمرير الصفحة أثناء تفعيل القلم تماماً مثل شاشات الموبايل الصغيرة، ويكتب القلم واللمس بحرية دون تحرك السلايد.',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              height: 1.45,
+              color: mutedColor,
+            ),
+          ),
+        ),
+        secondary: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isEnabled
+                ? accentColor.withValues(alpha: 0.15)
+                : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            isEnabled ? Icons.lock_outline_rounded : Icons.stay_current_portrait_rounded,
+            color: isEnabled ? accentColor : mutedColor,
+            size: 20,
+          ),
+        ),
       ),
     );
   }
