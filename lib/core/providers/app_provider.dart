@@ -2342,23 +2342,13 @@ class AppProvider extends ChangeNotifier {
       if (_userAnswers.containsKey(q.id.toString())) {
         final userAns = _userAnswers[q.id.toString()];
         q.isSolved = true;
+        // استخدام الإجابة المخزّنة مباشرة دون أي تعديل
+        // القيم مخزّنة بـ 0-based index وهي صحيحة
         final storedAns = userAns['answer'] as int?;
-        final isCorrectVal = userAns['is_correct'] == true;
         if (storedAns != null) {
-          var healedAns = storedAns;
-          if (isCorrectVal) {
-            healedAns = q.correct;
-          } else {
-            if (storedAns == q.correct) {
-              healedAns = storedAns - 1;
-            } else if (storedAns > q.correct) {
-              healedAns = storedAns - 1;
-            }
-          }
-          if (healedAns < 0) healedAns = 0;
-          if (healedAns >= q.options.length) healedAns = q.options.length - 1;
-          q.userAnswer = healedAns;
-          userAns['answer'] = healedAns;
+          final clampedAns = storedAns.clamp(0, q.options.length - 1);
+          q.userAnswer = clampedAns;
+          userAns['answer'] = clampedAns;
         }
       }
     }
