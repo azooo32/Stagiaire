@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../core/services/security_service.dart';
 import '../../../../core/widgets/app_loader.dart';
+import '../../../../core/widgets/medical_disclaimer_dialog.dart';
 import '../../../../main_navigation_shell.dart';
 import 'login_screen.dart';
 import 'onboarding_screen.dart';
@@ -66,8 +67,26 @@ class _SplashScreenState extends State<SplashScreen>
     final supabase = SupabaseService();
     final prefs = await SharedPreferences.getInstance();
     final hasSeenOnboarding = prefs.getBool('onboarding_seen') ?? false;
+    final hasAcceptedDisclaimer = prefs.getBool(MedicalDisclaimerDialog.prefKey) ?? false;
     if (!mounted) return;
 
+    if (!hasAcceptedDisclaimer) {
+      MedicalDisclaimerDialog.show(
+        context,
+        isFirstLaunch: true,
+        onAccepted: () {
+          if (!mounted) return;
+          _proceedToApp(supabase, hasSeenOnboarding);
+        },
+      );
+      return;
+    }
+
+    _proceedToApp(supabase, hasSeenOnboarding);
+  }
+
+  void _proceedToApp(SupabaseService supabase, bool hasSeenOnboarding) {
+    if (!mounted) return;
     if (supabase.isAuthenticated) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(

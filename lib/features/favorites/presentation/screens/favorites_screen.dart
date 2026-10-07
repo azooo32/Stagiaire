@@ -84,11 +84,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           .select('*')
           .inFilter('id', provider.favorites);
 
-      final  fetched = List<Map<String, dynamic>>.from(response)
+      final fetched = List<Map<String, dynamic>>.from(response)
           .map((q) => Question.fromJson(q))
           .toList();
 
-      for (final q in  fetched) {
+      for (final q in fetched) {
         if (provider.userAnswers.containsKey(q.id.toString())) {
           final userAns = provider.userAnswers[q.id.toString()];
           q.isSolved = true;
@@ -99,7 +99,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
       if (mounted) {
         setState(() {
-          _favQuestions =  fetched;
+          _favQuestions = fetched;
           final subjects = _theorySubjects;
           if (subjects.isNotEmpty &&
               (_selectedTheorySubject == null ||
@@ -576,8 +576,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       return _emptyState(isDark, 'لا توجد أسئلة مفضلة لهذه المادة');
 
     return ListView.builder(
-      physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics()),
+      physics:
+          const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       padding: const EdgeInsets.only(left: 20, right: 20, bottom: 92),
       itemCount: topicsGroup.keys.length,
       itemBuilder: (_, index) {
@@ -769,8 +769,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     final stationItems = items.where((item) => item.type == 'station').toList();
 
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics()),
+      physics:
+          const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 92),
       children: [
         if (voiceCount > 0)
@@ -897,8 +897,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   Widget _emptyState(bool isDark, String title) {
     return ListView(
-      physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics()),
+      physics:
+          const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
       children: [
         const SizedBox(height: 120),
         Center(
@@ -918,7 +918,6 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       ],
     );
   }
-
 }
 
 class _FavoriteSlidesScreen extends StatelessWidget {
@@ -981,18 +980,20 @@ class _FavoriteSlidesScreen extends StatelessWidget {
                 itemCount: items.length,
                 itemBuilder: (context, index) {
                   final item = items[index];
-                  final stationObj = provider.getClinicalSlideStations(item.subject).firstWhere(
-                    (s) => s.dbId == item.id,
-                    orElse: () => ClinicalSlideStation(
-                      id: 0,
-                      title: item.title,
-                      progressText: '',
-                      progress: 0.0,
-                      iconType: '',
-                      subject: item.subject,
-                      stationType: 'slides',
-                    ),
-                  );
+                  final stationObj = provider
+                      .getClinicalSlideStations(item.subject)
+                      .firstWhere(
+                        (s) => s.dbId == item.id,
+                        orElse: () => ClinicalSlideStation(
+                          id: 0,
+                          title: item.title,
+                          progressText: '',
+                          progress: 0.0,
+                          iconType: '',
+                          subject: item.subject,
+                          stationType: 'slides',
+                        ),
+                      );
                   return InkWell(
                     borderRadius: BorderRadius.circular(22),
                     onTap: () => Navigator.push(
@@ -1042,8 +1043,7 @@ class _FavoriteSlidesScreen extends StatelessWidget {
                                 const SizedBox(height: 4),
                                 Text(
                                     [item.sectionTitle, item.subtitle]
-                                        .where(
-                                            (v) => v != null && v.isNotEmpty)
+                                        .where((v) => v != null && v.isNotEmpty)
                                         .join(' • '),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -1070,10 +1070,3 @@ class _FavoriteSlidesScreen extends StatelessWidget {
     );
   }
 }
-
-
-
-
-
-
-

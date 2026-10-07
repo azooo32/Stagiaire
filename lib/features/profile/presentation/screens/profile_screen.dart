@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../core/services/app_update_service.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../auth/presentation/screens/login_screen.dart';
-import 'subscriptions_management_screen.dart';
+import '../../../../core/widgets/medical_disclaimer_dialog.dart';
 import '../../../reports/presentation/widgets/notification_badge_button.dart';
 import '../../../reports/presentation/screens/student_notifications_screen.dart';
 import '../../../reports/presentation/screens/supervisor_reports_screen.dart';
@@ -50,45 +49,17 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
 
   static const List<String> _stages = [
-    'المرحلة الأولى',
-    'المرحلة الثانية',
-    'المرحلة الثالثة',
     'المرحلة الرابعة',
     'المرحلة الخامسة',
     'المرحلة السادسة',
-    'طالب امتياز',
-    'طبيب مقيم',
-    'طبيب أخصائي',
-    'طبيب استشاري',
   ];
 
-  static const List<String> _defaultUniversities = [
-    'كلية طب بغداد',
-    'كلية طب المستنصرية',
-    'كلية طب النهرين',
-    'كلية طب الكندي',
-    'كلية طب البصرة',
-    'كلية طب الكوفة',
-    'كلية طب بابل',
-    'كلية طب كربلاء',
-    'كلية طب القادسية',
-    'كلية طب ميسان',
-    'كلية طب واسط',
-    'كلية طب جابر بن حيان',
-    'كلية طب صلاح الدين',
-    'كلية طب الموصل',
-    'كلية طب نينوى',
-    'كلية طب المثنى',
-    'كلية طب كركوك',
-    'كلية طب الأنبار',
-    'كلية طب ديالى',
-    'كلية طب السليمانية',
-    'كلية طب هولير (أربيل)',
-    'كلية طب دهوك',
-  ];
 
   Future<void> _showChangeStageSheet(BuildContext context, AppProvider provider, String currentStage, bool isDark, bool isTablet) async {
     String? selected = currentStage == 'غير محدد' ? null : currentStage;
+    if (selected != null && !_stages.contains(selected)) {
+      selected = null;
+    }
     bool isSaving = false;
 
     final accent = isDark ? _ProfilePalette.darkAccent : _ProfilePalette.lightAccent;
@@ -269,24 +240,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _showChangeUniversitySheet(BuildContext context, AppProvider provider, String currentUniversity, bool isDark, bool isTablet) async {
-    final searchController = TextEditingController();
-    final customController = TextEditingController();
-    String searchQuery = '';
-    String? selected = (currentUniversity.isNotEmpty && currentUniversity != 'غير محدد') ? currentUniversity : null;
     bool isSaving = false;
-    bool isAddingCustom = false;
-    bool didFetchFromDb = false;
-
-    // Start with default universities list
-    final initialSet = Set<String>.from(_defaultUniversities);
-    if (selected != null && selected.isNotEmpty) {
-      initialSet.add(selected);
-    }
-    List<String> universities = initialSet.toList()..sort();
 
     final accent = isDark ? _ProfilePalette.darkAccent : _ProfilePalette.lightAccent;
     final sheetBg = isDark ? _ProfilePalette.darkSheet : Colors.white;
-    final tileBg = isDark ? _ProfilePalette.darkTile : const Color(0xFFF8FAFC);
     final textColor = isDark ? AppColors.text : _ProfilePalette.lightText;
     final mutedColor = isDark ? _ProfilePalette.darkMuted : _ProfilePalette.lightMuted;
 
@@ -297,32 +254,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setSheet) {
-            // Asynchronously try to fetch any additional universities from Supabase
-            if (!didFetchFromDb) {
-              didFetchFromDb = true;
-              SupabaseService().getUniversityAccessList().then((list) {
-                final extraNames = list
-                    .map((e) => e['university']?.toString().trim() ?? '')
-                    .where((u) => u.isNotEmpty)
-                    .toSet();
-                if (extraNames.isNotEmpty && ctx.mounted) {
-                  setSheet(() {
-                    final combined = Set<String>.from(universities)..addAll(extraNames);
-                    universities = combined.toList()..sort();
-                  });
-                }
-              }).catchError((_) {});
-            }
-
-            final query = searchQuery.trim().toLowerCase();
-            final filteredUniversities = universities.where((u) {
-              if (query.isEmpty) return true;
-              return u.toLowerCase().contains(query);
-            }).toList();
-
             return Container(
               constraints: BoxConstraints(
-                maxHeight: MediaQuery.of(context).size.height * 0.85,
+                maxHeight: MediaQuery.of(context).size.height * 0.5,
               ),
               padding: EdgeInsets.only(
                 bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -350,7 +284,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Icon(Icons.school_outlined, color: accent, size: 22),
                         const SizedBox(width: 10),
                         Text(
-                          'تغيير الجامعة',
+                          'الجامعة المتاحة',
                           style: TextStyle(
                             fontFamily: 'Cairo',
                             fontSize: 18,
@@ -358,233 +292,52 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             color: textColor,
                           ),
                         ),
-                        const Spacer(),
-                        if (!isAddingCustom)
-                          TextButton.icon(
-                            onPressed: () {
-                              setSheet(() {
-                                isAddingCustom = true;
-                              });
-                            },
-                            icon: Icon(Icons.add, size: 16, color: accent),
-                            label: Text(
-                              'أخرى',
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: accent, width: 1.5),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.radio_button_checked_rounded,
+                            color: accent,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'كلية طب نينوى',
                               style: TextStyle(
                                 fontFamily: 'Cairo',
-                                fontSize: 13,
+                                fontSize: isTablet ? 16 : 14,
                                 fontWeight: FontWeight.bold,
                                 color: accent,
                               ),
                             ),
                           ),
-                      ],
-                    ),
-                  ),
-                  // Search box or custom university input
-                  if (isAddingCustom)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: customController,
-                              autofocus: true,
-                              textDirection: TextDirection.rtl,
-                              style: TextStyle(
-                                fontFamily: 'Cairo',
-                                fontSize: 14,
-                                color: textColor,
-                              ),
-                              decoration: InputDecoration(
-                                hintText: 'أدخل اسم الجامعة / الكلية...',
-                                hintStyle: TextStyle(
-                                  fontFamily: 'Cairo',
-                                  fontSize: 13,
-                                  color: mutedColor,
-                                ),
-                                prefixIcon: Icon(Icons.edit_outlined, color: accent, size: 18),
-                                filled: true,
-                                fillColor: tileBg,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(color: accent.withValues(alpha: 0.3)),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(color: accent, width: 1.5),
-                                ),
-                              ),
-                              onChanged: (val) {
-                                setSheet(() {
-                                  selected = val.trim().isNotEmpty ? val.trim() : null;
-                                });
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            icon: const Icon(Icons.close),
-                            color: mutedColor,
-                            onPressed: () {
-                              setSheet(() {
-                                isAddingCustom = false;
-                                customController.clear();
-                              });
-                            },
-                          ),
                         ],
                       ),
-                    )
-                  else
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                      child: TextField(
-                        controller: searchController,
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(
-                          fontFamily: 'Cairo',
-                          fontSize: 14,
-                          color: textColor,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'بحث عن كلية / جامعة...',
-                          hintStyle: TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 13,
-                            color: mutedColor,
-                          ),
-                          prefixIcon: Icon(Icons.search_rounded, color: mutedColor, size: 20),
-                          suffixIcon: searchQuery.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear, size: 18),
-                                  color: mutedColor,
-                                  onPressed: () {
-                                    searchController.clear();
-                                    setSheet(() => searchQuery = '');
-                                  },
-                                )
-                              : null,
-                          filled: true,
-                          fillColor: tileBg,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                        onChanged: (val) {
-                          setSheet(() => searchQuery = val);
-                        },
-                      ),
                     ),
-                  const Divider(height: 1),
-                  Flexible(
-                    child: filteredUniversities.isEmpty
-                        ? Padding(
-                            padding: const EdgeInsets.all(32),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.search_off_rounded, size: 40, color: mutedColor),
-                                const SizedBox(height: 12),
-                                Text(
-                                  'لا توجد نتائج مطابقة',
-                                  style: TextStyle(
-                                    fontFamily: 'Cairo',
-                                    fontSize: 14,
-                                    color: mutedColor,
-                                  ),
-                                ),
-                                if (searchQuery.trim().isNotEmpty) ...[
-                                  const SizedBox(height: 12),
-                                  TextButton.icon(
-                                    onPressed: () {
-                                      final customName = searchQuery.trim();
-                                      setSheet(() {
-                                        if (!universities.contains(customName)) {
-                                          universities.insert(0, customName);
-                                        }
-                                        selected = customName;
-                                        searchController.clear();
-                                        searchQuery = '';
-                                      });
-                                    },
-                                    icon: const Icon(Icons.add_circle_outline, size: 18),
-                                    label: Text(
-                                      'استخدام "$searchQuery" كجامعة',
-                                      style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: filteredUniversities.length,
-                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                            itemBuilder: (_, i) {
-                              final u = filteredUniversities[i];
-                              final isSelected = u == selected;
-                              return GestureDetector(
-                                onTap: () => setSheet(() {
-                                  selected = u;
-                                  isAddingCustom = false;
-                                  customController.clear();
-                                }),
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                  decoration: BoxDecoration(
-                                    color: isSelected ? accent.withValues(alpha: 0.12) : tileBg,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: isSelected ? accent : Colors.transparent,
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Icon(
-                                        isSelected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
-                                        color: isSelected ? accent : mutedColor,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          u,
-                                          style: TextStyle(
-                                            fontFamily: 'Cairo',
-                                            fontSize: isTablet ? 16 : 14,
-                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                                            color: isSelected ? accent : textColor,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
                   ),
                   Padding(
                     padding: EdgeInsets.fromLTRB(20, 8, 20, MediaQuery.of(context).padding.bottom + 16),
                     child: SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: (selected == null || selected!.trim().isEmpty || isSaving)
+                        onPressed: isSaving
                             ? null
                             : () async {
                                 setSheet(() => isSaving = true);
-                                final ok = await provider.updateUniversity(selected!.trim());
+                                final ok = await provider.updateUniversity('كلية طب نينوى');
                                 if (ok && ctx.mounted) {
                                   final details = await SupabaseService().getUserDetails();
                                   if (details != null) {
@@ -776,23 +529,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   const SizedBox(height: 24),
 
                                   // ─── Settings Options List ───
-                                  if (provider.isOwner) ...[
-                                    _buildOptionTile(
-                                      icon: Icons.admin_panel_settings_outlined,
-                                      title: 'إدارة الاشتراكات والمستفيدين',
-                                      isDark: provider.isDarkTheme,
-                                      isTablet: isTablet,
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => const SubscriptionsManagementScreen(),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                    const SizedBox(height: 12),
-                                  ],
+
                                   if (provider.isAdminOrOwner) ...[
                                     _buildOptionTile(
                                       icon: Icons.assignment_late_outlined,
@@ -910,23 +647,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ),
                                   _buildOptionTile(
                                     icon: Icons.help_outline_rounded,
-                                    title: 'Help Center',
+                                    title: 'مركز المساعدة والدعم',
                                     isDark: provider.isDarkTheme,
                                     isTablet: isTablet,
-                                    onTap: () async {
-                                      final Uri url =
-                                          Uri.parse('https://t.me/Subscribemoh');
-                                      try {
-                                        if (await canLaunchUrl(url)) {
-                                          await launchUrl(url,
-                                              mode: LaunchMode.externalApplication);
-                                        } else {
-                                          await launchUrl(url);
-                                        }
-                                      } catch (e) {
-                                        print('Could not launch Telegram URL: $e');
-                                      }
-                                    },
+                                    onTap: () => _showHelpCenterDialog(context, provider.isDarkTheme),
+                                  ),
+                                  _buildOptionTile(
+                                    icon: Icons.health_and_safety_outlined,
+                                    title: 'إخلاء المسؤولية الطبية',
+                                    isDark: provider.isDarkTheme,
+                                    isTablet: isTablet,
+                                    onTap: () => MedicalDisclaimerDialog.show(context),
                                   ),
                                   if (Theme.of(context).platform != TargetPlatform.iOS)
                                      _buildOptionTile(
@@ -1482,4 +1213,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ).then((_) => passwordController.dispose());
   }
 
+
+  void _showHelpCenterDialog(BuildContext context, bool isDark) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF1F1D2B) : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.help_outline_rounded, color: Color(0xFF6B4EFF)),
+            const SizedBox(width: 8),
+            Text(
+              'مركز المساعدة والدعم',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+                color: isDark ? Colors.white : const Color(0xFF1E293B),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'مرحباً بك في تطبيق Stagiaire التعليمي!\n\n'
+          '• التطبيق متاح ومجاني بالكامل لجميع الطلاب وبدون أي اشتراكات أو رسوم.\n'
+          '• يمكنك الوصول لكافة الأسئلة والشروحات والمحطات السريرية دون أي قيود.\n'
+          '• للملاحظات والاقتراحات حول المحتوى العلمي، يمكنك استخدام زر البلاغ من داخل شاشة الأسئلة.\n\n'
+          'نتمنى لكم دوام التوفيق والنجاح.',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 13,
+            height: 1.6,
+            color: isDark ? const Color(0xFFE0DEF1) : const Color(0xFF334155),
+          ),
+          textDirection: TextDirection.rtl,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('إغلاق', style: TextStyle(fontFamily: 'Cairo', color: Color(0xFF6B4EFF), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
 }

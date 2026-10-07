@@ -425,25 +425,6 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
     final isTablet = MediaQuery.of(context).size.width > 600;
     final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
 
-    final isLocked = !provider.isSubjectUnlockedByName(widget.subjectName);
-    if (isLocked) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'عذراً، هذه المادة تتطلب اشتراكاً نشطاً.',
-              style: TextStyle(fontFamily: 'Cairo'),
-            ),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      });
-      return const Scaffold(
-        body: Center(child: LogoSpinner()),
-      );
-    }
-
     // Dynamic sources list from database questions matching buildSourcesBar()
     final List<String> allPossibleSources = provider.questions
         .map((q) => q.ref ?? '')

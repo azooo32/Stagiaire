@@ -28,34 +28,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _agreeTerms = false;
   bool _loading = false;
   String? _selectedStage;
-  String? _selectedUniversity;
+  String? _selectedUniversity = 'كلية طب نينوى';
 
   final List<String> _stages = const [
-    'المرحلة الأولى',
-    'المرحلة الثانية',
-    'المرحلة الثالثة',
     'المرحلة الرابعة',
     'المرحلة الخامسة',
     'المرحلة السادسة',
-    'طالب امتياز',
-    'طبيب مقيم',
-    'طبيب أخصائي',
-    'طبيب استشاري'
   ];
   final List<String> _universities = const [
-    'كلية طب الموصل',
     'كلية طب نينوى',
-    'كلية طب بغداد',
-    'كلية طب الكندي',
-    'كلية طب المستنصرية',
-    'كلية طب النهرين',
-    'كلية طب البصرة',
-    'كلية طب الكوفة',
-    'كلية طب كربلاء',
-    'كلية طب بابل',
-    'كلية طب ديالى',
-    'كلية طب كركوك',
-    'كلية طب الأنبار'
   ];
 
   @override

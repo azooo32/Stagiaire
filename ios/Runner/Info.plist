@@ -59,7 +59,6 @@
 		<false/>
 		<key>LSApplicationQueriesSchemes</key>
 		<array>
-			<string>tg</string>
 			<string>https</string>
 			<string>http</string>
 		</array>

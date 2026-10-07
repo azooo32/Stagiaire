@@ -1806,20 +1806,6 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = Provider.of<AppProvider>(context, listen: false);
-      final isLocked = !provider.isClinicalSubjectUnlockedByName(widget.subject);
-      if (isLocked) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'عذراً، هذه المادة العملية تتطلب اشتراكاً نشطاً.',
-              style: TextStyle(fontFamily: 'Cairo'),
-            ),
-            duration: Duration(seconds: 3),
-          ),
-        );
-        return;
-      }
       provider.loadClinicalData(widget.subject);
       // بدء Smart Polling بدلاً من Realtime WebSocket
       provider.startClinicalPolling(widget.subject);
@@ -1837,12 +1823,6 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
   Widget build(BuildContext context) {
     final provider = Provider.of<AppProvider>(context);
     final isTablet = MediaQuery.of(context).size.width > 600;
-    final isLocked = !provider.isClinicalSubjectUnlockedByName(widget.subject);
-    if (isLocked) {
-      return const Scaffold(
-        body: Center(child: LogoSpinner()),
-      );
-    }
 
     final double statusBarHeight = MediaQuery.of(context).padding.top;
     const Color brandColor = Color(0xFF6B4EFF);

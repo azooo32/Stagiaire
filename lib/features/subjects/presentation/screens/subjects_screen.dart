@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/models/subject.dart';
 import '../../../../core/providers/app_provider.dart';
@@ -158,7 +157,7 @@ class SubjectsScreen extends StatelessWidget {
     Color color,
     AppProvider provider,
   ) {
-    final total = subject.totalQuestions;
+    final total = provider.getSubjectQuestionCount(subject);
     final answered = provider.userAnswers.values
         .where((answer) => answer['subject'] == subject.name)
         .length;
@@ -172,75 +171,10 @@ class SubjectsScreen extends StatelessWidget {
       'Gynecology': 'Gynecology',
     };
     final displayName = displayNameMapping[subject.name] ?? subject.name;
-    final isLocked = !provider.isSubjectUnlocked(subject.id);
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () {
-        if (isLocked) {
-          showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              backgroundColor:
-                  provider.isDarkTheme ? AppColors.surface : Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
-              title: const Text(
-                'المادة مغلقة',
-                textAlign: TextAlign.center,
-                style:
-                    TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
-              ),
-              content: const Text(
-                'هذه المادة تتطلب اشتراكاً نشطاً للوصول إليها. يرجى التواصل مع الإدارة لتفعيل الاشتراك.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontFamily: 'Cairo'),
-              ),
-              actionsAlignment: MainAxisAlignment.spaceEvenly,
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'إغلاق',
-                    style: TextStyle(fontFamily: 'Cairo', color: Colors.grey),
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () async {
-                    final Uri url = Uri.parse('https://t.me/Subscribemoh');
-                    try {
-                      if (await canLaunchUrl(url)) {
-                        await launchUrl(url,
-                            mode: LaunchMode.externalApplication);
-                      } else {
-                        await launchUrl(url);
-                      }
-                    } catch (e) {
-                      print('Could not launch Telegram: $e');
-                    }
-                  },
-                  icon: const FaIcon(FontAwesomeIcons.telegram,
-                      size: 16, color: Colors.white),
-                  label: const Text(
-                    'تفعيل الاشتراك',
-                    style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF229ED9),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                  ),
-                ),
-              ],
-            ),
-          );
-          return;
-        }
         provider.selectSubject(subject.name);
         Navigator.push(
           context,
@@ -249,123 +183,99 @@ class SubjectsScreen extends StatelessWidget {
           ),
         );
       },
-      child: Stack(
-        children: [
-          Opacity(
-            opacity: isLocked ? 0.6 : 1.0,
-            child: Ink(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: provider.isDarkTheme ? AppColors.surface : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: provider.isDarkTheme
-                      ? AppColors.border
-                      : color.withValues(alpha: 0.12),
-                  width: 1.2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: provider.isDarkTheme
-                        ? Colors.black.withValues(alpha: 0.2)
-                        : color.withValues(alpha: 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(9),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: icon is FaIconData
-                        ? FaIcon(icon, color: color, size: 22)
-                        : Icon(icon as IconData, color: color, size: 22),
-                  ),
-                  const Spacer(),
-                  Text(
-                    displayName,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                      color: provider.isDarkTheme
-                          ? AppColors.text
-                          : const Color(0xFF1E293B),
-                      fontFamily: 'Cairo',
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    'سؤال $answered / $total',
-                    textAlign: TextAlign.center,
-                    textDirection: TextDirection.ltr,
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      color: provider.isDarkTheme
-                          ? AppColors.textMuted
-                          : const Color(0xFF64748B),
-                      fontWeight: FontWeight.w700,
-                      fontFamily: 'Cairo',
-                    ),
-                  ),
-                  const SizedBox(height: 9),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(5),
-                          child: LinearProgressIndicator(
-                            value: pct / 100,
-                            minHeight: 6,
-                            backgroundColor: provider.isDarkTheme
-                                ? AppColors.surface2
-                                : const Color(0xFFE8EAF2),
-                            valueColor: AlwaysStoppedAnimation<Color>(color),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$pct%',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: color,
-                          fontFamily: 'Inter',
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+      child: Ink(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: provider.isDarkTheme ? AppColors.surface : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: provider.isDarkTheme
+                ? AppColors.border
+                : color.withValues(alpha: 0.12),
+            width: 1.2,
           ),
-          if (isLocked)
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.lock_outline,
-                  color: Colors.white,
-                  size: 14,
-                ),
+          boxShadow: [
+            BoxShadow(
+              color: provider.isDarkTheme
+                  ? Colors.black.withValues(alpha: 0.2)
+                  : color.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(9),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: icon is FaIconData
+                  ? FaIcon(icon, color: color, size: 22)
+                  : Icon(icon as IconData, color: color, size: 22),
+            ),
+            const Spacer(),
+            Text(
+              displayName,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+                color: provider.isDarkTheme
+                    ? AppColors.text
+                    : const Color(0xFF1E293B),
+                fontFamily: 'Cairo',
               ),
             ),
-        ],
+            const SizedBox(height: 3),
+            Text(
+              'سؤال $answered / $total',
+              textAlign: TextAlign.center,
+              textDirection: TextDirection.ltr,
+              style: TextStyle(
+                fontSize: 10.5,
+                color: provider.isDarkTheme
+                    ? AppColors.textMuted
+                    : const Color(0xFF64748B),
+                fontWeight: FontWeight.w700,
+                fontFamily: 'Cairo',
+              ),
+            ),
+            const SizedBox(height: 9),
+            Row(
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(5),
+                    child: LinearProgressIndicator(
+                      value: pct / 100,
+                      minHeight: 6,
+                      backgroundColor: provider.isDarkTheme
+                          ? AppColors.surface2
+                          : const Color(0xFFE8EAF2),
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '$pct%',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    fontFamily: 'Inter',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

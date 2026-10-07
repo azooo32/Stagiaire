@@ -1403,9 +1403,91 @@ class AppProvider extends ChangeNotifier {
     }).toList();
   }
 
+  Map<String, int> _subjectQuestionCounts = {};
+  Map<String, int> get subjectQuestionCounts => _subjectQuestionCounts;
+
+  String _getSubjectCountsCacheKey() {
+    final user = currentUser;
+    final userStage = (userDetails?['stage'] ?? user?.userMetadata?['stage']) as String?;
+    final userUniv = (userDetails?['university'] ?? user?.userMetadata?['university']) as String?;
+    return 'sub_q_counts_${userStage ?? "all"}_${userUniv ?? "all"}';
+  }
+
+  /// Returns the exact count of questions for a subject tailored to the student's stage & university.
+  int getSubjectQuestionCount(Subject subject) {
+    if (_subjectQuestionCounts.containsKey(subject.name)) {
+      return _subjectQuestionCounts[subject.name]!;
+    }
+
+    final cacheKey = _cache.getQuestionsKey(subject.name);
+    final cachedQs = _cache.getCache(cacheKey) ?? _cache.getCacheAllowExpired(cacheKey);
+    if (cachedQs is List && cachedQs.isNotEmpty) {
+      final user = currentUser;
+      final userStage = (userDetails?['stage'] ?? user?.userMetadata?['stage']) as String?;
+      final userUniv = (userDetails?['university'] ?? user?.userMetadata?['university']) as String?;
+      int count = 0;
+      for (final q in cachedQs) {
+        if (q is Map) {
+          if (q['is_deleted'] == true) continue;
+          final stageMatch = matchesStage(q['stage']?.toString(), userStage);
+          final univMatch = matchesUniversity(q['university']?.toString(), userUniv);
+          if (stageMatch && univMatch) count++;
+        }
+      }
+      _subjectQuestionCounts[subject.name] = count;
+      return count;
+    }
+
+    return subject.totalQuestions;
+  }
+
+  void _loadSubjectQuestionCountsFromCache() {
+    final key = _getSubjectCountsCacheKey();
+    final cached = _cache.getCache(key) ?? _cache.getCacheAllowExpired(key);
+    if (cached is Map) {
+      _subjectQuestionCounts = Map<String, int>.from(
+        cached.map((k, v) => MapEntry(k.toString(), _safeIntVal(v))),
+      );
+    }
+  }
+
+  Future<void> _syncSubjectQuestionCounts() async {
+    _loadSubjectQuestionCountsFromCache();
+
+    final user = currentUser;
+    final userStage = (userDetails?['stage'] ?? user?.userMetadata?['stage']) as String?;
+    final userUniv = (userDetails?['university'] ?? user?.userMetadata?['university']) as String?;
+
+    try {
+      final response = await _supabase.client
+          .from('questions')
+          .select('subject, stage, university')
+          .or('is_deleted.eq.false,is_deleted.is.null');
+
+      final newCounts = <String, int>{};
+      for (final row in List<Map<String, dynamic>>.from(response)) {
+        final subject = row['subject']?.toString().trim();
+        if (subject == null || subject.isEmpty) continue;
+        final stageMatch = matchesStage(row['stage']?.toString(), userStage);
+        final univMatch = matchesUniversity(row['university']?.toString(), userUniv);
+        if (stageMatch && univMatch) {
+          newCounts[subject] = (newCounts[subject] ?? 0) + 1;
+        }
+      }
+
+      _subjectQuestionCounts = newCounts;
+      final key = _getSubjectCountsCacheKey();
+      await _cache.setCache(key, newCounts, CacheService.subjectsLifespan);
+      notifyListeners();
+    } catch (e) {
+      print('[AppProvider] Error syncing subject question counts: $e');
+    }
+  }
+
   /// Cache-first loader with background sync for regular subjects.
   Future<void> fetchSubjectsCacheFirst() async {
     const cacheKey = CacheService.keySubjects;
+    _loadSubjectQuestionCountsFromCache();
     final cached =
         _cache.getCache(cacheKey) ?? _cache.getCacheAllowExpired(cacheKey);
 
@@ -1415,10 +1497,12 @@ class AppProvider extends ChangeNotifier {
           .toList();
       notifyListeners();
       unawaited(_syncSubjectsFromNetwork(cacheKey));
+      unawaited(_syncSubjectQuestionCounts());
       return;
     }
 
     await _syncSubjectsFromNetwork(cacheKey);
+    await _syncSubjectQuestionCounts();
   }
 
   Future<void> _syncSubjectsFromNetwork(String cacheKey) async {
@@ -1434,7 +1518,10 @@ class AppProvider extends ChangeNotifier {
 
   /// تحديث فوري للمواد الدراسية (يُستدعى من Pull-to-Refresh).
   Future<void> refreshSubjects() async {
-    await _syncSubjectsFromNetwork(CacheService.keySubjects);
+    await Future.wait([
+      _syncSubjectsFromNetwork(CacheService.keySubjects),
+      _syncSubjectQuestionCounts(),
+    ]);
   }
 
   Future<void> addSubject(
@@ -1671,111 +1758,19 @@ class AppProvider extends ChangeNotifier {
   Set<int> _unlockedClinicalSubjectIds = {};
   Set<int> get unlockedClinicalSubjectIds => _unlockedClinicalSubjectIds;
 
-  bool isSubjectUnlocked(int id) {
-    if (isAdminOrOwner) return true;
-    return _unlockedSubjectIds.contains(id);
-  }
-
-  bool isClinicalSubjectUnlocked(int id) {
-    if (isAdminOrOwner) return true;
-    return _unlockedClinicalSubjectIds.contains(id);
-  }
-
-  bool isSubjectUnlockedByName(String subjectName) {
-    if (isAdminOrOwner) return true;
-    final subject = _subjects.firstWhere(
-      (s) => s.name.toLowerCase().trim() == subjectName.toLowerCase().trim(),
-      orElse: () =>
-          Subject(id: -1, name: '', description: '', totalQuestions: 0),
-    );
-    if (subject.id == -1) return true;
-    return _unlockedSubjectIds.contains(subject.id);
-  }
-
-  bool isClinicalSubjectUnlockedByName(String subjectName) {
-    if (isAdminOrOwner) return true;
-    final subject = _clinicalSubjects.firstWhere(
-      (s) => s.name.toLowerCase().trim() == subjectName.toLowerCase().trim(),
-      orElse: () =>
-          Subject(id: -1, name: '', description: '', totalQuestions: 0),
-    );
-    if (subject.id == -1) return true;
-    return _unlockedClinicalSubjectIds.contains(subject.id);
-  }
+  // Stagiaire is 100% free for all users: everything is unlocked
+  bool isSubjectUnlocked(int id) => true;
+  bool isClinicalSubjectUnlocked(int id) => true;
+  bool isSubjectUnlockedByName(String subjectName) => true;
+  bool isClinicalSubjectUnlockedByName(String subjectName) => true;
 
   Future<void> fetchUnlockedSubjects() async {
-    if (!_supabase.isAuthenticated) {
-      _unlockedSubjectIds = {};
-      _unlockedClinicalSubjectIds = {};
-      notifyListeners();
-      return;
-    }
-
-    try {
-      final scientificResponse = await _supabase.client
-          .from('accessible_subjects')
-          .select('subject_id');
-
-      _unlockedSubjectIds = List<Map<String, dynamic>>.from(scientificResponse)
-          .map((row) => row['subject_id'] as int)
-          .toSet();
-
-      final clinicalResponse = await _supabase.client
-          .from('accessible_clinical_subjects')
-          .select('clinical_subject_id');
-
-      _unlockedClinicalSubjectIds =
-          List<Map<String, dynamic>>.from(clinicalResponse)
-              .map((row) => row['clinical_subject_id'] as int)
-              .toSet();
-
-      await _cache.setCache(CacheService.keyUnlockedSubjects,
-          _unlockedSubjectIds.toList(), const Duration(days: 7));
-      await _cache.setCache(CacheService.keyUnlockedClinicalSubjects,
-          _unlockedClinicalSubjectIds.toList(), const Duration(days: 7));
-
-      notifyListeners();
-    } catch (e) {
-      print('Error fetching unlocked subjects from network: $e');
-      final cachedUnlocked =
-          _cache.getCache(CacheService.keyUnlockedSubjects) ??
-              _cache.getCacheAllowExpired(CacheService.keyUnlockedSubjects);
-      if (cachedUnlocked is List) {
-        _unlockedSubjectIds = List<int>.from(cachedUnlocked).toSet();
-      }
-
-      final cachedUnlockedClinical = _cache
-              .getCache(CacheService.keyUnlockedClinicalSubjects) ??
-          _cache.getCacheAllowExpired(CacheService.keyUnlockedClinicalSubjects);
-      if (cachedUnlockedClinical is List) {
-        _unlockedClinicalSubjectIds =
-            List<int>.from(cachedUnlockedClinical).toSet();
-      }
-      notifyListeners();
-    }
+    _unlockedSubjectIds = _subjects.map((s) => s.id).toSet();
+    _unlockedClinicalSubjectIds = _clinicalSubjects.map((s) => s.id).toSet();
+    notifyListeners();
   }
 
-  // --- Admin Subscriptions Management methods ---
-  Future<List<Map<String, dynamic>>> searchUsers(String query) =>
-      _supabase.searchUsers(query);
-  Future<List<Map<String, dynamic>>> getUserSubscriptions(String userId) =>
-      _supabase.getUserSubscriptions(userId);
-  Future<bool> addUserSubscription({
-    required String userId,
-    int? subjectId,
-    int? clinicalSubjectId,
-    required String status,
-    DateTime? expiresAt,
-  }) =>
-      _supabase.addUserSubscription(
-        userId: userId,
-        subjectId: subjectId,
-        clinicalSubjectId: clinicalSubjectId,
-        status: status,
-        expiresAt: expiresAt,
-      );
-  Future<bool> deleteUserSubscription(String subscriptionId) =>
-      _supabase.deleteUserSubscription(subscriptionId);
+
   Future<bool> updateUniversity(String newUniversity) async {
     final ok = await _supabase.updateUniversity(newUniversity);
     if (ok) {
@@ -2335,6 +2330,10 @@ class AppProvider extends ChangeNotifier {
     }).toList();
     _questions.sort((a, b) => a.id.compareTo(b.id));
 
+    _subjectQuestionCounts[subjectName] = _questions.length;
+    final countsCacheKey = _getSubjectCountsCacheKey();
+    unawaited(_cache.setCache(countsCacheKey, _subjectQuestionCounts, CacheService.subjectsLifespan));
+
     // Fetch titles ordering in background so UI renders questions immediately without waiting for network
     unawaited(fetchTitlesOrders(subjectName));
 
@@ -2724,6 +2723,18 @@ class AppProvider extends ChangeNotifier {
       _questions.removeWhere((q) => q.id == questionId);
       _practiceQuestions.removeWhere((q) => q.id == questionId);
       _userAnswers.remove(questionId.toString());
+
+      // Remove from local cache immediately so it does not reappear on reload
+      if (_selectedSubject != null) {
+        final cacheKey = 'questions_${_selectedSubject!}';
+        final cached = _cache.getCache(cacheKey);
+        if (cached != null) {
+          final raw = List<Map<String, dynamic>>.from(cached);
+          raw.removeWhere((q) => _safeIntVal(q['id']) == questionId);
+          await _cache.setCache(cacheKey, raw, CacheService.questionsLifespan);
+        }
+      }
+
       notifyListeners();
     }
     return success;

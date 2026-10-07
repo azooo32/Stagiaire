@@ -4688,6 +4688,7 @@ Suggested Correct Answer: "$correctText"
       'explanation': _explanationController.text.trim(),
       'title': finalTitle,
       'sub_title': finalSubTitle,
+      'total_answers': _optionControllers.length, // ✅ sync total_answers to prevent check_correct_answer constraint violation
     };
 
     for (int i = 0; i < _optionControllers.length; i++) {

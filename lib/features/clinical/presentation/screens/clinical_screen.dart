@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/models/subject.dart';
@@ -262,13 +261,9 @@ class ClinicalScreen extends StatelessWidget {
     final int pct = (progressFraction * 100).round();
     const Color brandColor = Color(0xFF6B4EFF);
 
-    final isLocked = category.subject != null && !provider.isClinicalSubjectUnlocked(category.subject!.id);
-
     return Stack(
       children: [
-        Opacity(
-          opacity: isLocked ? 0.6 : 1.0,
-          child: Container(
+        Container(
             decoration: BoxDecoration(
               color: provider.isDarkTheme ? AppColors.surface : Colors.white,
               borderRadius: BorderRadius.circular(22),
@@ -402,24 +397,6 @@ class ClinicalScreen extends StatelessWidget {
               ),
             ),
           ),
-        ),
-        if (isLocked)
-          Positioned(
-            top: 10,
-            right: 10,
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.lock_outline,
-                color: Colors.white,
-                size: 14,
-              ),
-            ),
-          ),
         if (provider.isAdminOrOwner && category.subject != null)
           Positioned(
             top: 10,
@@ -463,62 +440,6 @@ class ClinicalScreen extends StatelessWidget {
     ClinicalCategory category,
     AppProvider provider,
   ) {
-    final isLocked = category.subject != null && !provider.isClinicalSubjectUnlocked(category.subject!.id);
-    if (isLocked) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: provider.isDarkTheme ? AppColors.surface : Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text(
-            'المادة العملية مغلقة',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
-          ),
-          content: const Text(
-            'هذه المادة العملية تتطلب اشتراكاً نشطاً للوصول إليها. يرجى التواصل مع الإدارة لتفعيل الاشتراك.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontFamily: 'Cairo'),
-          ),
-          actionsAlignment: MainAxisAlignment.spaceEvenly,
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text(
-                'إغلاق',
-                style: TextStyle(fontFamily: 'Cairo', color: Colors.grey),
-              ),
-            ),
-            ElevatedButton.icon(
-              onPressed: () async {
-                final Uri url = Uri.parse('https://t.me/Subscribemoh');
-                try {
-                  if (await canLaunchUrl(url)) {
-                    await launchUrl(url, mode: LaunchMode.externalApplication);
-                  } else {
-                    await launchUrl(url);
-                  }
-                } catch (e) {
-                  print('Could not launch Telegram: $e');
-                }
-              },
-              icon: const FaIcon(FontAwesomeIcons.telegram, size: 16, color: Colors.white),
-              label: const Text(
-                'تفعيل الاشتراك',
-                style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF229ED9),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              ),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
     Navigator.push(
       context,
       MaterialPageRoute(

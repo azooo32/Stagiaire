@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/theme/colors.dart';
@@ -1304,69 +1303,14 @@ class HomeScreen extends StatelessWidget {
       if (subject == null) return const SizedBox.shrink();
       final FaIconData icon = getIconForSubject(subject);
       final String displayName = getDisplayName(subject.name);
-      final int total = subject.totalQuestions;
+      final int total = provider.getSubjectQuestionCount(subject);
       final int answered = answeredBySubject[subject.name] ?? 0;
       final int pot = total > 0 ? ((answered / total) * 100).round() : 0;
 
       final Color color = _HomePalette.accent(isDark);
-      final isLocked = !provider.isSubjectUnlocked(subject.id);
 
       return GestureDetector(
         onTap: () {
-          if (isLocked) {
-            showDialog(
-              context: context,
-              builder: (context) => AlertDialog(
-                backgroundColor: provider.isDarkTheme ? AppColors.surface : Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                title: const Text(
-                  'المادة مغلقة',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
-                ),
-                content: const Text(
-                  'هذه المادة تتطلب اشتراكاً نشطاً للوصول إليها. يرجى التواصل مع الإدارة لتفعيل الاشتراك.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontFamily: 'Cairo'),
-                ),
-                actionsAlignment: MainAxisAlignment.spaceEvenly,
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text(
-                      'إغلاق',
-                      style: TextStyle(fontFamily: 'Cairo', color: Colors.grey),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () async {
-                      final Uri url = Uri.parse('https://t.me/Subscribemoh');
-                      try {
-                        if (await canLaunchUrl(url)) {
-                          await launchUrl(url, mode: LaunchMode.externalApplication);
-                        } else {
-                          await launchUrl(url);
-                        }
-                      } catch (e) {
-                        print('Could not launch Telegram: $e');
-                      }
-                    },
-                    icon: const FaIcon(FontAwesomeIcons.telegram, size: 16, color: Colors.white),
-                    label: const Text(
-                      'تفعيل الاشتراك',
-                      style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF229ED9),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    ),
-                  ),
-                ],
-              ),
-            );
-            return;
-          }
           provider.selectSubject(subject.name);
           Navigator.push(
             context,
@@ -1376,11 +1320,7 @@ class HomeScreen extends StatelessWidget {
             ),
           );
         },
-        child: Stack(
-          children: [
-            Opacity(
-              opacity: isLocked ? 0.6 : 1.0,
-              child: Container(
+        child: Container(
                 height: effectiveHeight,
                 padding: EdgeInsets.symmetric(
                     horizontal: isTablet ? 16 : 11, vertical: isTablet ? 14 : 9),
@@ -1396,8 +1336,8 @@ class HomeScreen extends StatelessWidget {
                   boxShadow: [
                     BoxShadow(
                       color: isDark
-                          ? Colors.black.withValues(alpha: 0.16)
-                          : color.withValues(alpha: 0.02),
+                        ? Colors.black.withValues(alpha: 0.16)
+                        : color.withValues(alpha: 0.02),
                       blurRadius: 5,
                       offset: const Offset(0, 2),
                     ),
@@ -1437,7 +1377,7 @@ class HomeScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 0),
                               Text(
-                                '${subject.totalQuestions.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Questions',
+                                '${total.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Questions',
                                 style: TextStyle(
                                   color: color,
                                   fontSize: isTablet ? 12 : 10,
@@ -1477,28 +1417,8 @@ class HomeScreen extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
-            if (isLocked)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.lock_outline,
-                    color: Colors.white,
-                    size: 12,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      );
-    }
+            );
+          }
 
     final displaySubjects = provider.filteredSubjects;
 

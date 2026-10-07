@@ -14,10 +14,8 @@ class SupabaseService {
     final rawName = originalFileName.split('/').last.split('\\').last;
     final dotIndex = rawName.lastIndexOf('.');
     final rawExtension = dotIndex >= 0 ? rawName.substring(dotIndex + 1) : '';
-    final extension = rawExtension
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]'), '')
-        .trim();
+    final extension =
+        rawExtension.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '').trim();
     final safeExtension = extension.isEmpty ? 'bin' : extension;
     return '${DateTime.now().millisecondsSinceEpoch}.$safeExtension';
   }
@@ -75,9 +73,19 @@ class SupabaseService {
   }
 
   Future<void> deleteAccount() async {
-    await client.rpc('delete_user_account');
+    final uid = currentUser?.id;
+    try {
+      await client.rpc('delete_user_account');
+    } catch (e) {
+      print('delete_user_account RPC fallback: $e');
+      if (uid != null) {
+        try {
+          await client.from('users').delete().eq('id', uid);
+        } catch (_) {}
+      }
+    }
+    await signOut();
   }
-
 
   // Fetch user details from the 'users' table
   Future<Map<String, dynamic>?> getUserDetails() async {
@@ -411,7 +419,6 @@ class SupabaseService {
     }
   }
 
-
   // Get user progress row (answers, favorites, study_plan)
   Future<Map<String, dynamic>?> getUserProgress() async {
     final user = currentUser;
@@ -658,10 +665,13 @@ class SupabaseService {
     }
   }
 
-  // Delete a question from the backend (for administrators)
+  // Delete a question from the backend (for administrators) - uses soft-delete
   Future<bool> deleteQuestion(int questionId) async {
     try {
-      await client.from('questions').delete().eq('id', questionId);
+      await client.from('questions').update({
+        'is_deleted': true,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', questionId);
       return true;
     } catch (e) {
       print('Error deleting question from Supabase: $e');
@@ -728,7 +738,10 @@ class SupabaseService {
     }
   }
 
-  // Fetch questions of a subject that were updated after a specific timestamp
+  // Fetch questions of a subject that were updated at or after a specific timestamp.
+  // Using `gte` (>=) instead of `gt` (>) to avoid missing questions that share the
+  // exact same updated_at value as the cached maximum — a common scenario when many
+  // questions are batch-imported with the same timestamp.
   Future<List<Map<String, dynamic>>> getQuestionsUpdatedAfter(
       String subjectName, String timestamp) async {
     try {
@@ -736,7 +749,7 @@ class SupabaseService {
           .from('questions')
           .select('*')
           .inFilter('subject', _subjectMatchPatterns(subjectName))
-          .gt('updated_at', timestamp);
+          .gte('updated_at', timestamp);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       print('Error fetching updated questions: $e');
@@ -828,7 +841,8 @@ class SupabaseService {
   }) async {
     try {
       lastError = null;
-      final safeOriginalName = originalFileName.split('/').last.split('\\').last;
+      final safeOriginalName =
+          originalFileName.split('/').last.split('\\').last;
       final fileName = _safeStorageFileName(safeOriginalName);
       final storagePath = folder != null && folder.trim().isNotEmpty
           ? '${folder.trim().replaceAll(RegExp(r'^/+|/+$'), '')}/$fileName'
@@ -892,53 +906,7 @@ class SupabaseService {
     }
   }
 
-  // Get active subscriptions for a specific user
-  Future<List<Map<String, dynamic>>> getUserSubscriptions(String userId) async {
-    try {
-      final response = await client
-          .from('user_subscriptions')
-          .select('id, user_id, subject_id, clinical_subject_id, status, expires_at')
-          .eq('user_id', userId);
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      print('Error getting user subscriptions: $e');
-      return [];
-    }
-  }
 
-  // Add user subscription
-  Future<bool> addUserSubscription({
-    required String userId,
-    int? subjectId,
-    int? clinicalSubjectId,
-    required String status,
-    DateTime? expiresAt,
-  }) async {
-    try {
-      await client.from('user_subscriptions').insert({
-        'user_id': userId,
-        'subject_id': subjectId,
-        'clinical_subject_id': clinicalSubjectId,
-        'status': status,
-        'expires_at': expiresAt?.toIso8601String(),
-      });
-      return true;
-    } catch (e) {
-      print('Error adding user subscription: $e');
-      return false;
-    }
-  }
-
-  // Delete user subscription
-  Future<bool> deleteUserSubscription(String subscriptionId) async {
-    try {
-      await client.from('user_subscriptions').delete().eq('id', subscriptionId);
-      return true;
-    } catch (e) {
-      print('Error deleting user subscription: $e');
-      return false;
-    }
-  }
 
   // Get all university access rules
   Future<List<Map<String, dynamic>>> getUniversityAccessList() async {
@@ -993,7 +961,8 @@ class SupabaseService {
   }
 
   // Enforce session limit of 2 devices
-  Future<bool> registerOrUpdateSession(String userId, String deviceId, String deviceName) async {
+  Future<bool> registerOrUpdateSession(
+      String userId, String deviceId, String deviceName) async {
     try {
       final existing = await client
           .from('user_sessions')
@@ -1006,8 +975,8 @@ class SupabaseService {
         // Update last active
         await client
             .from('user_sessions')
-            .update({'last_active_at': DateTime.now().toIso8601String()})
-            .eq('id', existing['id']);
+            .update({'last_active_at': DateTime.now().toIso8601String()}).eq(
+                'id', existing['id']);
         return true;
       }
 
@@ -1022,7 +991,8 @@ class SupabaseService {
 
       if (sessionList.length >= 2) {
         // Delete oldest sessions to keep under 2
-        final toDeleteCount = sessionList.length - 1; // leave 1 slot so adding new makes it 2
+        final toDeleteCount =
+            sessionList.length - 1; // leave 1 slot so adding new makes it 2
         for (int i = 0; i < toDeleteCount; i++) {
           await client
               .from('user_sessions')
@@ -1060,8 +1030,8 @@ class SupabaseService {
       // Update last active
       await client
           .from('user_sessions')
-          .update({'last_active_at': DateTime.now().toIso8601String()})
-          .eq('id', existing['id']);
+          .update({'last_active_at': DateTime.now().toIso8601String()}).eq(
+              'id', existing['id']);
       return true;
     } catch (e) {
       print('Error in isSessionValid: $e');
@@ -1069,9 +1039,3 @@ class SupabaseService {
     }
   }
 }
-
-
-
-
-
-
