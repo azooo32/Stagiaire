@@ -655,6 +655,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final String fullName = userDetails?['name'] ??
         user?.userMetadata?['full_name'] ??
         'طالب ستاجير';
+    final String userEmail = user?.email ?? (userDetails?['email'] as String?) ?? '';
     final String university = userDetails?['university'] ??
         user?.userMetadata?['university'] ??
         'غير محدد';
@@ -756,7 +757,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       fontFamily: 'Cairo',
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
+                                  if (userEmail.isNotEmpty) ...[
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      userEmail,
+                                      textDirection: TextDirection.ltr,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: _ProfilePalette.muted(
+                                            provider.isDarkTheme),
+                                        fontSize: isTablet ? 15 : 12,
+                                        fontWeight: FontWeight.w600,
+                                        fontFamily: 'Inter',
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 6),
                                   // Subtitle points
                                   Text(
                                     '$solvedCount Solved Questions',
