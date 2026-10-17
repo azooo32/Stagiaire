@@ -48,32 +48,86 @@ class Subject {
   ///   3. univ only     "univ|"
   ///   4. global        "|"
   ///   5. totalQuestions
+  /// Returns the question count for a specific university+stage pair.
+  /// Sums all entries whose university and stage match the user's profile.
   int questionCountForStageAndUniv(String? userUniv, String? userStage) {
     if (stageQuestionCounts.isEmpty) return totalQuestions;
-    final u = (userUniv ?? '').trim();
-    final s = (userStage ?? '').trim();
+    final u = (userUniv ?? '').trim().toLowerCase();
+    final s = (userStage ?? '').trim().toLowerCase();
 
-    // 1. exact
-    final exact = stageQuestionCounts['$u|$s'];
-    if (exact != null) return exact;
-
-    // 2. stage only (univ-agnostic questions)
-    if (s.isNotEmpty) {
-      final stageOnly = stageQuestionCounts['|$s'];
-      if (stageOnly != null) return stageOnly;
+    // Direct single exact match fast-path
+    if (stageQuestionCounts.containsKey('${userUniv?.trim()}|${userStage?.trim()}')) {
+      final exact = stageQuestionCounts['${userUniv?.trim()}|${userStage?.trim()}'];
+      // If there are no other multi-stage keys, return exact directly
+      if (!stageQuestionCounts.keys.any((k) => k.contains(',') || k.contains('،'))) {
+        return exact ?? totalQuestions;
+      }
     }
 
-    // 3. univ only (stage-agnostic questions)
-    if (u.isNotEmpty) {
-      final univOnly = stageQuestionCounts['$u|'];
-      if (univOnly != null) return univOnly;
+    int matchedCount = 0;
+    bool foundAnyMatch = false;
+
+    for (final entry in stageQuestionCounts.entries) {
+      final parts = entry.key.split('|');
+      final entryUniv = parts.isNotEmpty ? parts[0].trim().toLowerCase() : '';
+      final entryStage = parts.length > 1 ? parts[1].trim().toLowerCase() : '';
+
+      final univMatches = _matchesTargetUniv(entryUniv, u);
+      final stageMatches = _matchesTargetStage(entryStage, s);
+
+      if (univMatches && stageMatches) {
+        matchedCount += entry.value;
+        foundAnyMatch = true;
+      }
     }
 
-    // 4. global
-    final global = stageQuestionCounts['|'];
-    if (global != null) return global;
-
+    if (foundAnyMatch) return matchedCount;
     return totalQuestions;
+  }
+
+  static bool _matchesTargetUniv(String targetUniv, String userUniv) {
+    if (targetUniv.isEmpty || userUniv.isEmpty) return true;
+    if (targetUniv == userUniv || targetUniv.contains(userUniv) || userUniv.contains(targetUniv)) {
+      return true;
+    }
+    final parts = targetUniv.split(RegExp(r'[,;/،]')).map((p) => p.trim());
+    for (final part in parts) {
+      if (part.isNotEmpty && (part == userUniv || part.contains(userUniv) || userUniv.contains(part))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _matchesTargetStage(String targetStage, String userStage) {
+    if (targetStage.isEmpty || userStage.isEmpty) return true;
+    if (targetStage == userStage || targetStage.contains(userStage) || userStage.contains(targetStage)) {
+      return true;
+    }
+
+    const stageKeywords = <int, List<String>>{
+      1: ['1', '1st', 'الأولى', 'الاولى', 'first'],
+      2: ['2', '2nd', 'الثانية', 'الثانيه', 'second'],
+      3: ['3', '3rd', 'الثالثة', 'الثالثه', 'third'],
+      4: ['4', '4th', 'الرابعة', 'الرابعه', 'fourth'],
+      5: ['5', '5th', 'الخامسة', 'الخامسه', 'fifth'],
+      6: ['6', '6th', 'السادسة', 'السادسه', 'sixth'],
+    };
+
+    int? userNum;
+    for (final entry in stageKeywords.entries) {
+      if (entry.value.any((k) => userStage.contains(k))) {
+        userNum = entry.key;
+        break;
+      }
+    }
+
+    if (userNum != null) {
+      final targetMatchesUserNum = stageKeywords[userNum]!.any((k) => targetStage.contains(k));
+      if (targetMatchesUserNum) return true;
+    }
+
+    return false;
   }
 
   Map<String, dynamic> toJson() => {
