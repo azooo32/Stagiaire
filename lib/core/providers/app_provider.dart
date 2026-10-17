@@ -1414,7 +1414,18 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// Returns the exact count of questions for a subject tailored to the student's stage & university.
+  /// Priority: JSONB stage_question_counts → local cached questions count → totalQuestions.
   int getSubjectQuestionCount(Subject subject) {
+    final user = currentUser;
+    final userStage = (userDetails?['stage'] ?? user?.userMetadata?['stage']) as String?;
+    final userUniv = (userDetails?['university'] ?? user?.userMetadata?['university']) as String?;
+
+    // ── 1. Use DB-maintained JSONB counts (fastest, no extra query needed) ──
+    if (subject.stageQuestionCounts.isNotEmpty) {
+      return subject.questionCountForStageAndUniv(userUniv, userStage);
+    }
+
+    // ── 2. Fall back: count from locally-cached questions ──
     if (_subjectQuestionCounts.containsKey(subject.name)) {
       return _subjectQuestionCounts[subject.name]!;
     }
@@ -1422,9 +1433,6 @@ class AppProvider extends ChangeNotifier {
     final cacheKey = _cache.getQuestionsKey(subject.name);
     final cachedQs = _cache.getCache(cacheKey) ?? _cache.getCacheAllowExpired(cacheKey);
     if (cachedQs is List && cachedQs.isNotEmpty) {
-      final user = currentUser;
-      final userStage = (userDetails?['stage'] ?? user?.userMetadata?['stage']) as String?;
-      final userUniv = (userDetails?['university'] ?? user?.userMetadata?['university']) as String?;
       int count = 0;
       for (final q in cachedQs) {
         if (q is Map) {
@@ -1438,8 +1446,10 @@ class AppProvider extends ChangeNotifier {
       return count;
     }
 
+    // ── 3. Last resort: raw total ──
     return subject.totalQuestions;
   }
+
 
   void _loadSubjectQuestionCountsFromCache() {
     final key = _getSubjectCountsCacheKey();
@@ -1735,11 +1745,31 @@ class AppProvider extends ChangeNotifier {
   Map<String, dynamic>? _userDetails;
   Map<String, dynamic>? get userDetails => _userDetails;
 
-  /// Update cached user details and notify listeners (e.g. after stage change)
+  /// Update cached user details and notify listeners (e.g. after stage or university change).
+  /// Clears the question-counts cache so Home recomputes counts for the new stage/university.
   void refreshUserDetails(Map<String, dynamic> details) {
+    final oldStage = _userDetails?['stage']?.toString();
+    final oldUniv  = _userDetails?['university']?.toString();
     _userDetails = details;
+
+    final newStage = details['stage']?.toString();
+    final newUniv  = details['university']?.toString();
+
+    // If stage or university changed → invalidate counts so Home reloads them
+    if (oldStage != newStage || oldUniv != newUniv) {
+      _subjectQuestionCounts.clear();
+      // Remove the old persisted counts key (it was keyed by old stage/univ)
+      if (oldStage != null || oldUniv != null) {
+        final oldKey = 'sub_q_counts_${oldStage ?? "all"}_${oldUniv ?? "all"}';
+        _cache.invalidateCache(oldKey);
+      }
+      // Re-sync counts in background for the new stage/univ
+      unawaited(_syncSubjectQuestionCounts());
+    }
+
     notifyListeners();
   }
+
 
   bool get isAdminOrOwner {
     if (_userRole == null) return false;
@@ -2350,6 +2380,28 @@ class AppProvider extends ChangeNotifier {
     final cacheKey = _cache.getQuestionsKey(subjectName);
     await _refreshSubjectQuestionsCache(subjectName, cacheKey);
     await fetchTitlesOrders(subjectName);
+  }
+
+  /// تحديث قوي (Hard Refresh) — يحذف الكاش الخاص بالمادة ويسحب كل الأسئلة من جديد.
+  /// يُستدعى من السحب الثاني. يرمي Exception في حال غياب الإنترنت.
+  Future<void> hardRefreshSubjectQuestions(String subjectName) async {
+    final cacheKey = _cache.getQuestionsKey(subjectName);
+
+    // حذف الكاش الخاص بهذه المادة فقط
+    await _cache.invalidateCache(cacheKey);
+    _questions = [];
+    _subjectQuestionCounts.remove(subjectName);
+    notifyListeners();
+
+    // سحب الأسئلة من الشبكة (سيرمي استثناء في حال لا إنترنت)
+    final rawQuestions = await _supabase
+        .getQuestions(subjectName)
+        .timeout(const Duration(seconds: 30));
+
+    await _cache.setCache(cacheKey, rawQuestions, CacheService.questionsLifespan);
+    await _applyQuestionsForSubject(subjectName, rawQuestions);
+    await fetchTitlesOrders(subjectName);
+    notifyListeners();
   }
 
   Map<String, int> _topicOrders = {};

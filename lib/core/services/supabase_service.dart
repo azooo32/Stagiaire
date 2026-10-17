@@ -251,8 +251,9 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getSubjects() async {
     final response = await client
         .from('subjects')
-        .select('id, name, description, total_questions, stage, university')
+        .select('id, name, description, total_questions, stage, university, stage_question_counts')
         .order('name');
+
     final subjects = List<Map<String, dynamic>>.from(response);
     if (subjects.isNotEmpty) return subjects;
 

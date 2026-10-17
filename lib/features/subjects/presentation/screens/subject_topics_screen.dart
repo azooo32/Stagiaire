@@ -25,6 +25,121 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
   List<String> _selectedSources = ['all'];
   bool _sourcesRestored = false;
 
+  // ── Double pull-to-refresh ──────────────────────────────────────────────
+  // First pull  → soft refresh (background delta sync, current behaviour)
+  // Second pull → hard refresh (clear subject cache + full re-fetch)
+  int _pullCount = 0;
+  DateTime? _lastPullTime;
+  static const Duration _pullResetWindow = Duration(seconds: 30);
+
+  Future<void> _onRefresh() async {
+    final provider = Provider.of<AppProvider>(context, listen: false);
+
+    // Reset counter if too much time passed since last pull
+    if (_lastPullTime != null &&
+        DateTime.now().difference(_lastPullTime!) > _pullResetWindow) {
+      _pullCount = 0;
+    }
+    _lastPullTime = DateTime.now();
+    _pullCount++;
+
+    if (_pullCount == 1) {
+      // ── First pull: soft refresh (existing behaviour) ──
+      await provider.refreshSubjectQuestions(widget.subjectName);
+      return;
+    }
+
+    // ── Second pull: hard refresh with confirmation dialog ──
+    _pullCount = 0; // reset for next cycle
+    if (!mounted) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final isDark = provider.isDarkTheme;
+        return AlertDialog(
+          backgroundColor:
+              isDark ? const Color(0xFF1E1B35) : Colors.white,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18)),
+          title: Text(
+            'تحديث كامل للمادة',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: isDark ? Colors.white : const Color(0xFF1E1E50),
+            ),
+          ),
+          content: Text(
+            'سيتم تحديث الصفحة بالكامل من الخادم.\nيرجى التأكد من اتصالك بالإنترنت.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 13,
+              color:
+                  isDark ? const Color(0xFFB8B3D6) : const Color(0xFF64748B),
+            ),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(
+                'إلغاء',
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  color: isDark
+                      ? const Color(0xFFB8B3D6)
+                      : const Color(0xFF64748B),
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6B4EFF),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'تحديث',
+                style: TextStyle(
+                    fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Hard-clear cache for this subject then full reload
+    try {
+      await provider.hardRefreshSubjectQuestions(widget.subjectName);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'لا يوجد اتصال بالإنترنت. لم يتم التحديث.',
+              style: TextStyle(fontFamily: 'Cairo'),
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    }
+  }
+  // ───────────────────────────────────────────────────────────────────────
+
   int _compareTopics(String a, String b, Map<String, int> topicOrders) {
     final orderA = topicOrders[a];
     final orderB = topicOrders[b];
@@ -1144,8 +1259,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                     ? AppColors.surface
                                     : Colors.white,
                                 displacement: 20,
-                                onRefresh: () => provider.refreshSubjectQuestions(
-                                    widget.subjectName),
+                                onRefresh: _onRefresh,
                                 child: topicsGroup.isEmpty
                                     ? ListView(
                                         physics:
