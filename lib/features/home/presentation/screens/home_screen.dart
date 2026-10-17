@@ -1304,7 +1304,7 @@ class HomeScreen extends StatelessWidget {
       if (subject == null) return const SizedBox.shrink();
       final FaIconData icon = getIconForSubject(subject);
       final String displayName = getDisplayName(subject.name);
-      final int total = subject.totalQuestions;
+      final int total = provider.getSubjectQuestionCount(subject);
       final int answered = answeredBySubject[subject.name] ?? 0;
       final int pot = total > 0 ? ((answered / total) * 100).round() : 0;
 
@@ -1396,8 +1396,8 @@ class HomeScreen extends StatelessWidget {
                   boxShadow: [
                     BoxShadow(
                       color: isDark
-                          ? Colors.black.withValues(alpha: 0.16)
-                          : color.withValues(alpha: 0.02),
+                        ? Colors.black.withValues(alpha: 0.16)
+                        : color.withValues(alpha: 0.02),
                       blurRadius: 5,
                       offset: const Offset(0, 2),
                     ),
@@ -1437,7 +1437,7 @@ class HomeScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 0),
                               Text(
-                                '${subject.totalQuestions.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Questions',
+                                '${total.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},')} Questions',
                                 style: TextStyle(
                                   color: color,
                                   fontSize: isTablet ? 12 : 10,

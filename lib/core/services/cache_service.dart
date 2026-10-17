@@ -128,7 +128,8 @@ class CacheService {
   static const String keyTitles = 'all_titles';
   static const String keyLeaderboard = 'leaderboard';
   static const String keyUnlockedSubjects = 'unlocked_subjects';
-  static const String keyUnlockedClinicalSubjects = 'unlocked_clinical_subjects';
+  static const String keyUnlockedClinicalSubjects =
+      'unlocked_clinical_subjects';
 
   String getQuestionsKey(String subject) =>
       'questions_${subject.trim().toLowerCase()}';

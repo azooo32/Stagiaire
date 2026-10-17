@@ -149,8 +149,8 @@ class Question {
     final List<String> parsedOptions = [];
     if (json['options'] != null) {
       if (json['options'] is List) {
-        parsedOptions.addAll(
-            (json['options'] as List).map((e) => e?.toString() ?? ''));
+        parsedOptions
+            .addAll((json['options'] as List).map((e) => e?.toString() ?? ''));
       }
     } else {
       // Read dynamic answer columns from answer_1 to answer_11
@@ -213,8 +213,11 @@ class Question {
       correct: correctAnswerVal,
       explanation: json['explanation']?.toString() ?? '',
       subject: json['subject']?.toString() ?? '',
-      topic: json['title']?.toString() ?? json['topic']?.toString() ?? 'غير محدد',
-      subTopic: json['sub_title']?.toString() ?? json['subtopic']?.toString() ?? 'غير محدد',
+      topic:
+          json['title']?.toString() ?? json['topic']?.toString() ?? 'غير محدد',
+      subTopic: json['sub_title']?.toString() ??
+          json['subtopic']?.toString() ??
+          'غير محدد',
       ref: json['ref']?.toString() ?? '',
       audioUrl: json['audio_url']?.toString(),
       audioDurationSeconds: _safeInt(json['audio_duration_seconds']),

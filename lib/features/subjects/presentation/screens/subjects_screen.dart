@@ -158,7 +158,7 @@ class SubjectsScreen extends StatelessWidget {
     Color color,
     AppProvider provider,
   ) {
-    final total = subject.totalQuestions;
+    final total = provider.getSubjectQuestionCount(subject);
     final answered = provider.userAnswers.values
         .where((answer) => answer['subject'] == subject.name)
         .length;
