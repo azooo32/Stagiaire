@@ -118,7 +118,7 @@ class ReportService {
       await supabase
           .from('question_reports')
           .update({'is_read': true})
-          .filter('id', 'in', reportIds);
+          .inFilter('id', reportIds);
     } catch (e) {
       // Ignore batch error or retry individually
       for (final id in reportIds) {
