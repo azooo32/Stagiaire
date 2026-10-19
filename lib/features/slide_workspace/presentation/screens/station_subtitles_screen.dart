@@ -457,7 +457,13 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         }
 
         // Pre-render Page 1 & page sizes if not cached yet for 0ms workspace launch
+        final cacheVersionFile = File('${pdfCacheDir.path}/cache_version_v2.txt');
         final page1File = File('${pdfCacheDir.path}/page_1.jpg');
+        if (!cacheVersionFile.existsSync() && page1File.existsSync()) {
+          try {
+            page1File.deleteSync();
+          } catch (_) {}
+        }
         if (!page1File.existsSync()) {
           final pdfDoc = await PdfDocument.openFile(tmpPath);
           final count = pdfDoc.pagesCount;
@@ -466,15 +472,16 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
             final p1 = await pdfDoc.getPage(1);
             pageSizes['1'] = {'w': p1.width, 'h': p1.height};
             final img = await p1.render(
-              width: p1.width * 2.2,
-              height: p1.height * 2.2,
+              width: p1.width * 3.5,
+              height: p1.height * 3.5,
               format: PdfPageImageFormat.jpeg,
               backgroundColor: '#FFFFFF',
-              quality: 92,
+              quality: 96,
             );
             await p1.close();
             if (img != null && img.bytes.isNotEmpty) {
               await page1File.writeAsBytes(img.bytes, flush: true);
+              await cacheVersionFile.writeAsString('v2_hires');
             }
             await File('${pdfCacheDir.path}/page_sizes.json')
                 .writeAsString(jsonEncode(pageSizes));

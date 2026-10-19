@@ -535,6 +535,29 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       }
       _cacheDirPath = cacheDir.path;
 
+      // Ensure cache is upgraded to crisp high-res base (v2)
+      final cacheVersionFile = File('$_cacheDirPath/cache_version_v2.txt');
+      if (!await cacheVersionFile.exists()) {
+        try {
+          if (await cacheDir.exists()) {
+            final entities = cacheDir.listSync();
+            for (final entity in entities) {
+              final fileName = entity.uri.pathSegments.isNotEmpty
+                  ? entity.uri.pathSegments.lastWhere((s) => s.isNotEmpty, orElse: () => '')
+                  : '';
+              if (fileName.startsWith('page_') && fileName.endsWith('.jpg')) {
+                try {
+                  entity.deleteSync();
+                } catch (_) {}
+              }
+            }
+          }
+          await cacheVersionFile.writeAsString('v2_hires');
+        } catch (e) {
+          debugPrint('Error upgrading PDF cache to hi-res: $e');
+        }
+      }
+
       // Fast-load cached page dimensions if available
       final pageSizesFile = File('$_cacheDirPath/page_sizes.json');
       if (await pageSizesFile.exists()) {
@@ -1115,11 +1138,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       final page = await _pdfDocument!.getPage(pageNum);
       _pageSizes[pageNum] = Size(page.width, page.height);
       final img = await page.render(
-        width: page.width * 2.2,   // Fast 2.2x base DPI (hi-res system handles zoom)
-        height: page.height * 2.2,
+        width: page.width * 3.5,   // Crisp 3.5x base DPI for sharp text even without zooming
+        height: page.height * 3.5,
         format: PdfPageImageFormat.jpeg,
         backgroundColor: '#FFFFFF',
-        quality: 90,
+        quality: 96,
       );
       await page.close();
 
@@ -1218,8 +1241,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       return;
     }
 
-    // Render DPI = zoom * 2.0, clamped between 3.5x and 7.0x PDF points
-    final renderScale = (scale * 2.0).clamp(3.5, 7.0);
+    // Render DPI = zoom * 2.5, clamped between 4.0x and 8.0x PDF points
+    final renderScale = (scale * 2.5).clamp(4.0, 8.0);
     _renderingHiResPages.add(pageNum);
     try {
       final page = await _pdfDocument!.getPage(pageNum);
@@ -1228,7 +1251,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         height: page.height * renderScale,
         format: PdfPageImageFormat.jpeg,
         backgroundColor: '#FFFFFF',
-        quality: 96,
+        quality: 98,
       );
       await page.close();
       if (img != null && img.bytes.isNotEmpty && mounted) {
