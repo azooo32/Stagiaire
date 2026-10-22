@@ -108,13 +108,32 @@ class _SplashScreenState extends State<SplashScreen> {
     final c = _controller;
     return Scaffold(
       backgroundColor: _bgColor,
-      body: Center(
-        child: c != null && c.value.isInitialized
-            ? AspectRatio(
-                aspectRatio: c.value.aspectRatio,
+      body: LayoutBuilder(
+        builder: (context, box) {
+          if (c == null || !c.value.isInitialized) {
+            return const SizedBox.shrink();
+          }
+          // Fill the screen as much as possible without cropping the logo:
+          // scale up toward "cover", capped at 1.25x "contain" so tall phones
+          // never cut the sides and iPads/wide screens stay centered.
+          final vw = c.value.size.width;
+          final vh = c.value.size.height;
+          final sx = box.maxWidth / vw;
+          final sy = box.maxHeight / vh;
+          final contain = sx < sy ? sx : sy;
+          final cover = sx > sy ? sx : sy;
+          final capped = contain * 1.25;
+          final scale = cover < capped ? cover : capped;
+          return ClipRect(
+            child: Center(
+              child: SizedBox(
+                width: vw * scale,
+                height: vh * scale,
                 child: VideoPlayer(c),
-              )
-            : const SizedBox.shrink(),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
