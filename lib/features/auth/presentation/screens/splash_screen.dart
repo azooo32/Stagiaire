@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/services/supabase_service.dart';
 import '../../../../core/services/security_service.dart';
-import 'package:video_player/video_player.dart';
+import '../../../../core/widgets/app_loader.dart';
 import '../../../../main_navigation_shell.dart';
 import 'login_screen.dart';
 import 'onboarding_screen.dart';
@@ -16,52 +16,44 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
-  static const _bgColor = Color(0xFF6C4EFF);
-  VideoPlayerController? _controller;
-  bool _navigated = false;
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  bool _showBrandOnly = true;
 
   @override
   void initState() {
     super.initState();
-    _initVideo();
-    // Safety net: never block the app if the video fails or stalls.
-    Timer(const Duration(seconds: 8), _navigateToNext);
-  }
 
-  Future<void> _initVideo() async {
-    final controller = VideoPlayerController.asset('assets/video/logo_full.mp4');
-    _controller = controller;
-    try {
-      await controller.initialize();
-      if (!mounted) return;
-      controller.addListener(_onVideoTick);
-      setState(() {});
-      await controller.play();
-    } catch (_) {
-      _navigateToNext();
-    }
-  }
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
 
-  void _onVideoTick() {
-    final v = _controller?.value;
-    if (v == null) return;
-    if (v.hasError ||
-        (v.isInitialized && !v.isPlaying && v.position >= v.duration)) {
-      _navigateToNext();
-    }
+    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.0, 0.7, curve: Curves.easeOutBack),
+      ),
+    );
+
+    _animationController.forward();
+
+    Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _showBrandOnly = false);
+    });
+    Timer(const Duration(milliseconds: 3300), _navigateToNext);
   }
 
   @override
   void dispose() {
-    _controller?.removeListener(_onVideoTick);
-    _controller?.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 
   Future<void> _navigateToNext() async {
-    if (!mounted || _navigated) return;
-    _navigated = true;
+    if (!mounted) return;
 
     // فحص أمان الجهاز: حظر الأجهزة المروّتة لحماية المحتوى
     if (SecurityService.isDeviceRooted) {
@@ -105,17 +97,59 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final c = _controller;
     return Scaffold(
-      backgroundColor: _bgColor,
-      body: Center(
-        child: c != null && c.value.isInitialized
-            ? AspectRatio(
-                aspectRatio: c.value.aspectRatio,
-                child: VideoPlayer(c),
-              )
-            : const SizedBox.shrink(),
+      backgroundColor:
+          Colors.white, // Blends seamlessly with the logo's white background
+      body: Stack(
+        children: [
+          // Background subtle design pattern or solid white
+          Positioned.fill(
+            child: Container(
+              color: Colors.white,
+            ),
+          ),
+
+          Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 350),
+              child: _showBrandOnly
+                  ? Image.asset(
+                      'assets/app_logo.png',
+                      key: const ValueKey('native-logo'),
+                      width: 118,
+                      height: 118,
+                      fit: BoxFit.contain,
+                    )
+                  : Column(
+                      key: const ValueKey('loading-logo'),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ScaleTransition(
+                          scale: _scaleAnimation,
+                          child: Image.asset(
+                            'assets/file_00000000985c71f481237896d57282a1.png',
+                            width: 190,
+                            height: 190,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                        const SizedBox(height: 26),
+                        const MiniSpinner(
+                          size: 24,
+                          color: Color(0xFF6B4EFF),
+                          strokeWidth: 2.5,
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
+
+
+
+
+
