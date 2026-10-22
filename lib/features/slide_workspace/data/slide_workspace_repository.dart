@@ -55,6 +55,7 @@ abstract class SlideWorkspaceRepository {
   Future<WorkspaceSlide> setSlideHidden(String slideId, bool isHidden);
   Future<void> reorderSlides(String stationId, List<WorkspaceSlide> slides);
   Future<void> reorderSubtitles(String stationId, List<String> orderedSubtitles);
+  Future<void> reorderStationItems(String stationId, List<Map<String, dynamic>> orderedItems);
   Future<void> saveSlideStrokes(String slideId, List<WorkspaceObject> strokes,
       {bool isExamMode = false});
   Future<void> saveLastOpenedSlide(String stationId, String slideId);
@@ -487,8 +488,9 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
     final previousMetadata =
         Map<String, dynamic>.from(existingSlide['metadata'] ?? {});
 
-    if (uploadedImageUrl != null)
+    if (uploadedImageUrl != null) {
       previousMetadata['image_url'] = uploadedImageUrl;
+    }
     if (uploadedAudioUrl != null) {
       if (uploadedAudioUrl == 'clear_audio') {
         previousMetadata.remove('audio_url');
@@ -756,9 +758,17 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
 
     final existingSlides = await _supabase.client
         .from('slides')
-        .select('id')
+        .select('id, subtitle_index, slide_index')
         .eq('station_id', stationId);
-    final nextIndex = (existingSlides as List).length + 1;
+    final rows = List<Map<String, dynamic>>.from(existingSlides as List);
+    final maxSlideIndex = rows
+        .map((r) => (r['slide_index'] as num?)?.toInt() ?? 0)
+        .fold<int>(0, (m, v) => v > m ? v : m);
+    final maxSubtitleIndex = rows
+        .map((r) => (r['subtitle_index'] as num?)?.toInt() ?? 0)
+        .fold<int>(0, (m, v) => v > m ? v : m);
+    final nextSlideIndex = maxSlideIndex + 1;
+    final nextSubtitleIndex = maxSubtitleIndex + 1;
 
     final inserted = await _supabase.client
         .from('slides')
@@ -767,8 +777,8 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
           'title': title,
           'subtitle': '',
           'pdf_url': pdfUrl,
-          'slide_index': nextIndex,
-          'subtitle_index': 1,
+          'slide_index': nextSlideIndex,
+          'subtitle_index': nextSubtitleIndex,
           'subtitle_slide_index': 1,
           'questions': [],
         })
@@ -1020,6 +1030,110 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
 
       // 3. Call the RPC to re-align slide_index values sequentially
       await _reorderStationSlides(stationId);
+    });
+  }
+
+  @override
+  Future<void> reorderStationItems(
+    String stationId,
+    List<Map<String, dynamic>> orderedItems,
+  ) async {
+    if (orderedItems.isEmpty) return;
+
+    await _runStationExclusive(stationId, () async {
+      // 1. Fetch all active slides for this station
+      final allSlides = await _supabase.client
+          .from('slides')
+          .select('id, subtitle, pdf_url, subtitle_index, subtitle_slide_index, slide_index')
+          .eq('station_id', stationId)
+          .eq('is_active', true)
+          .order('subtitle_slide_index', ascending: true)
+          .order('slide_index', ascending: true);
+
+      final rows = List<Map<String, dynamic>>.from(allSlides);
+      if (rows.isEmpty) return;
+
+      final List<Map<String, dynamic>> plannedUpdates = [];
+
+      for (var i = 0; i < orderedItems.length; i++) {
+        final item = orderedItems[i];
+        final type = (item['type'] ?? '').toString();
+        final targetSubtitleIndex = i + 1;
+
+        if (type == 'pdf') {
+          final pdfId = (item['id'] ?? '').toString();
+          final matchingRow = rows.firstWhere(
+            (r) => r['id'].toString() == pdfId,
+            orElse: () => <String, dynamic>{},
+          );
+          if (matchingRow.isNotEmpty) {
+            plannedUpdates.add({
+              'id': matchingRow['id'],
+              'target_subtitle_index': targetSubtitleIndex,
+              'target_subtitle_slide_index': 1,
+            });
+          }
+        } else {
+          final sub = (item['subtitle'] ?? '').toString();
+          final targetSub = sub == 'General' ? '' : sub;
+          final groupRows = rows.where((r) {
+            final pdfUrl = (r['pdf_url'] as String?)?.trim() ?? '';
+            if (pdfUrl.isNotEmpty) return false;
+            final rawSub = (r['subtitle'] ?? '').toString();
+            final normalized = rawSub.trim().isEmpty ? '' : rawSub.trim();
+            return normalized.toLowerCase() == targetSub.trim().toLowerCase();
+          }).toList();
+
+          for (var j = 0; j < groupRows.length; j++) {
+            plannedUpdates.add({
+              'id': groupRows[j]['id'],
+              'target_subtitle_index': targetSubtitleIndex,
+              'target_subtitle_slide_index': j + 1,
+            });
+          }
+        }
+      }
+
+      // Add any remaining active slides that were not in orderedItems
+      final plannedIds = plannedUpdates.map((u) => u['id'].toString()).toSet();
+      var fallbackSubIndex = orderedItems.length + 1;
+      for (final r in rows) {
+        if (!plannedIds.contains(r['id'].toString())) {
+          plannedUpdates.add({
+            'id': r['id'],
+            'target_subtitle_index': fallbackSubIndex++,
+            'target_subtitle_slide_index': 1,
+          });
+        }
+      }
+
+      // Sort planned updates by target_subtitle_index ASC, target_subtitle_slide_index ASC
+      plannedUpdates.sort((a, b) {
+        final c1 = (a['target_subtitle_index'] as int)
+            .compareTo(b['target_subtitle_index'] as int);
+        if (c1 != 0) return c1;
+        return (a['target_subtitle_slide_index'] as int)
+            .compareTo(b['target_subtitle_slide_index'] as int);
+      });
+
+      // 2. Phase 1: assign temporary unique negative subtitle_index and slide_index
+      for (var k = 0; k < plannedUpdates.length; k++) {
+        final update = plannedUpdates[k];
+        await _supabase.client.from('slides').update({
+          'subtitle_index': -(k + 1),
+          'slide_index': -(k + 1),
+        }).eq('id', update['id']);
+      }
+
+      // 3. Phase 2: assign clean positive target values
+      for (var k = 0; k < plannedUpdates.length; k++) {
+        final update = plannedUpdates[k];
+        await _supabase.client.from('slides').update({
+          'subtitle_index': update['target_subtitle_index'],
+          'subtitle_slide_index': update['target_subtitle_slide_index'],
+          'slide_index': k + 1,
+        }).eq('id', update['id']);
+      }
     });
   }
 

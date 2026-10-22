@@ -1,5 +1,5 @@
 class AppConfig {
-  static const int currentVersionCode = 58;
-  static const String currentVersionName = '1.0.0+58';
+  static const int currentVersionCode = 60;
+  static const String currentVersionName = '1.0.0+60';
   static const String appName = 'Stagiaire';
 }
