@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -123,8 +124,6 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
   // The current range comes directly from Flutter's SelectableText. We do
   // not derive it from pointer coordinates: RenderParagraph owns hit testing,
   // transforms, viewport changes, bidi layout, and text scaling.
-  TextFormatRange? _nativeSelectionRange;
-  bool _selectionCommitScheduled = false;
 
   List<Map<String, dynamic>> _images = [];
   final Map<int, List<Map<String, dynamic>>> _questionImagesCache = {};
@@ -175,8 +174,6 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
       _images = [];
       _activeAudioQuestionId = null;
       _revealedAudioHighlightIndices.clear();
-      _nativeSelectionRange = null;
-      _selectionCommitScheduled = false;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -1719,33 +1716,50 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                     ),
                                   ),
                                   child: _isHighlightMode || _isEraserMode
-                                      ? Listener(
-                                          // SelectableText performs the only
-                                          // hit test. This listener only
-                                          // commits its native selection when
-                                          // the gesture ends; it never maps a
-                                          // pointer position into text.
-                                          onPointerDown: (_) =>
-                                              _nativeSelectionRange = null,
-                                          onPointerUp: (_) =>
-                                              _scheduleNativeSelectionCommit(
-                                            questionId: q.id,
-                                            text: q.text,
-                                            highlights: highlights,
-                                          ),
-                                          onPointerCancel: (_) =>
-                                              _nativeSelectionRange = null,
-                                          child: _buildRichTextWithHighlights(
+                                      ? _BrushSelectableText(
+                                          // Touch/pen drag picks whole words by
+                                          // character offset, so the saved
+                                          // highlight is a position range and
+                                          // never matches the same word
+                                          // elsewhere in the text.
+                                          text: q.text,
+                                          previewEnabled: _isHighlightMode,
+                                          onCommit: (start, end) {
+                                            final selected = TextFormatRange(
+                                                start: start,
+                                                end: end,
+                                                text: '');
+                                            if (_isHighlightMode) {
+                                              _saveNativeHighlightRange(
+                                                questionId: q.id,
+                                                text: q.text,
+                                                highlights: highlights,
+                                                selected: selected,
+                                              );
+                                            } else {
+                                              _eraseNativeHighlightRange(
+                                                questionId: q.id,
+                                                text: q.text,
+                                                highlights: highlights,
+                                                selected: selected,
+                                              );
+                                            }
+                                          },
+                                          builder: (previewTokens) =>
+                                              _buildRichTextWithHighlights(
                                             q.text,
-                                            questionHighlights,
+                                            [
+                                              ...questionHighlights,
+                                              ...previewTokens,
+                                            ],
                                             fontSize,
                                             textColor: textColor,
                                             textAlign: questionTextAlign,
                                             textDirection:
                                                 questionTextDirection,
-                                            onSelectionChanged:
-                                                _recordNativeSelection,
+                                            isSelectable: false,
                                           ),
+                                          encodeRange: _encodeTouchRange,
                                         )
                                       : SelectionArea(
                                           child: _buildRichTextWithHighlights(
@@ -2776,56 +2790,6 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
   // at once. Instead, "punch a hole" the size of the touched word out
   // of whichever saved range(s) it overlaps, and keep the remaining
   // left/right portions as their own ranges.
-  void _recordNativeSelection(
-      TextSelection selection, SelectionChangedCause? cause) {
-    if (selection.isCollapsed) {
-      _nativeSelectionRange = null;
-      return;
-    }
-
-    _nativeSelectionRange = TextFormatRange(
-      start: selection.start,
-      end: selection.end,
-      text: '',
-    );
-  }
-
-  void _scheduleNativeSelectionCommit({
-    required int questionId,
-    required String text,
-    required List<String> highlights,
-  }) {
-    if (_selectionCommitScheduled) return;
-    _selectionCommitScheduled = true;
-
-    // The selectable render object completes its final selection update in
-    // this input frame. This is coordinate-free for touch, pencil, mouse,
-    // and trackpad input alike.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _selectionCommitScheduled = false;
-      if (!mounted) return;
-      final selected = _nativeSelectionRange;
-      _nativeSelectionRange = null;
-      if (selected == null || selected.start >= selected.end) return;
-
-      if (_isHighlightMode) {
-        _saveNativeHighlightRange(
-          questionId: questionId,
-          text: text,
-          highlights: highlights,
-          selected: selected,
-        );
-      } else if (_isEraserMode) {
-        _eraseNativeHighlightRange(
-          questionId: questionId,
-          text: text,
-          highlights: highlights,
-          selected: selected,
-        );
-      }
-    });
-  }
-
   void _saveNativeHighlightRange({
     required int questionId,
     required String text,
@@ -4811,5 +4775,109 @@ class _QuestionGlowPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _QuestionGlowPainter oldDelegate) {
     return oldDelegate.color != color;
+  }
+}
+
+/// Drag-to-highlight surface: maps a touch/pen position to a character offset
+/// in the paragraph, snaps it to word boundaries and reports one [start, end)
+/// range when the gesture ends.
+class _BrushSelectableText extends StatefulWidget {
+  final String text;
+  final bool previewEnabled;
+  final void Function(int start, int end) onCommit;
+  final Widget Function(List<String> previewTokens) builder;
+  final String Function(int start, int end) encodeRange;
+
+  const _BrushSelectableText({
+    required this.text,
+    required this.previewEnabled,
+    required this.onCommit,
+    required this.builder,
+    required this.encodeRange,
+  });
+
+  @override
+  State<_BrushSelectableText> createState() => _BrushSelectableTextState();
+}
+
+class _BrushSelectableTextState extends State<_BrushSelectableText> {
+  final GlobalKey _key = GlobalKey();
+  int? _start;
+  int? _end;
+
+  RenderParagraph? _findParagraph() {
+    RenderParagraph? found;
+    void visit(RenderObject node) {
+      if (found != null) return;
+      if (node is RenderParagraph) {
+        found = node;
+        return;
+      }
+      node.visitChildren(visit);
+    }
+
+    final root = _key.currentContext?.findRenderObject();
+    if (root != null) visit(root);
+    return found;
+  }
+
+  TextRange? _wordAt(Offset globalPosition) {
+    final paragraph = _findParagraph();
+    if (paragraph == null || widget.text.isEmpty) return null;
+    final local = paragraph.globalToLocal(globalPosition);
+    final pos = paragraph.getPositionForOffset(local);
+    final offset = pos.offset.clamp(0, widget.text.length - 1).toInt();
+    final word = paragraph.getWordBoundary(TextPosition(offset: offset));
+    if (word.isCollapsed) return TextRange(start: offset, end: offset + 1);
+    return word;
+  }
+
+  void _extend(Offset globalPosition) {
+    final word = _wordAt(globalPosition);
+    if (word == null) return;
+    setState(() {
+      _start = _start == null
+          ? word.start
+          : (word.start < _start! ? word.start : _start);
+      _end = _end == null ? word.end : (word.end > _end! ? word.end : _end);
+    });
+  }
+
+  void _finish() {
+    final start = _start;
+    final end = _end;
+    setState(() {
+      _start = null;
+      _end = null;
+    });
+    if (start != null && end != null && end > start) {
+      widget.onCommit(start, end);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final start = _start;
+    final end = _end;
+    final preview = widget.previewEnabled && start != null && end != null
+        ? [widget.encodeRange(start, end)]
+        : const <String>[];
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (d) => _extend(d.globalPosition),
+      onTapUp: (_) => _finish(),
+      onTapCancel: () => setState(() {
+        _start = null;
+        _end = null;
+      }),
+      onPanStart: (d) => _extend(d.globalPosition),
+      onPanUpdate: (d) => _extend(d.globalPosition),
+      onPanEnd: (_) => _finish(),
+      onPanCancel: () => setState(() {
+        _start = null;
+        _end = null;
+      }),
+      child: KeyedSubtree(key: _key, child: widget.builder(preview)),
+    );
   }
 }
