@@ -912,7 +912,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12)),
                             ),
-                            icon: const Icon(Icons.add_to_photos_rounded, size: 20),
+                            icon: const Icon(Icons.view_carousel_outlined, size: 20),
                             label: const Text(
                               'إضافة شريحة جديدة',
                               style: TextStyle(
@@ -1034,7 +1034,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                     color: brandColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(Icons.add_to_photos_rounded, color: brandColor, size: 26),
+                  child: Icon(Icons.view_carousel_outlined, color: brandColor, size: 26),
                 ),
                 title: const Text(
                   'شريحة تفاعلية جديدة (Slide)',
@@ -1218,7 +1218,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
-                  Icons.slideshow_rounded,
+                  Icons.view_carousel_outlined,
                   size: 26,
                   color: brandColor,
                 ),
@@ -1787,7 +1787,7 @@ class _ReorderStationItemsDialogState extends State<_ReorderStationItemsDialog> 
                         : '${item.slides?.length ?? 0} سلايد';
 
                     final itemColor = isPdf ? const Color(0xFFE53935) : widget.brandColor;
-                    final iconData = isPdf ? Icons.picture_as_pdf_rounded : Icons.style_rounded;
+                    final iconData = isPdf ? Icons.picture_as_pdf_rounded : Icons.view_carousel_outlined;
 
                     return KeyedSubtree(
                       key: ValueKey(itemKey),
