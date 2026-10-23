@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/providers/app_provider.dart';
+import '../../../../core/services/pdf_sound_parser.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../../core/services/pdf_storage_service.dart';
 import '../../data/slide_workspace_repository.dart';
@@ -84,51 +85,6 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     } catch (_) {}
   }
 
-  /// True when the admin replaced the PDF: the slide URL differs from the one
-  /// the local copy was downloaded from. Copies without a saved URL get it now.
-  Future<bool> _isReplacedByAdmin(WorkspaceSlide slide, String localPath) async {
-    final url = slide.pdfUrl?.trim();
-    if (url == null || url.isEmpty) return false;
-    try {
-      final urlFile = File('$localPath.url');
-      if (!await urlFile.exists()) {
-        await urlFile.writeAsString(url);
-        return false;
-      }
-      return (await urlFile.readAsString()).trim() != url;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Removes the old PDF, its sounds and rendered pages so the student must
-  /// download the new file. Student notes (saved_annotations.json) and lecture
-  /// recordings are kept; cloud notes are tied to the slide id and untouched.
-  Future<void> _invalidateReplacedPdf(String pdfId, String localPath) async {
-    try {
-      for (final path in [localPath, '$localPath.url', '$localPath.tmp']) {
-        final f = File(path);
-        if (await f.exists()) await f.delete();
-      }
-      await PdfStorageService.clearPdfSounds(pdfId);
-      final tempDir = await getTemporaryDirectory();
-      final pdfCacheDir = Directory('${tempDir.path}/pdf_pages_cache/$pdfId');
-      if (await pdfCacheDir.exists()) {
-        for (final f in pdfCacheDir.listSync()) {
-          if (f is! File) continue;
-          final name = f.uri.pathSegments.last;
-          if (name == 'saved_annotations.json' ||
-              name.startsWith('lecture_')) {
-            continue;
-          }
-          try { await f.delete(); } catch (_) {}
-        }
-      }
-    } catch (e) {
-      debugPrint('Error invalidating replaced PDF ($pdfId): $e');
-    }
-  }
-
   Future<bool> _isPdfValid(String localPath, {bool quickCheckOnly = false}) async {
     try {
       final file = File(localPath);
@@ -171,7 +127,6 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
       if (await pdfCacheDir.exists()) {
         await pdfCacheDir.delete(recursive: true);
       }
-      await PdfStorageService.clearPdfSounds(pdfId);
     } catch (e) {
       debugPrint('Error cleaning up corrupted PDF ($pdfId): $e');
     }
@@ -257,10 +212,7 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         }
 
         final file = File(localPath);
-        if (await file.exists() && await _isReplacedByAdmin(slide, localPath)) {
-          await _invalidateReplacedPdf(slide.id, localPath);
-          _localPdfPaths.remove(slide.id);
-        } else if (await file.exists()) {
+        if (await file.exists()) {
           final isValid = await _isPdfValid(localPath, quickCheckOnly: true);
           if (isValid) {
             _localPdfPaths[slide.id] = localPath;
@@ -428,20 +380,80 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
           await pdfCacheDir.create(recursive: true);
         }
 
-        // New file from the server: drop sounds extracted from the old version.
-        // Sounds are extracted on demand inside the PDF workspace (download icon).
-        await PdfStorageService.clearPdfSounds(slide.id);
+        final soundCacheFile = File('${pdfCacheDir.path}/sound_annotations.json');
+        if (!soundCacheFile.existsSync()) {
+          final soundAnnotations = await PdfSoundParser.parseAndExtract(
+            tmpPath,
+            pdfCacheDir.path,
+          );
+          if (soundAnnotations.isNotEmpty) {
+            final jsonList = soundAnnotations.map((a) => a.toJson()).toList();
+            await File('${pdfCacheDir.path}/sound_annotations.json')
+                .writeAsString(jsonEncode(jsonList));
+          }
+        }
 
-        // Save the recordings list (positions only). The audio files are
-        // downloaded on the first tap inside the PDF workspace.
+        // Pre-download synchronized lecture recordings if available
         try {
-          final lectureRecordings =
-              await _repository.getPdfLectureRecordings(slide.id);
-          await File('${pdfCacheDir.path}/lecture_recordings.json')
-              .writeAsString(jsonEncode(
-                  lectureRecordings.map((r) => r.toJson()).toList()));
+          final lectureRecordings = await _repository.getPdfLectureRecordings(slide.id);
+          if (lectureRecordings.isEmpty) {
+            final cacheFile = File('${pdfCacheDir.path}/lecture_recordings.json');
+            if (await cacheFile.exists()) {
+              await cacheFile.writeAsString(jsonEncode([]));
+            }
+            if (await pdfCacheDir.exists()) {
+              try {
+                for (final f in pdfCacheDir.listSync()) {
+                  if (f is File && f.path.contains('lecture_') && f.path.endsWith('.m4a')) {
+                    try { await f.delete(); } catch (_) {}
+                  }
+                }
+              } catch (_) {}
+            }
+          } else {
+            final remoteIds = lectureRecordings.map((r) => r.id).toSet();
+            if (await pdfCacheDir.exists()) {
+              try {
+                for (final f in pdfCacheDir.listSync()) {
+                  if (f is File && f.path.contains('lecture_') && f.path.endsWith('.m4a')) {
+                    final filename = f.uri.pathSegments.last;
+                    final recId = filename.replaceFirst('lecture_', '').replaceAll('.m4a', '');
+                    if (!remoteIds.contains(recId)) {
+                      try { await f.delete(); } catch (_) {}
+                    }
+                  }
+                }
+              } catch (_) {}
+            }
+
+            final updatedRecordings = <PdfLectureRecording>[];
+            final audioClient = HttpClient();
+            for (final rec in lectureRecordings) {
+              final localAudioFile = File('${pdfCacheDir.path}/lecture_${rec.id}.m4a');
+              if (!await localAudioFile.exists() && rec.audioUrl.isNotEmpty) {
+                try {
+                  final req = await audioClient.getUrl(Uri.parse(rec.audioUrl));
+                  final res = await req.close();
+                  if (res.statusCode == 200) {
+                    final sink = localAudioFile.openWrite();
+                    await res.pipe(sink);
+                  }
+                } catch (_) {}
+              }
+              updatedRecordings.add(
+                localAudioFile.existsSync()
+                    ? rec.copyWith(localAudioPath: localAudioFile.path)
+                    : rec,
+              );
+            }
+            audioClient.close();
+
+            final jsonList = updatedRecordings.map((r) => r.toJson()).toList();
+            await File('${pdfCacheDir.path}/lecture_recordings.json')
+                .writeAsString(jsonEncode(jsonList));
+          }
         } catch (e) {
-          debugPrint('Error caching PDF lecture recordings list: $e');
+          debugPrint('Error pre-downloading PDF lecture recordings: $e');
         }
 
         // Pre-render Page 1 & page sizes if not cached yet for 0ms workspace launch
@@ -479,9 +491,6 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         try { await targetFile.delete(); } catch (_) {}
       }
       await tmpFile.rename(localPath);
-      try {
-        await File('$localPath.url').writeAsString(url);
-      } catch (_) {}
 
       if (mounted) {
         setState(() {
