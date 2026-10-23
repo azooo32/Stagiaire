@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 
@@ -283,6 +285,7 @@ class _SlidePagesListState extends State<SlidePagesList>
 
   late final AnimationController _flingAnimationController;
   bool _wasZoomed = false;
+  Timer? _currentSlideTimer;
   double _lastViewportHeight = 0.0;
   double _lastPageWidth = 0.0;
   double _lastTransformScale = double.nan;
@@ -454,14 +457,21 @@ class _SlidePagesListState extends State<SlidePagesList>
         currentY += entryHeight;
       }
 
+      // goToSlide notifies the whole workspace; doing it on every slide
+      // crossing mid-scroll rebuilds everything and causes hitches, so apply
+      // it once scrolling pauses.
+      _currentSlideTimer?.cancel();
       if (bestIndex != widget.controller.currentIndex) {
-        final stateProvider = WorkspaceOutsideStateProvider.of(context);
-        if (stateProvider != null &&
-            stateProvider.editingSlideIndex != null &&
-            stateProvider.editingSlideIndex != bestIndex) {
-          stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
-        }
-        widget.controller.goToSlide(bestIndex);
+        _currentSlideTimer = Timer(const Duration(milliseconds: 120), () {
+          if (!mounted) return;
+          final stateProvider = WorkspaceOutsideStateProvider.of(context);
+          if (stateProvider != null &&
+              stateProvider.editingSlideIndex != null &&
+              stateProvider.editingSlideIndex != bestIndex) {
+            stateProvider.saveInPlaceEdit(stateProvider.editingSlideIndex!);
+          }
+          widget.controller.goToSlide(bestIndex);
+        });
       }
     }
   }
@@ -531,6 +541,7 @@ class _SlidePagesListState extends State<SlidePagesList>
   void dispose() {
     CapacitiveStylusService().removeListener(_onStylusServiceChanged);
     widget.transformationController.removeListener(_onTransformChanged);
+    _currentSlideTimer?.cancel();
     _flingAnimationController.dispose();
     super.dispose();
   }
@@ -804,20 +815,23 @@ class _SlidePagesListState extends State<SlidePagesList>
       padding: EdgeInsets.only(bottom: isLast ? 0 : (widget.compact ? 2 : 3)),
       child: SizedBox(
         height: baseHeight,
-        child: MobileSlidePage(
-          key: _slideKeyFor(index),
-          controller: widget.controller,
-          index: index,
-          compact: widget.compact,
-          canManageSlides: widget.canManageSlides,
-          isDark: widget.isDark,
-          zoomScale: 1.0,
-          onEdit: () => widget.onEditSlide(index),
-          onAddAfter: widget.onAddSlideAfter == null
-              ? null
-              : () => widget.onAddSlideAfter!(index),
-          onDelete: () => widget.onDeleteSlide(index),
-          onSlideTap: widget.onSlideTap,
+        // Own paint layer per slide so repainting one does not repaint all.
+        child: RepaintBoundary(
+          child: MobileSlidePage(
+            key: _slideKeyFor(index),
+            controller: widget.controller,
+            index: index,
+            compact: widget.compact,
+            canManageSlides: widget.canManageSlides,
+            isDark: widget.isDark,
+            zoomScale: 1.0,
+            onEdit: () => widget.onEditSlide(index),
+            onAddAfter: widget.onAddSlideAfter == null
+                ? null
+                : () => widget.onAddSlideAfter!(index),
+            onDelete: () => widget.onDeleteSlide(index),
+            onSlideTap: widget.onSlideTap,
+          ),
         ),
       ),
     );

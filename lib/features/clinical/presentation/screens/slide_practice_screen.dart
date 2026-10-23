@@ -357,7 +357,8 @@ class _SlidePracticeScreenState extends State<SlidePracticeScreen> {
     final provider = Provider.of<AppProvider>(context, listen: false);
     _saveNoteForSlide();
     provider.updateStationProgress(
-        widget.stationDbId!, _currentSlideIndex + 1, evaluation);
+        widget.stationDbId!, _currentSlideIndex + 1, evaluation,
+        keepEvaluation: true);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

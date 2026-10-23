@@ -1271,22 +1271,26 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> updateStationProgress(
-      String stationDbId, int currentSlide, String? evaluation) async {
+  Future<bool> updateStationProgress(
+      String stationDbId, int currentSlide, String? evaluation,
+      {bool keepEvaluation = false}) async {
     final user = _supabase.currentUser;
-    if (user == null) return;
+    if (user == null) return false;
     try {
       final Map<String, dynamic> data = {
         'user_id': user.id,
         'station_id': stationDbId,
         'current_slide_index': currentSlide,
         'updated_at': DateTime.now().toIso8601String(),
-        'evaluation': evaluation?.toLowerCase(),
+        // keepEvaluation: leave the stored completion flag untouched.
+        if (!keepEvaluation) 'evaluation': evaluation?.toLowerCase(),
       };
       await _supabase.client.from('user_station_progress').upsert(data);
       calculateAllClinicalProgress();
+      return true;
     } catch (e) {
       print('Error syncing station progress: $e');
+      return false;
     }
   }
 
@@ -2677,40 +2681,92 @@ class AppProvider extends ChangeNotifier {
         ),
       ),
     );
-    return station.evaluation != null || station.progress >= 1.0;
+    // Only the check on the station card marks a station completed.
+    return station.evaluation == 'completed';
   }
 
   Future<void> toggleStationCompletion(String? stationDbId,
       {int totalSlides = 10}) async {
     if (stationDbId == null || stationDbId.isEmpty) return;
 
-    // Find the station to get its subject name
-    final station = _dbSlideStations.firstWhere(
-      (s) => s.dbId == stationDbId,
-      orElse: () => _clinicalSlideStations.firstWhere(
-        (s) => s.dbId == stationDbId,
-        orElse: () => ClinicalSlideStation(
-          id: 0,
-          title: '',
-          progressText: '',
-          progress: 0.0,
-          iconType: '',
-          subject: '',
-        ),
+    final wasDone = isStationCompleted(stationDbId);
+    final previous = _stationSnapshot(stationDbId);
+    if (previous == null) return;
+
+    // Update the card immediately; sync with the server afterwards.
+    final total = int.tryParse(
+            previous.progressText.split('/').last.trim().split(' ').first) ??
+        totalSlides;
+    _replaceStation(
+      stationDbId,
+      (s) => ClinicalSlideStation(
+        id: s.id,
+        dbId: s.dbId,
+        title: s.title,
+        progressText: wasDone ? '1 / $total Slides' : '$total / $total Slides',
+        progress: wasDone ? (total > 0 ? 1 / total : 0.0) : 1.0,
+        iconType: s.iconType,
+        subject: s.subject,
+        evaluation: wasDone ? null : 'completed',
+        sectionId: s.sectionId,
+        stationType: s.stationType,
+        stationIndex: s.stationIndex,
       ),
     );
+    notifyListeners();
 
-    final isDone = isStationCompleted(stationDbId);
-    if (isDone) {
-      await updateStationProgress(stationDbId, 1, null);
-    } else {
-      await updateStationProgress(stationDbId, totalSlides, 'completed');
-    }
+    final ok = wasDone
+        ? await updateStationProgress(stationDbId, 1, null)
+        : await updateStationProgress(stationDbId, total, 'completed');
 
-    if (station.subject.isNotEmpty) {
-      await invalidateClinicalCache(station.subject);
-      await loadClinicalData(station.subject);
+    if (!ok) {
+      _replaceStation(stationDbId, (_) => previous);
+      notifyListeners();
+      return;
     }
+    if (previous.subject.isNotEmpty) {
+      await invalidateClinicalCache(previous.subject);
+    }
+  }
+
+  ClinicalSlideStation? _stationSnapshot(String dbId) {
+    for (final s in _dbSlideStations) {
+      if (s.dbId == dbId) return s;
+    }
+    for (final s in _clinicalSlideStations) {
+      if (s.dbId == dbId) return s;
+    }
+    return null;
+  }
+
+  void _replaceStation(
+      String dbId, ClinicalSlideStation Function(ClinicalSlideStation) f) {
+    for (var i = 0; i < _dbSlideStations.length; i++) {
+      if (_dbSlideStations[i].dbId == dbId) {
+        _dbSlideStations[i] = f(_dbSlideStations[i]);
+      }
+    }
+    for (var i = 0; i < _clinicalSlideStations.length; i++) {
+      if (_clinicalSlideStations[i].dbId == dbId) {
+        _clinicalSlideStations[i] = f(_clinicalSlideStations[i]);
+      }
+    }
+  }
+
+  /// Completed fraction (0..1) of the voice notes or videos in one section,
+  /// from the same completion flags that feed the subject progress bar.
+  double clinicalSectionProgress(
+      String subject, String sectionId, String contentType) {
+    final done = <bool>[
+      if (contentType == 'voice')
+        for (final v in getClinicalVoiceNotes(subject))
+          if (v.sectionId == sectionId) v.isCompleted
+      else
+        for (final v in getClinicalVideos(subject))
+          if (v.sectionId == sectionId) v.isCompleted
+    ];
+    if (done.isEmpty) return 0.0;
+    return done.where((d) => d).length / done.length;
   }
 
   // Toggle favorite bookmark state
@@ -3575,53 +3631,24 @@ class AppProvider extends ChangeNotifier {
                 .toDouble();
 
         if (totalItems > 0) {
-          // Stations
+          // Same rule as the cards inside the subject: an item counts only
+          // when it is marked completed, so inner and outer progress match.
           for (var s in subjStations) {
-            final String id = s['id'] as String;
-            final prog = stationProgMap[id];
-            if (prog != null) {
-              if (prog['evaluation'] != null) {
-                totalCompleted += 1.0;
-              } else {
-                final current = prog['current_slide_index'] as int? ?? 1;
-                final total = s['slides_count'] as int? ?? 10;
-                totalCompleted +=
-                    total > 0 ? (current / total).clamp(0.0, 1.0) : 0.0;
-              }
+            final prog = stationProgMap[s['id'] as String];
+            if (prog != null && prog['evaluation'] == 'completed') {
+              totalCompleted += 1.0;
             }
           }
-
-          // Voices
           for (var v in subjVoices) {
-            final String id = v['id'] as String;
-            final prog = voiceProgMap[id];
-            if (prog != null) {
-              if (prog['is_completed'] == true) {
-                totalCompleted += 1.0;
-              } else {
-                final playback = prog['playback_progress'] ?? 0.0;
-                final double val = playback is int
-                    ? playback.toDouble()
-                    : (playback as double? ?? 0.0);
-                totalCompleted += val.clamp(0.0, 1.0);
-              }
+            final prog = voiceProgMap[v['id'] as String];
+            if (prog != null && prog['is_completed'] == true) {
+              totalCompleted += 1.0;
             }
           }
-
-          // Videos
           for (var v in subjVideos) {
-            final String id = v['id'] as String;
-            final prog = videoProgMap[id];
-            if (prog != null) {
-              if (prog['is_completed'] == true) {
-                totalCompleted += 1.0;
-              } else {
-                final playback = prog['playback_progress'] ?? 0.0;
-                final double val = playback is int
-                    ? playback.toDouble()
-                    : (playback as double? ?? 0.0);
-                totalCompleted += val.clamp(0.0, 1.0);
-              }
+            final prog = videoProgMap[v['id'] as String];
+            if (prog != null && prog['is_completed'] == true) {
+              totalCompleted += 1.0;
             }
           }
 

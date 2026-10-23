@@ -112,12 +112,12 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
                           }
                         }
                       : null,
-                  onLongPressStart: allowSlideGestures
+                  onLongPressStart: allowSlideGestures && !_canDraw
                       ? (details) {
                           _handleSlideLongPress(context, details.globalPosition);
                         }
                       : null,
-                  onSecondaryTapDown: allowSlideGestures
+                  onSecondaryTapDown: allowSlideGestures && !_canDraw
                       ? (details) {
                           _handleSlideLongPress(context, details.globalPosition);
                         }

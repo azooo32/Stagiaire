@@ -2014,7 +2014,11 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                                         badgeText: '$voiceCount Voice Notes',
                                         badgeIcon: Icons.mic_none_outlined,
                                         headerIcon: Icons.volume_up_outlined,
-                                        progress: 1.0,
+                                        progress: provider
+                                            .clinicalSectionProgress(
+                                                widget.subject,
+                                                section.id,
+                                                'voice'),
                                         brandColor: brandColor,
                                       ),
                                     );
@@ -2043,7 +2047,11 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                                         badgeText: '$videoCount Videos',
                                         badgeIcon: Icons.play_circle_outline,
                                         headerIcon: Icons.videocam_outlined,
-                                        progress: 1.0,
+                                        progress: provider
+                                            .clinicalSectionProgress(
+                                                widget.subject,
+                                                section.id,
+                                                'video'),
                                         brandColor: brandColor,
                                       ),
                                     );
@@ -2325,12 +2333,26 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
               )
           : null,
       child: Container(
+        // Completed: purple glow fading inward from the card edge.
+        foregroundDecoration: isDone
+            ? BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: RadialGradient(
+                  radius: 0.95,
+                  colors: [
+                    AppColors.indigo.withValues(alpha: 0.0),
+                    AppColors.indigo.withValues(alpha: isDark ? 0.34 : 0.26),
+                  ],
+                  stops: const [0.5, 1.0],
+                ),
+              )
+            : null,
         decoration: BoxDecoration(
           color: isDark ? AppColors.surface : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isDone
-                ? const Color(0xFF10B981).withValues(alpha: 0.45)
+                ? AppColors.indigo.withValues(alpha: 0.55)
                 : (isDark ? AppColors.border : brandColor.withValues(alpha: 0.12)),
             width: 1.4,
           ),
@@ -2456,29 +2478,34 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
 
                   // Completion indicator / button
                   GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () {
                       provider.toggleStationCompletion(station.dbId);
                     },
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: isDone
-                            ? const Color(0xFF10B981).withValues(alpha: 0.12)
-                            : (isDark ? AppColors.surface2 : Colors.grey.shade50),
-                        shape: BoxShape.circle,
-                        border: Border.all(
+                    // Larger touch area around the small check circle.
+                    child: Padding(
+                      padding: const EdgeInsets.all(5),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
                           color: isDone
-                              ? const Color(0xFF10B981).withValues(alpha: 0.3)
-                              : (isDark ? AppColors.border : Colors.grey.shade300),
-                          width: 1,
+                              ? AppColors.indigo
+                              : (isDark ? AppColors.surface2 : Colors.grey.shade50),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isDone
+                                ? AppColors.indigo
+                                : (isDark ? AppColors.border : Colors.grey.shade300),
+                            width: 1,
+                          ),
                         ),
-                      ),
-                      child: Icon(
-                        Icons.check_rounded,
-                        color: isDone
-                            ? const Color(0xFF10B981)
-                            : (isDark ? AppColors.textMuted : Colors.grey.shade400),
-                        size: isTablet ? 15 : 11,
+                        child: Icon(
+                          Icons.check_rounded,
+                          color: isDone
+                              ? Colors.white
+                              : (isDark ? AppColors.textMuted : Colors.grey.shade400),
+                          size: isTablet ? 15 : 11,
+                        ),
                       ),
                     ),
                   ),

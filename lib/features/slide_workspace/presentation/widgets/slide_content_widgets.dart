@@ -111,6 +111,8 @@ class SlidePaper extends StatelessWidget {
               compact: compact,
               isDark: isDark,
               studyMode: studyMode,
+              selectable: controller == null ||
+                  controller!.selectedTool == WorkspaceTool.pan,
               isThumbnail: isThumbnail,
               loadRealImage: _shouldLoadImage,
               slideIndex: slideIndex,
@@ -132,6 +134,7 @@ class AdaptiveSlideContent extends StatefulWidget {
   final bool loadRealImage;
   final int? slideIndex;
   final ValueNotifier<double>? scrollOffsetNotifier;
+  final bool selectable;
 
   const AdaptiveSlideContent({
     super.key,
@@ -139,6 +142,7 @@ class AdaptiveSlideContent extends StatefulWidget {
     required this.compact,
     required this.isDark,
     required this.studyMode,
+    this.selectable = true,
     this.isThumbnail = false,
     this.loadRealImage = true,
     this.slideIndex,
@@ -285,7 +289,9 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
             child: Align(
               alignment: Alignment.topLeft,
               child: SelectionArea(
-                child: SingleChildScrollView(
+                child: _SelectionGate(
+                  enabled: widget.selectable,
+                  child: SingleChildScrollView(
                   controller: _scrollController,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -315,6 +321,7 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
                     ],
                   ),
                 ),
+                ),
               ),
             ),
           ),
@@ -322,6 +329,19 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
       ],
     );
   }
+}
+
+/// Blocks text selection while a drawing tool is active, so pausing the pen
+/// on the text does not select it.
+class _SelectionGate extends StatelessWidget {
+  final bool enabled;
+  final Widget child;
+
+  const _SelectionGate({required this.enabled, required this.child});
+
+  @override
+  Widget build(BuildContext context) =>
+      enabled ? child : SelectionContainer.disabled(child: child);
 }
 
 class SlideImagePanel extends StatefulWidget {
@@ -437,7 +457,7 @@ final RegExp _arabicChars = RegExp(
 const double _slideMinHeight = 608.0;
 const double _slideBorderPad = 3.0;
 const double _slideTopInset = 44.0;
-final Map<String, double> _slideHeightCache = {};
+final Expando<_SlideHeight> _slideHeightCache = Expando<_SlideHeight>();
 
 final RegExp _firstLetter = RegExp(
     r'[A-Za-z؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]');
@@ -462,11 +482,11 @@ double slideCanvasHeightFor(
   required bool studyMode,
 }) {
   final scaler = MediaQuery.textScalerOf(context);
-  final key = '${slide.id}|${Object.hashAll([
-        for (final q in slide.questions) ...[q.prompt, q.answer, q.answerLines],
-      ])}|$compact|$studyMode|${scaler.scale(10)}';
-  final cached = _slideHeightCache[key];
-  if (cached != null) return cached;
+  // Called for every slide on each scroll tick, so the hot path is a single
+  // Expando lookup on the (immutable) slide instance.
+  final env = Object.hash(compact, studyMode, scaler.scale(10));
+  final cached = _slideHeightCache[slide];
+  if (cached != null && cached.env == env) return cached.height;
 
   final baseStyle = DefaultTextStyle.of(context).style;
   final promptStyle = baseStyle.merge(const TextStyle(
@@ -505,8 +525,14 @@ double slideCanvasHeightFor(
   final height = (_slideTopInset + content + _slideBorderPad)
       .clamp(_slideMinHeight, double.infinity)
       .toDouble();
-  if (_slideHeightCache.length > 500) _slideHeightCache.clear();
-  return _slideHeightCache[key] = height;
+  _slideHeightCache[slide] = _SlideHeight(env, height);
+  return height;
+}
+
+class _SlideHeight {
+  final int env;
+  final double height;
+  const _SlideHeight(this.env, this.height);
 }
 
 const double _slideInnerWidth = 1100.0 - _slideBorderPad;

@@ -668,7 +668,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isCompleted
-              ? Colors.green.withValues(alpha: 0.3)
+              ? brandColor.withValues(alpha: 0.4)
               : (isDark
                   ? AppColors.border
                   : brandColor.withValues(alpha: 0.08)),
