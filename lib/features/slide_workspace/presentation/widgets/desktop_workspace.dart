@@ -105,6 +105,7 @@ class _DesktopWorkspaceState extends State<DesktopWorkspace> {
       slides: widget.controller.slides,
       context: context,
       sidebarOpen: _sidebarOpen,
+      studyMode: widget.controller.isStudyMode,
     );
   }
 

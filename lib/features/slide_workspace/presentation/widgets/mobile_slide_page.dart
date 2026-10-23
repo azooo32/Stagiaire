@@ -71,8 +71,14 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
     final stateProvider = WorkspaceOutsideStateProvider.of(context);
     final isEditingThisSlide = stateProvider?.editingSlideIndex == widget.index;
     final allowSlideGestures = !isEditingThisSlide;
+    final canvasHeight = slideCanvasHeightFor(
+      context,
+      slide,
+      compact: widget.compact,
+      studyMode: controller.isStudyMode,
+    );
     final page = AspectRatio(
-      aspectRatio: 1100.0 / 608.0,
+      aspectRatio: 1100.0 / canvasHeight,
       child: FittedBox(
         fit: BoxFit.contain,
         child: Listener(
@@ -86,7 +92,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
           child: SizedBox(
             key: _canvasKey,
             width: 1100.0,
-            height: 608.0,
+            height: canvasHeight,
             child: Stack(
               children: [
                 GestureDetector(
@@ -402,7 +408,15 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
 
     final slidePoint = _toSlidePoint(globalPosition);
     final slideX = slidePoint.dx.clamp(0.0, 1100.0);
-    final slideY = slidePoint.dy.clamp(0.0, 608.0);
+    final slideY = slidePoint.dy.clamp(
+      0.0,
+      slideCanvasHeightFor(
+        context,
+        controller.slides[widget.index],
+        compact: widget.compact,
+        studyMode: controller.isStudyMode,
+      ),
+    );
 
     final hasClipboard = SlideWorkspaceController.clipboardImage != null;
     final isDark = widget.isDark;

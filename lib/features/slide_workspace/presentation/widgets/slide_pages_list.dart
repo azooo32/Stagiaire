@@ -6,10 +6,25 @@ import '../controllers/slide_workspace_controller.dart';
 import 'slide_workspace_chrome.dart';
 import 'workspace_state_provider.dart';
 import 'mobile_slide_page.dart';
+import 'slide_content_widgets.dart';
 import '../../../../core/services/capacitive_stylus_service.dart';
 
 const slideCanvasWidth = 1100.0;
 const slideCanvasHeight = 608.0;
+
+/// On-screen height of a slide page (canvas scaled to [pageWidth]); slides
+/// with long text are taller than the standard 608 canvas.
+double slidePageHeight(
+  BuildContext context,
+  WorkspaceSlide slide, {
+  required double pageWidth,
+  required bool compact,
+  required bool studyMode,
+}) =>
+    pageWidth *
+    slideCanvasHeightFor(context, slide,
+        compact: compact, studyMode: studyMode) /
+    slideCanvasWidth;
 const kHeaderCompactHeight = 52.0;
 const kHeaderDesktopHeight = 64.0;
 const kSlideSidePad = 8.0;
@@ -89,6 +104,7 @@ void animateToSlide({
   required List<WorkspaceSlide> slides,
   required BuildContext context,
   bool sidebarOpen = false,
+  bool studyMode = true,
 }) {
   WidgetsBinding.instance.addPostFrameCallback((_) {
     final renderBox = context.findRenderObject() as RenderBox?;
@@ -101,9 +117,12 @@ void animateToSlide({
         .clamp(280.0, double.infinity)
         .toDouble();
     final contentWidth = pageWidth + kSlideSidePad * 2;
-    final pageHeight = pageWidth * slideCanvasHeight / slideCanvasWidth;
     final controlsHeight = canManageSlides ? 33.0 : 0.0;
-    final pageExtent = pageHeight + controlsHeight;
+    double extentOf(int i) =>
+        slidePageHeight(context, slides[i],
+            pageWidth: pageWidth, compact: compact, studyMode: studyMode) +
+        controlsHeight;
+    final pageExtent = extentOf(index.clamp(0, slides.length - 1));
     final spacing = compact ? 2.0 : 3.0;
 
     // 1. Build entries list to match exactly how they are rendered
@@ -136,10 +155,11 @@ void animateToSlide({
       } else {
         final slideIdx = entry.slideIndex!;
         slideTops[slideIdx] = currentY;
-        slideHeights[slideIdx] = pageExtent;
+        final slideExtent = extentOf(slideIdx);
+        slideHeights[slideIdx] = slideExtent;
 
         final bottomMargin = entryIndex == entries.length - 1 ? 0.0 : spacing;
-        currentY += pageExtent + bottomMargin;
+        currentY += slideExtent + bottomMargin;
       }
     }
 
@@ -319,6 +339,7 @@ class _SlidePagesListState extends State<SlidePagesList>
       canManageSlides: widget.canManageSlides,
       slides: widget.controller.slides,
       context: context,
+      studyMode: widget.controller.isStudyMode,
     );
     Future.microtask(() {
       if (mounted) {
@@ -410,7 +431,13 @@ class _SlidePagesListState extends State<SlidePagesList>
               (widget.compact ? 6.0 : 8.0);
         } else {
           final isLast = entryIndex == entries.length - 1;
-          entryHeight = _lastPageWidth * slideCanvasHeight / slideCanvasWidth +
+          entryHeight = slidePageHeight(
+                context,
+                widget.controller.slides[entry.slideIndex!],
+                pageWidth: _lastPageWidth,
+                compact: widget.compact,
+                studyMode: widget.controller.isStudyMode,
+              ) +
               (widget.canManageSlides ? 33.0 : 0.0) +
               (isLast ? 0.0 : (widget.compact ? 2.0 : 3.0));
         }
@@ -462,7 +489,13 @@ class _SlidePagesListState extends State<SlidePagesList>
         final bottomMargin = widget.compact ? 6.0 : 8.0;
         totalContentHeight += topMargin + headerBodyHeight + bottomMargin;
       } else {
-        final pageExtent = pageWidth * slideCanvasHeight / slideCanvasWidth +
+        final pageExtent = slidePageHeight(
+              context,
+              widget.controller.slides[entry.slideIndex!],
+              pageWidth: pageWidth,
+              compact: widget.compact,
+              studyMode: widget.controller.isStudyMode,
+            ) +
             (widget.canManageSlides ? 33.0 : 0.0);
         final spacing = widget.compact ? 2.0 : 3.0;
         final bottomMargin = entryIndex == entries.length - 1 ? 0.0 : spacing;
@@ -758,7 +791,13 @@ class _SlidePagesListState extends State<SlidePagesList>
     }
 
     final index = entry.slideIndex!;
-    final baseHeight = pageWidth * slideCanvasHeight / slideCanvasWidth +
+    final baseHeight = slidePageHeight(
+          context,
+          widget.controller.slides[index],
+          pageWidth: pageWidth,
+          compact: widget.compact,
+          studyMode: widget.controller.isStudyMode,
+        ) +
         (widget.canManageSlides ? 33 : 0);
 
     return Padding(

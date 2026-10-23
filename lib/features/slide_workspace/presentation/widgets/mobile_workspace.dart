@@ -132,6 +132,7 @@ class _CollapsibleSlideWorkspaceState extends State<CollapsibleSlideWorkspace> {
       canManageSlides: widget.canManageSlides,
       slides: widget.controller.slides,
       context: context,
+      studyMode: widget.controller.isStudyMode,
     );
   }
 

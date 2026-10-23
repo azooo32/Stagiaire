@@ -201,7 +201,13 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
       children: [
         Expanded(
           flex: imageFlex,
-          child: Padding(
+          child: Align(
+            alignment: Alignment.topCenter,
+            // Image panel keeps the standard slide height even when the slide
+            // grows, so its position never changes.
+            child: SizedBox(
+              height: _slideMinHeight - _slideTopInset - _slideBorderPad,
+              child: Padding(
             padding: EdgeInsets.fromLTRB(
               compact ? 44 : 56,
               30,
@@ -257,6 +263,8 @@ class _AdaptiveSlideContentState extends State<AdaptiveSlideContent> {
                   ],
                 ],
               ],
+            ),
+          ),
             ),
           ),
         ),
@@ -423,6 +431,103 @@ class _SlideImagePanelState extends State<SlideImagePanel> {
       );
 }
 
+final RegExp _arabicChars = RegExp(
+    r'[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]');
+
+const double _slideMinHeight = 608.0;
+const double _slideBorderPad = 3.0;
+const double _slideTopInset = 44.0;
+final Map<String, double> _slideHeightCache = {};
+
+TextDirection _lineDirection(String line) =>
+    _arabicChars.hasMatch(line) ? TextDirection.rtl : TextDirection.ltr;
+
+/// Canvas height of a slide: the standard 608 unless the question/answer
+/// text is taller, in which case the slide grows from the bottom. Width,
+/// fonts and paddings are unchanged, so existing stroke coordinates (origin
+/// top-left) stay valid.
+double slideCanvasHeightFor(
+  BuildContext context,
+  WorkspaceSlide slide, {
+  required bool compact,
+  required bool studyMode,
+}) {
+  final scaler = MediaQuery.textScalerOf(context);
+  final key = '${slide.id}|${Object.hashAll([
+        for (final q in slide.questions) ...[q.prompt, q.answer, q.answerLines],
+      ])}|$compact|$studyMode|${scaler.scale(10)}';
+  final cached = _slideHeightCache[key];
+  if (cached != null) return cached;
+
+  final baseStyle = DefaultTextStyle.of(context).style;
+  final promptStyle = baseStyle.merge(const TextStyle(
+      fontSize: 22, fontWeight: FontWeight.w700, height: 1.35));
+  final answerStyle = baseStyle.merge(const TextStyle(
+      fontSize: 20, fontWeight: FontWeight.normal, height: 1.5));
+
+  final questionColumn = (_slideInnerWidth - 1) * 2 / 3;
+  final textWidth = questionColumn - (compact ? 12 : 18) - (compact ? 32 : 48);
+
+  double linesHeight(String text, TextStyle style) {
+    var total = 0.0;
+    for (final line in text.split('\n')) {
+      final painter = TextPainter(
+        text: TextSpan(text: line.isEmpty ? ' ' : line, style: style),
+        textDirection: _lineDirection(line),
+        textScaler: scaler,
+      )..layout(maxWidth: textWidth);
+      total += painter.height;
+    }
+    return total;
+  }
+
+  var content = 24.0; // question column vertical padding (12 + 12)
+  for (var i = 0; i < slide.questions.length; i++) {
+    final q = slide.questions[i];
+    content += linesHeight('${i + 1}.  ${q.prompt}', promptStyle) + 12;
+    if (studyMode && q.answer.trim().isNotEmpty) {
+      content += linesHeight(q.answer, answerStyle);
+    } else {
+      content += q.answerLines * 16.0;
+    }
+    content += 20;
+  }
+
+  final height = (_slideTopInset + content + _slideBorderPad)
+      .clamp(_slideMinHeight, double.infinity)
+      .toDouble();
+  if (_slideHeightCache.length > 500) _slideHeightCache.clear();
+  return _slideHeightCache[key] = height;
+}
+
+const double _slideInnerWidth = 1100.0 - _slideBorderPad;
+
+/// Slide text is LTR by default; any line containing Arabic is laid out RTL.
+class BidiLinesText extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+
+  const BidiLinesText(this.text, {super.key, required this.style});
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = text.split('\n');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final line in lines)
+          Text(
+            line.isEmpty ? ' ' : line,
+            style: style,
+            textDirection: _lineDirection(line),
+            textAlign: TextAlign.start,
+          ),
+      ],
+    );
+  }
+}
+
 class QuestionBlock extends StatelessWidget {
   final int number;
   final WorkspaceQuestion question;
@@ -525,7 +630,7 @@ class QuestionBlock extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('$number.  ${question.prompt}',
+          BidiLinesText('$number.  ${question.prompt}',
               style: TextStyle(
                   color: isDark ? const Color(0xFF8B75FF) : workspacePurple,
                   fontSize: 22,
@@ -533,7 +638,7 @@ class QuestionBlock extends StatelessWidget {
                   height: 1.35)),
           const SizedBox(height: 12),
           if (showAnswer && question.answer.trim().isNotEmpty)
-            Text(question.answer,
+            BidiLinesText(question.answer,
                 style: TextStyle(
                     color: isDark ? Colors.white : workspaceInk,
                     fontSize: 20,
