@@ -280,6 +280,9 @@ class AppProvider extends ChangeNotifier {
 
   bool _isClinicalLoading = false;
   bool get isClinicalLoading => _isClinicalLoading;
+  bool _clinicalLoadFailed = false;
+  /// True when the first load had no cache and the network fetch failed.
+  bool get clinicalLoadFailed => _clinicalLoadFailed;
 
   List<ClinicalVoiceNote> _dbVoiceNotes = [];
   List<ClinicalVideo> _dbVideos = [];
@@ -287,7 +290,7 @@ class AppProvider extends ChangeNotifier {
   // --- Smart Polling (replaces Realtime WebSocket) ---
   Timer? _clinicalPollingTimer;
   String? _activeClinicalSubjectName;
-  static const Duration _clinicalPollingInterval = Duration(minutes: 5);
+  static const Duration _clinicalPollingInterval = Duration(hours: 1);
 
   final Map<String, double> _clinicalSubjectProgress = {};
   Map<String, double> get clinicalSubjectProgress => _clinicalSubjectProgress;
@@ -324,7 +327,7 @@ class AppProvider extends ChangeNotifier {
           .select('id, name')
           .ilike('name', subjectName)
           .maybeSingle()
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 10));
       if (response != null) return response['id'] as int?;
     } catch (e) {
       print('Error resolving clinical subject id: $e');
@@ -500,12 +503,15 @@ class AppProvider extends ChangeNotifier {
   }
 
   // Load Clinical Data from Supabase with Cache-first then background sync strategy
-  Future<void> loadClinicalData(String subjectName) async {
+  Future<void> loadClinicalData(String subjectName,
+      {bool forceRefresh = false}) async {
+    _clinicalLoadFailed = false;
     final subjectId = await _resolveClinicalSubjectId(subjectName);
     if (subjectId == null) {
       _dbVoiceNotes = getClinicalVoiceNotes(subjectName);
       _dbVideos = getClinicalVideos(subjectName);
       _dbSlideStations = getClinicalSlideStations(subjectName);
+      _clinicalLoadFailed = _clinicalSections.isEmpty;
       _isClinicalLoading = false;
       notifyListeners();
       return;
@@ -515,7 +521,7 @@ class AppProvider extends ChangeNotifier {
     final cachedData =
         _cache.getCache(cacheKey) ?? _cache.getCacheAllowExpired(cacheKey);
 
-    if (cachedData != null) {
+    if (cachedData != null && !forceRefresh) {
       try {
         final cachedSectionsList = cachedData['sections'] as List;
         final cachedStationsList = cachedData['stations'] as List;
@@ -545,7 +551,7 @@ class AppProvider extends ChangeNotifier {
       } catch (e) {
         print('Error reading cached clinical data: $e');
       }
-    } else {
+    } else if (cachedData == null) {
       _isClinicalLoading = true;
       notifyListeners();
     }
@@ -575,7 +581,7 @@ class AppProvider extends ChangeNotifier {
             .select('*')
             .eq('subject_id', subjectId)
             .order('order_index', ascending: true),
-      ]).timeout(const Duration(seconds: 3));
+      ]).timeout(const Duration(seconds: 10));
 
       final stationsList = results[0] as List;
       final voiceNotesList = results[1] as List;
@@ -601,11 +607,22 @@ class AppProvider extends ChangeNotifier {
               .from('user_station_progress')
               .select('*')
               .eq('user_id', user.id),
-        ]).timeout(const Duration(seconds: 3));
+        ]).timeout(const Duration(seconds: 10));
 
         userVoiceProg = progressResults[0] as List;
         userVideoProg = progressResults[1] as List;
         userStationProg = progressResults[2] as List;
+      }
+
+      // An empty answer is a real deletion by the admin, except when there is no
+      // signed-in session (RLS then hides everything): keep the cache in that case.
+      if (cachedData != null &&
+          user == null &&
+          sectionsList.isEmpty &&
+          stationsList.isEmpty &&
+          voiceNotesList.isEmpty &&
+          videosList.isEmpty) {
+        return;
       }
 
       // 4. Cache this fresh data
@@ -638,6 +655,7 @@ class AppProvider extends ChangeNotifier {
         _dbVoiceNotes = getClinicalVoiceNotes(subjectName);
         _dbVideos = getClinicalVideos(subjectName);
         _dbSlideStations = getClinicalSlideStations(subjectName);
+        _clinicalLoadFailed = _clinicalSections.isEmpty;
       }
     } finally {
       _isClinicalLoading = false;
@@ -710,6 +728,14 @@ class AppProvider extends ChangeNotifier {
         userStationProg = progressResults[2] as List;
       }
 
+      if (user == null &&
+          sectionsList.isEmpty &&
+          stationsList.isEmpty &&
+          voiceNotesList.isEmpty &&
+          videosList.isEmpty) {
+        return;
+      }
+
       await _cache.setCache(
           cacheKey,
           {
@@ -749,13 +775,9 @@ class AppProvider extends ChangeNotifier {
     _clinicalPollingTimer =
         Timer.periodic(_clinicalPollingInterval, (_) async {
       if (_activeClinicalSubjectName != null) {
-        final subjectId =
-            await _resolveClinicalSubjectId(_activeClinicalSubjectName!);
-        if (subjectId != null) {
-          // مسح كاش هذه المادة فقط ثم إعادة التحميل
-          await _cache.invalidateCache(_getClinicalCacheKey(subjectId));
-        }
-        await loadClinicalData(_activeClinicalSubjectName!);
+        // إعادة التحميل من الشبكة دون مسح الكاش؛ يبقى القديم إذا فشل الجلب
+        await loadClinicalData(_activeClinicalSubjectName!,
+            forceRefresh: true);
       }
     });
   }

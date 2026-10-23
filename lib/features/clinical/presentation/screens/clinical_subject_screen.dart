@@ -2063,7 +2063,41 @@ class _ClinicalSubjectScreenState extends State<ClinicalSubjectScreen> {
                             }).toList();
                           })(),
 
-                          if (provider.clinicalSections.isEmpty)
+                          if (provider.clinicalSections.isEmpty &&
+                              !provider.isAdminOrOwner)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 48.0),
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      provider.clinicalLoadFailed
+                                          ? 'تعذر تحميل المحتوى، تحقق من اتصال الإنترنت'
+                                          : 'لا يوجد محتوى حالياً',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                          color: Color(0xFF9E9EBF),
+                                          fontSize: 13,
+                                          fontFamily: 'Cairo'),
+                                    ),
+                                    if (provider.clinicalLoadFailed)
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            provider.loadClinicalData(
+                                                widget.subject),
+                                        icon: const Icon(Icons.refresh_rounded),
+                                        label: const Text('إعادة المحاولة',
+                                            style:
+                                                TextStyle(fontFamily: 'Cairo')),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (provider.clinicalSections.isEmpty &&
+                              provider.isAdminOrOwner)
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 48.0),
                               child: Center(
