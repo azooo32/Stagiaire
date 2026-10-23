@@ -27,6 +27,40 @@ class PdfStorageService {
     return dir;
   }
 
+  /// Returns the persistent directory holding the extracted sound WAVs of one PDF.
+  /// Unlike the temp page cache, the OS does not purge this folder.
+  static Future<Directory> getPdfSoundsDirectory(String slideId) async {
+    final baseDir = await getApplicationSupportDirectory();
+    final dir = Directory('${baseDir.path}/pdf_sounds/$slideId');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  /// Returns the persistent directory holding downloaded lecture recordings of one PDF.
+  static Future<Directory> getPdfLecturesDirectory(String slideId) async {
+    final baseDir = await getApplicationSupportDirectory();
+    final dir = Directory('${baseDir.path}/pdf_lectures/$slideId');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  /// Deletes the extracted sounds of one PDF (admin updated it / file re-downloaded).
+  static Future<void> clearPdfSounds(String slideId) async {
+    try {
+      final baseDir = await getApplicationSupportDirectory();
+      final dir = Directory('${baseDir.path}/pdf_sounds/$slideId');
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    } catch (e) {
+      debugPrint('[PdfStorageService] Error clearing sounds ($slideId): $e');
+    }
+  }
+
   /// Returns the target local path for a given slide/PDF ID.
   static Future<String> getLocalPdfPath(String slideId) async {
     final cacheDir = await getPdfCacheDirectory();

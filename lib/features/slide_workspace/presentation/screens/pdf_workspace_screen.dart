@@ -21,6 +21,7 @@ import '../../../../core/widgets/app_loader.dart';
 import '../../data/slide_workspace_repository.dart';
 import '../../domain/entities/slide_workspace_models.dart';
 import '../../../../core/services/pdf_sound_parser.dart';
+import '../../../../core/services/pdf_storage_service.dart';
 import '../../../../core/services/pdf_annotation_parser.dart';
 import '../../../../core/services/image_cache_service.dart';
 import '../controllers/slide_workspace_controller.dart';
@@ -72,6 +73,11 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   final Map<String, PdfSoundAnnotation> _extractedSounds = {};
   /// annotIds currently being extracted (to show loading spinner)
   final Set<String> _extractingSounds = {};
+  /// Persistent folder of extracted sound WAVs (survives app restarts / OS temp cleanup).
+  String? _soundsDirPath;
+  /// Persistent folder of downloaded lecture recordings (separate uploaded audios).
+  String? _lecturesDirPath;
+  bool _isDownloadingAllLectures = false;
   bool _isLoadingPdf = true;
   int _currentPageIndex = 0;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -535,6 +541,27 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       }
       _cacheDirPath = cacheDir.path;
 
+      // Persistent sounds folder; wipe it when the PDF file changed (admin update)
+      final soundsDir = await PdfStorageService.getPdfSoundsDirectory(widget.pdfSlide.id);
+      _soundsDirPath = soundsDir.path;
+      final lecturesDir =
+          await PdfStorageService.getPdfLecturesDirectory(widget.pdfSlide.id);
+      _lecturesDirPath = lecturesDir.path;
+      try {
+        final stat = await File(widget.localPdfPath).stat();
+        final sig = '${stat.size}_${stat.modified.millisecondsSinceEpoch}';
+        final sigFile = File('${soundsDir.path}/sig.txt');
+        final oldSig = await sigFile.exists() ? await sigFile.readAsString() : null;
+        if (oldSig != sig) {
+          for (final f in soundsDir.listSync()) {
+            if (f is File && f.path.endsWith('.wav')) {
+              try { await f.delete(); } catch (_) {}
+            }
+          }
+          await sigFile.writeAsString(sig);
+        }
+      } catch (_) {}
+
       // Ensure cache is upgraded to crisp high-res base (v2)
       final cacheVersionFile = File('$_cacheDirPath/cache_version_v2.txt');
       if (!await cacheVersionFile.exists()) {
@@ -597,9 +624,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       }
 
       // Fast-load previously extracted sound audios from disk cache
-      if (_cacheDirPath != null) {
+      if (_soundsDirPath != null) {
         for (final meta in _soundAnnotationMetas) {
-          final wavPath = '$_cacheDirPath/pdf_sound_${meta.annotId}_p${meta.pageNumber}.wav';
+          final wavPath = '$_soundsDirPath/pdf_sound_${meta.annotId}_p${meta.pageNumber}.wav';
           if (File(wavPath).existsSync()) {
             _extractedSounds[meta.annotId] = PdfSoundAnnotation(
               pageNumber: meta.pageNumber,
@@ -917,7 +944,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
           await mainRepository.getPdfLectureRecordings(widget.pdfSlide.id);
 
       final remoteIds = remoteRecordings.map((r) => r.id).toSet();
-      final cacheDir = Directory(_cacheDirPath!);
+      final cacheDir = Directory(_lecturesDirPath ?? _cacheDirPath!);
 
       // Case 1: All lecture recordings deleted remotely by admin
       if (remoteRecordings.isEmpty) {
@@ -992,14 +1019,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       // Reconcile recordings with local cache without downloading heavy audio files eagerly
       final updatedRecordings = <PdfLectureRecording>[];
       for (final rec in remoteRecordings) {
-        String ext = 'm4a';
-        try {
-          final uPath = Uri.parse(rec.audioUrl).path;
-          if (uPath.contains('.')) {
-            ext = uPath.split('.').last.toLowerCase();
-          }
-        } catch (_) {}
-        final localAudioFile = File('$_cacheDirPath/lecture_${rec.id}.$ext');
+        final localAudioFile = _lectureAudioFile(rec) ??
+            File('$_cacheDirPath/lecture_${rec.id}.m4a');
         updatedRecordings.add(
           localAudioFile.existsSync()
               ? rec.copyWith(localAudioPath: localAudioFile.path)
@@ -1440,7 +1461,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   /// Called when the user taps a Sound Annotation icon.
   /// If already extracted, plays immediately. Otherwise extracts first, then plays.
   Future<void> _onSoundAnnotationTapped(PdfSoundAnnotationMeta meta) async {
-    // Already extracted — play immediately
     final existing = _extractedSounds[meta.annotId];
     if (existing != null) {
       await _togglePlayPause(existing.tempAudioPath);
@@ -1449,7 +1469,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
     // Guard: avoid duplicate extraction
     if (_extractingSounds.contains(meta.annotId)) return;
-    if (_cacheDirPath == null) return;
+    if (_soundsDirPath == null) return;
 
     if (mounted) setState(() => _extractingSounds.add(meta.annotId));
 
@@ -1459,7 +1479,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         annotId: meta.annotId,
         pageNumber: meta.pageNumber,
         rect: meta.rect,
-        tempDir: _cacheDirPath!,
+        tempDir: _soundsDirPath!,
       );
 
       if (sound != null && mounted) {
@@ -1476,8 +1496,6 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       if (mounted) setState(() => _extractingSounds.remove(meta.annotId));
     }
   }
-
-
 
   double? _getSoundScreenY(PdfSoundAnnotation sound) {
     if (_lastPageWidth <= 0 || _lastViewportHeight <= 0) return null;
@@ -2133,32 +2151,15 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
   Future<void> _playLectureRecording(PdfLectureRecording rec, {int initialPositionMs = 0}) async {
     try {
-      String ext = 'm4a';
-      try {
-        final uPath = Uri.parse(rec.audioUrl).path;
-        if (uPath.contains('.')) {
-          ext = uPath.split('.').last.toLowerCase();
-        }
-      } catch (_) {}
-
-      final directFile = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.$ext') : null;
-      final fallbackM4a = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.m4a') : null;
-      final fallbackMp3 = _cacheDirPath != null ? File('$_cacheDirPath/lecture_${rec.id}.mp3') : null;
-
-      final cachedPath = directFile?.existsSync() == true
-          ? directFile!.path
-          : (fallbackM4a?.existsSync() == true
-              ? fallbackM4a!.path
-              : (fallbackMp3?.existsSync() == true ? fallbackMp3!.path : null));
-
-      final audioSourcePath = rec.localAudioPath ?? cachedPath ?? rec.audioUrl;
+      final directFile = _lectureAudioFile(rec);
+      final cachedPath =
+          directFile?.existsSync() == true ? directFile!.path : null;
+      final localOk = rec.localAudioPath != null &&
+          File(rec.localAudioPath!).existsSync();
+      final audioSourcePath =
+          localOk ? rec.localAudioPath! : (cachedPath ?? rec.audioUrl);
 
       if (audioSourcePath.isEmpty) return;
-
-      // If audio is playing from network URL and not yet cached, quietly cache it in the background
-      if (cachedPath == null && directFile != null && rec.audioUrl.isNotEmpty) {
-        unawaited(_cacheSingleLectureAudioInBackground(rec, directFile));
-      }
 
       _activeAudioPath = null;
       _activeLectureRecording = rec;
@@ -2184,41 +2185,95 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
-  Future<void> _cacheSingleLectureAudioInBackground(
-      PdfLectureRecording rec, File targetFile) async {
-    if (_cachingLectureAudioIds.contains(rec.id) ||
-        targetFile.existsSync() ||
-        rec.audioUrl.isEmpty) {
-      return;
-    }
-    _cachingLectureAudioIds.add(rec.id);
+  String _lectureExt(PdfLectureRecording rec) {
     try {
-      final client = HttpClient();
+      final uPath = Uri.parse(rec.audioUrl).path;
+      if (uPath.contains('.')) return uPath.split('.').last.toLowerCase();
+    } catch (_) {}
+    return 'm4a';
+  }
+
+  File? _lectureAudioFile(PdfLectureRecording rec) {
+    if (_lecturesDirPath == null) return null;
+    return File('$_lecturesDirPath/lecture_${rec.id}.${_lectureExt(rec)}');
+  }
+
+  /// Cheap check used by the UI (no disk access): the sync step sets localAudioPath.
+  bool _isLectureDownloaded(PdfLectureRecording rec) =>
+      (rec.localAudioPath ?? '').isNotEmpty;
+
+  /// First tap on a not-yet-downloaded recording: download it (and play it),
+  /// then download the other recordings of this PDF one after another.
+  Future<void> _downloadAllLectures(PdfLectureRecording first) async {
+    if (_isDownloadingAllLectures || _lecturesDirPath == null) return;
+    _isDownloadingAllLectures = true;
+    try {
+      final rest = _lectureRecordings.where((r) => r.id != first.id).toList()
+        ..sort((a, b) => a.pageNumber.compareTo(b.pageNumber));
+      for (final rec in [first, ...rest]) {
+        if (!mounted) return;
+        final file = _lectureAudioFile(rec);
+        if (file == null || _isLectureDownloaded(rec)) continue;
+        final ok = await _downloadLectureAudio(rec, file);
+        if (ok && mounted && rec.id == first.id) {
+          final idx = _lectureRecordings.indexWhere((r) => r.id == rec.id);
+          if (idx != -1) await _playLectureRecording(_lectureRecordings[idx]);
+        }
+      }
+    } finally {
+      _isDownloadingAllLectures = false;
+    }
+  }
+
+  Future<bool> _downloadLectureAudio(
+      PdfLectureRecording rec, File targetFile) async {
+    if (_cachingLectureAudioIds.contains(rec.id) || rec.audioUrl.isEmpty) {
+      return false;
+    }
+    if (mounted) {
+      setState(() => _cachingLectureAudioIds.add(rec.id));
+    } else {
+      _cachingLectureAudioIds.add(rec.id);
+    }
+    final partFile = File('${targetFile.path}.part');
+    final client = HttpClient();
+    try {
       final req = await client.getUrl(Uri.parse(rec.audioUrl));
       final res = await req.close();
-      if (res.statusCode == 200) {
-        final sink = targetFile.openWrite();
-        await res.pipe(sink);
-        if (mounted) {
-          final idx = _lectureRecordings.indexWhere((r) => r.id == rec.id);
-          if (idx != -1) {
-            final updated =
-                _lectureRecordings[idx].copyWith(localAudioPath: targetFile.path);
-            setState(() {
-              _lectureRecordings[idx] = updated;
-              if (_activeLectureRecording?.id == rec.id) {
-                _activeLectureRecording = updated;
-              }
-            });
-            _rebuildLectureStrokesByPage();
+      if (res.statusCode != 200) return false;
+      await res.pipe(partFile.openWrite());
+      await partFile.rename(targetFile.path);
+
+      if (mounted) {
+        final idx = _lectureRecordings.indexWhere((r) => r.id == rec.id);
+        if (idx != -1) {
+          final updated =
+              _lectureRecordings[idx].copyWith(localAudioPath: targetFile.path);
+          setState(() {
+            _lectureRecordings[idx] = updated;
+            if (_activeLectureRecording?.id == rec.id) {
+              _activeLectureRecording = updated;
+            }
+          });
+          _rebuildLectureStrokesByPage();
+          if (_cacheDirPath != null) {
+            final jsonList = _lectureRecordings.map((r) => r.toJson()).toList();
+            await File('$_cacheDirPath/lecture_recordings.json')
+                .writeAsString(jsonEncode(jsonList));
           }
         }
       }
-      client.close();
+      return true;
     } catch (e) {
-      debugPrint('Error caching single lecture audio: $e');
+      debugPrint('Error downloading lecture audio: $e');
+      try {
+        if (await partFile.exists()) await partFile.delete();
+      } catch (_) {}
+      return false;
     } finally {
+      client.close(force: true);
       _cachingLectureAudioIds.remove(rec.id);
+      if (mounted) setState(() {});
     }
   }
 
@@ -2360,7 +2415,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       );
 
       if (_cacheDirPath != null) {
-        final cacheFile = File('$_cacheDirPath/lecture_${savedRec.id}.m4a');
+        final cacheFile = File(
+            '${_lecturesDirPath ?? _cacheDirPath}/lecture_${savedRec.id}.m4a');
         await recordedFile.copy(cacheFile.path);
         final cachedRec = savedRec.copyWith(localAudioPath: cacheFile.path);
         _lectureRecordings.add(cachedRec);
@@ -2548,7 +2604,8 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         if (await f.exists()) await f.delete();
       }
       if (_cacheDirPath != null) {
-        final f = File('$_cacheDirPath/lecture_${rec.id}.m4a');
+        final f = File(
+            '${_lecturesDirPath ?? _cacheDirPath}/lecture_${rec.id}.m4a');
         if (await f.exists()) await f.delete();
       }
 
@@ -2938,7 +2995,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         message: 'تسجيل صوتي للمحاضر (${_formatDuration(Duration(milliseconds: rec.durationMs))})',
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onTap: () => _playLectureRecording(rec),
+          onTap: () => _isLectureDownloaded(rec)
+              ? _playLectureRecording(rec)
+              : _downloadAllLectures(rec),
           onLongPress: isAdminOrOwner ? () => _confirmDeleteLectureRecording(rec) : null,
           onPanUpdate: isAdminOrOwner ? (details) {
             setState(() {
@@ -2990,12 +3049,23 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                     ),
                   ],
                 ),
-                child: const Center(
-                  child: Icon(
-                    Icons.volume_up_rounded,
-                    color: Colors.white,
-                    size: 17,
-                  ),
+                child: Center(
+                  child: _cachingLectureAudioIds.contains(rec.id)
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : Icon(
+                          _isLectureDownloaded(rec)
+                              ? Icons.volume_up_rounded
+                              : Icons.download_rounded,
+                          color: Colors.white,
+                          size: 17,
+                        ),
                 ),
               );
             },
