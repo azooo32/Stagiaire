@@ -439,8 +439,17 @@ const double _slideBorderPad = 3.0;
 const double _slideTopInset = 44.0;
 final Map<String, double> _slideHeightCache = {};
 
-TextDirection _lineDirection(String line) =>
-    _arabicChars.hasMatch(line) ? TextDirection.rtl : TextDirection.ltr;
+final RegExp _firstLetter = RegExp(
+    r'[A-Za-z؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]');
+
+/// Direction follows the first letter of the line (digits and symbols are
+/// skipped): Arabic first -> RTL, anything else -> LTR.
+TextDirection _lineDirection(String line) {
+  final first = _firstLetter.firstMatch(line)?.group(0);
+  return first != null && _arabicChars.hasMatch(first)
+      ? TextDirection.rtl
+      : TextDirection.ltr;
+}
 
 /// Canvas height of a slide: the standard 608 unless the question/answer
 /// text is taller, in which case the slide grows from the bottom. Width,
@@ -502,7 +511,8 @@ double slideCanvasHeightFor(
 
 const double _slideInnerWidth = 1100.0 - _slideBorderPad;
 
-/// Slide text is LTR by default; any line containing Arabic is laid out RTL.
+/// Slide text is LTR by default; a line that starts with an Arabic letter is
+/// laid out RTL.
 class BidiLinesText extends StatelessWidget {
   final String text;
   final TextStyle style;
