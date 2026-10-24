@@ -52,6 +52,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
   final Set<String> _downloadedAudio = {};
   final Set<String> _checkedAudio = {};
   final Set<String> _downloadingAudio = {};
+  final Map<String, double> _downloadProgress = {};
   final Set<String> _downloadingPdfs = {};
   String? _pdfDirPath;
 
@@ -114,11 +115,17 @@ class _VoiceScreenState extends State<VoiceScreen> {
     setState(() => _downloadingAudio.add(url));
     String? path;
     try {
-      path = await AudioCacheService().downloadPlain(url);
+      path = await AudioCacheService().downloadPlain(url, onProgress: (p) {
+        final previous = _downloadProgress[url] ?? 0.0;
+        if (mounted && (p - previous >= 0.01 || p >= 1.0)) {
+          setState(() => _downloadProgress[url] = p);
+        }
+      });
     } finally {
       if (mounted) {
         setState(() {
           _downloadingAudio.remove(url);
+          _downloadProgress.remove(url);
           if (path != null) _downloadedAudio.add(url);
         });
       }
@@ -127,6 +134,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
       await _replaceStoredUrl('voice_audio_url_$voiceId', voiceId, url, (old) {
         return AudioCacheService().deletePlain(old);
       });
+      if (mounted) {
+        showAppToast(context, 'تم تنزيل التسجيل، سيعمل الآن بدون إنترنت',
+            isError: false);
+      }
     }
     if (path == null && showError && mounted) {
       if (!await hasInternetConnection()) {
@@ -352,8 +363,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
           }
           if (!mounted) return;
         } else {
-          unawaited(_ensureAudioDownloaded(voiceUrl,
-              voiceId: item.dbId, showError: false));
+          unawaited(_ensureAudioDownloaded(voiceUrl, voiceId: item.dbId));
         }
       }
 
@@ -900,16 +910,36 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 ),
                 const SizedBox(height: 1),
                 // Category only (no date)
-                Text(
-                  isUploading
-                      ? 'Uploading audio...'
-                      : (isDownloading ? 'Downloading...' : item.category),
-                  style: TextStyle(
-                    color: brandColor.withValues(alpha: 0.7),
-                    fontSize: isTablet ? 11 : 9,
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        isUploading
+                            ? 'Uploading audio...'
+                            : (isDownloading
+                                ? (_downloadProgress[audioUrl] != null
+                                    ? 'جاري التنزيل ${(_downloadProgress[audioUrl]! * 100).round()}%'
+                                    : 'جاري التنزيل...')
+                                : item.category),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: brandColor.withValues(alpha: 0.7),
+                          fontSize: isTablet ? 11 : 9,
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    // Saved on the device: works without internet
+                    if (!isDownloading && isDownloaded && _isHttp(audioUrl)) ...[
+                      const SizedBox(width: 4),
+                      Icon(Icons.download_done_rounded,
+                          size: isTablet ? 14 : 11,
+                          color: const Color(0xFF10B981)),
+                    ],
+                  ],
                 ),
                 const SizedBox(height: 3),
                 // Progress Slider

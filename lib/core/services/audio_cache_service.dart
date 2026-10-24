@@ -215,6 +215,7 @@ class AudioCacheService {
   // file inside the private app folder instead (same as lecture recordings / PDFs).
 
   final Map<String, Future<String?>> _plainDownloads = {};
+  final Map<String, List<void Function(double)>> _plainListeners = {};
 
   Future<Directory> _plainDirectory() async {
     final baseDir = await getApplicationSupportDirectory();
@@ -247,15 +248,30 @@ class AudioCacheService {
 
   /// Streams [url] to disk (no memory copy) and returns the local path, or null on failure.
   /// Concurrent calls for the same URL share one download.
+  /// [onProgress] receives 0.0-1.0 while the file is being written (when the size is known).
   Future<String?> downloadPlain(String url,
-      {Duration idleTimeout = const Duration(seconds: 60)}) {
+      {Duration idleTimeout = const Duration(seconds: 60),
+      void Function(double progress)? onProgress}) {
     final trimmed = url.trim();
+    if (onProgress != null) {
+      (_plainListeners[trimmed] ??= []).add(onProgress);
+    }
     final running = _plainDownloads[trimmed];
     if (running != null) return running;
-    final future = _downloadPlain(trimmed, idleTimeout)
-        .whenComplete(() => _plainDownloads.remove(trimmed));
+    final future = _downloadPlain(trimmed, idleTimeout).whenComplete(() {
+      _plainDownloads.remove(trimmed);
+      _plainListeners.remove(trimmed);
+    });
     _plainDownloads[trimmed] = future;
     return future;
+  }
+
+  void _notifyPlainProgress(String url, double progress) {
+    final listeners = _plainListeners[url];
+    if (listeners == null) return;
+    for (final listener in List.of(listeners)) {
+      listener(progress);
+    }
   }
 
   Future<String?> _downloadPlain(String url, Duration idleTimeout) async {
@@ -272,10 +288,18 @@ class AudioCacheService {
       final response = await request.close().timeout(idleTimeout);
       if (response.statusCode != 200) return null;
 
+      final total = response.contentLength;
+      var received = 0;
       final sink = part.openWrite();
       try {
         // timeout() here is per chunk: it fails only if the connection stalls.
-        await sink.addStream(response.timeout(idleTimeout));
+        await for (final chunk in response.timeout(idleTimeout)) {
+          sink.add(chunk);
+          received += chunk.length;
+          if (total > 0) {
+            _notifyPlainProgress(url, (received / total).clamp(0.0, 1.0));
+          }
+        }
       } finally {
         await sink.close();
       }
