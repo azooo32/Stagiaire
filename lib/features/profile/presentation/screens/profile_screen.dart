@@ -12,6 +12,7 @@ import '../../../reports/presentation/widgets/notification_badge_button.dart';
 import '../../../reports/presentation/screens/student_notifications_screen.dart';
 import '../../../reports/presentation/screens/supervisor_reports_screen.dart';
 import 'pen_settings_screen.dart';
+import '../../../../core/constants/universities.dart';
 
 
 class _ProfilePalette {
@@ -60,31 +61,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'طبيب مقيم',
     'طبيب أخصائي',
     'طبيب استشاري',
-  ];
-
-  static const List<String> _defaultUniversities = [
-    'كلية طب بغداد',
-    'كلية طب المستنصرية',
-    'كلية طب النهرين',
-    'كلية طب الكندي',
-    'كلية طب البصرة',
-    'كلية طب الكوفة',
-    'كلية طب بابل',
-    'كلية طب كربلاء',
-    'كلية طب القادسية',
-    'كلية طب ميسان',
-    'كلية طب واسط',
-    'كلية طب جابر بن حيان',
-    'كلية طب صلاح الدين',
-    'كلية طب الموصل',
-    'كلية طب نينوى',
-    'كلية طب المثنى',
-    'كلية طب كركوك',
-    'كلية طب الأنبار',
-    'كلية طب ديالى',
-    'كلية طب السليمانية',
-    'كلية طب هولير (أربيل)',
-    'كلية طب دهوك',
   ];
 
   Future<void> _showChangeStageSheet(BuildContext context, AppProvider provider, String currentStage, bool isDark, bool isTablet) async {
@@ -278,7 +254,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     bool didFetchFromDb = false;
 
     // Start with default universities list
-    final initialSet = Set<String>.from(_defaultUniversities);
+    final initialSet = Set<String>.from(kUniversities);
     if (selected != null && selected.isNotEmpty) {
       initialSet.add(selected);
     }

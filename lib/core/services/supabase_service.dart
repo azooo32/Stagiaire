@@ -440,6 +440,27 @@ class SupabaseService {
     }
   }
 
+  /// Average accuracy (0-100) of visible leaderboard users with at least 20 answers.
+  /// Returns null when there is not enough data or the request fails.
+  Future<double?> getCommunityAverageAccuracy() async {
+    try {
+      final rows = await client
+          .from('leaderboard')
+          .select('accuracy')
+          .gte('total_answers', 20)
+          .limit(5000);
+      final values = (rows as List)
+          .map((r) => double.tryParse('${r['accuracy']}'))
+          .whereType<double>()
+          .toList();
+      if (values.length < 10) return null;
+      return values.reduce((a, b) => a + b) / values.length;
+    } catch (e) {
+      print('Error fetching community average accuracy: $e');
+      return null;
+    }
+  }
+
   // Get active study plan from study_plans table
   Future<Map<String, dynamic>?> getActiveStudyPlan() async {
     final user = currentUser;

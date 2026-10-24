@@ -4,6 +4,7 @@ import '../../../../core/providers/app_provider.dart';
 import '../../../../core/models/subject.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/widgets/app_loader.dart';
+import '../../../../core/constants/universities.dart';
 
 class SubscriptionsManagementScreen extends StatefulWidget {
   const SubscriptionsManagementScreen({super.key});
@@ -26,22 +27,6 @@ class _SubscriptionsManagementScreenState
 
   Set<int> _selectedScientificSubjectIds = {};
   Set<int> _selectedClinicalSubjectIds = {};
-
-  static const List<String> _universitiesList = [
-    'كلية طب الموصل',
-    'كلية طب نينوى',
-    'كلية طب بغداد',
-    'كلية طب الكندي',
-    'كلية طب المستنصرية',
-    'كلية طب النهرين',
-    'كلية طب البصرة',
-    'كلية طب الكوفة',
-    'كلية طب كربلاء',
-    'كلية طب بابل',
-    'كلية طب ديالى',
-    'كلية طب كركوك',
-    'كلية طب الأنبار'
-  ];
 
   List<Map<String, dynamic>> _universityRules = [];
   bool _isLoadingUnivRules = false;
@@ -333,7 +318,7 @@ class _SubscriptionsManagementScreenState
 
   void _showAddUniversityRuleDialog() {
     final provider = Provider.of<AppProvider>(context, listen: false);
-    String? selectedUniv = _universitiesList.first;
+    String? selectedUniv = kUniversities.first;
     bool allScientific = false;
     bool allPractical = false;
     int? selectedSubId;
@@ -368,7 +353,7 @@ class _SubscriptionsManagementScreenState
                         labelStyle: const TextStyle(fontFamily: 'Cairo'),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      items: _universitiesList.map((univ) {
+                      items: kUniversities.map((univ) {
                         return DropdownMenuItem<String>(
                           value: univ,
                           child: Text(univ, style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),

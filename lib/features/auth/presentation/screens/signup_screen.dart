@@ -5,6 +5,7 @@ import '../../../../core/widgets/app_loader.dart';
 import '../../../../core/widgets/app_toast.dart';
 import 'login_screen.dart';
 import 'verify_screen.dart';
+import '../../../../core/constants/universities.dart';
 
 const Color _purple = Color(0xFF6B4EFF);
 const Color _purpleDark = Color(0xFF5635D8);
@@ -41,21 +42,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     'طبيب مقيم',
     'طبيب أخصائي',
     'طبيب استشاري'
-  ];
-  final List<String> _universities = const [
-    'كلية طب الموصل',
-    'كلية طب نينوى',
-    'كلية طب بغداد',
-    'كلية طب الكندي',
-    'كلية طب المستنصرية',
-    'كلية طب النهرين',
-    'كلية طب البصرة',
-    'كلية طب الكوفة',
-    'كلية طب كربلاء',
-    'كلية طب بابل',
-    'كلية طب ديالى',
-    'كلية طب كركوك',
-    'كلية طب الأنبار'
   ];
 
   @override
@@ -216,7 +202,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                     const SizedBox(height: 8),
                                     _DropdownField(
                                       value: _selectedUniversity,
-                                      items: _universities,
+                                      items: kUniversities,
                                       hint: 'الجامعة *',
                                       onChanged: (v) => setState(
                                           () => _selectedUniversity = v),

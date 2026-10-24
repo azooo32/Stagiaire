@@ -1961,6 +1961,33 @@ class AppProvider extends ChangeNotifier {
   int get totalCorrect => _leaderboardCorrectAnswers;
   double get accuracy => _leaderboardAccuracy;
 
+  // Community average accuracy (from public.leaderboard), cached for 6 hours
+  double? _communityAvgAccuracy;
+  DateTime? _communityAvgFetchedAt;
+  bool _isLoadingCommunityAvg = false;
+  double? get communityAvgAccuracy => _communityAvgAccuracy;
+
+  Future<void> loadCommunityAverage({bool force = false}) async {
+    if (_isLoadingCommunityAvg) return;
+    final fetchedAt = _communityAvgFetchedAt;
+    if (!force &&
+        fetchedAt != null &&
+        DateTime.now().difference(fetchedAt) < const Duration(hours: 6)) {
+      return;
+    }
+    _isLoadingCommunityAvg = true;
+    try {
+      final avg = await _supabase.getCommunityAverageAccuracy();
+      if (avg != null) {
+        _communityAvgAccuracy = avg;
+        _communityAvgFetchedAt = DateTime.now();
+        notifyListeners();
+      }
+    } finally {
+      _isLoadingCommunityAvg = false;
+    }
+  }
+
   Map<String, dynamic> _cachedMap(String key) {
     final cached = _cache.getCache(key) ?? _cache.getCacheAllowExpired(key);
     if (cached is Map) {

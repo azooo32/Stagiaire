@@ -6,8 +6,21 @@ import 'package:provider/provider.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/theme/colors.dart';
 
-class ProgressScreen extends StatelessWidget {
+class ProgressScreen extends StatefulWidget {
   const ProgressScreen({super.key});
+
+  @override
+  State<ProgressScreen> createState() => _ProgressScreenState();
+}
+
+class _ProgressScreenState extends State<ProgressScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppProvider>().loadCommunityAverage();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -87,7 +100,10 @@ class ProgressScreen extends StatelessWidget {
                   child: _SubjectPicker(
                     palette: palette,
                     subject: subject,
-                    subjects: provider.subjects.map((e) => e.name).toList(),
+                    subjects: {
+                      ...provider.filteredSubjects.map((e) => e.name),
+                      subject,
+                    }.toList(),
                     onSelected: provider.selectSubject,
                     compactOnHeader: true,
                   ),
@@ -114,8 +130,14 @@ class ProgressScreen extends StatelessWidget {
                               fontSize: 12,
                               fontWeight: FontWeight.w700)),
                       const SizedBox(width: 8),
-                      Icon(Icons.refresh_rounded,
-                          color: palette.muted, size: 17),
+                      GestureDetector(
+                        onTap: () {
+                          provider.initializeData();
+                          provider.loadCommunityAverage(force: true);
+                        },
+                        child: Icon(Icons.refresh_rounded,
+                            color: palette.muted, size: 17),
+                      ),
                     ]),
                     const SizedBox(height: 22),
                     _SectionTitle('Overview Stats', palette),
@@ -144,10 +166,12 @@ class ProgressScreen extends StatelessWidget {
                     const SizedBox(height: 12),
                     _MistakesCard(data: analysis, palette: palette),
                     const SizedBox(height: 24),
-                    _SectionTitle('Comparison', palette),
-                    const SizedBox(height: 12),
-                    _ComparisonCard(data: analysis, palette: palette),
-                    const SizedBox(height: 24),
+                    if (analysis.communityAccuracy != null) ...[
+                      _SectionTitle('Comparison', palette),
+                      const SizedBox(height: 12),
+                      _ComparisonCard(data: analysis, palette: palette),
+                      const SizedBox(height: 24),
+                    ],
                     _SectionTitle('Recommendations', palette),
                     const SizedBox(height: 12),
                     _Recommendations(data: analysis, palette: palette),
@@ -421,13 +445,15 @@ class _ProgressCard extends StatelessWidget {
             Expanded(
                 child: _Pill(
                     text:
-                        data.progress >= 45 ? 'Halfway there!' : 'Keep going!',
+                        data.progress >= 50 ? 'Halfway there!' : 'Keep going!',
                     color: palette.accent,
                     palette: palette)),
             const SizedBox(width: 10),
             Expanded(
                 child: _Pill(
-                    text: data.accuracy >= 70 ? 'Good job!' : 'Review more',
+                    text: data.answered == 0
+                        ? 'Start solving'
+                        : (data.accuracy >= 70 ? 'Good job!' : 'Review more'),
                     color: AppColors.green,
                     palette: palette)),
           ]),
@@ -501,31 +527,47 @@ class _Pill extends StatelessWidget {
       );
 }
 
-class _TopicList extends StatelessWidget {
+class _TopicList extends StatefulWidget {
   final _AnalysisData data;
   final _Palette palette;
   const _TopicList({required this.data, required this.palette});
   @override
+  State<_TopicList> createState() => _TopicListState();
+}
+
+class _TopicListState extends State<_TopicList> {
+  bool _expanded = false;
+  @override
   Widget build(BuildContext context) {
-    final topics = data.topics.take(5).toList();
+    final palette = widget.palette;
+    final all = widget.data.topics;
+    final topics = _expanded ? all : all.take(5).toList();
     if (topics.isEmpty) return _EmptyCard('No topics loaded yet.', palette);
     return Column(children: [
       for (final t in topics)
         Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: _TopicTile(topic: t, palette: palette)),
-      Container(
-        height: 48,
-        alignment: Alignment.center,
-        decoration: _card(palette, radius: 15),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text('View all topics',
-              style: TextStyle(
-                  color: palette.accent, fontWeight: FontWeight.w900)),
-          const SizedBox(width: 6),
-          Icon(Icons.keyboard_arrow_down_rounded, color: palette.accent),
-        ]),
-      ),
+      if (all.length > 5)
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Container(
+            height: 48,
+            alignment: Alignment.center,
+            decoration: _card(palette, radius: 15),
+            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(_expanded ? 'Show less' : 'View all topics',
+                  style: TextStyle(
+                      color: palette.accent, fontWeight: FontWeight.w900)),
+              const SizedBox(width: 6),
+              Icon(
+                  _expanded
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: palette.accent),
+            ]),
+          ),
+        ),
     ]);
   }
 }
@@ -683,7 +725,11 @@ class _TimeCard extends StatelessWidget {
   const _TimeCard({required this.data, required this.palette});
   @override
   Widget build(BuildContext context) {
-    final days = data.daily.isEmpty ? _Day.sample() : data.daily;
+    final days = data.daily;
+    if (days.isEmpty) {
+      return _EmptyCard(
+          'No activity yet. Solve questions to see your daily chart.', palette);
+    }
     final maxTotal = days.fold<int>(1, (m, d) => math.max(m, d.total));
     final selected = days.last;
     return Column(children: [
@@ -744,8 +790,10 @@ class _SourceList extends StatelessWidget {
   const _SourceList({required this.data, required this.palette});
   @override
   Widget build(BuildContext context) {
-    final sources =
-        data.sources.isEmpty ? _Source.sample() : data.sources.take(4).toList();
+    if (data.sources.isEmpty) {
+      return _EmptyCard('No source data for this subject.', palette);
+    }
+    final sources = data.sources.take(4).toList();
     return Column(children: [
       for (final s in sources)
         Padding(
@@ -870,7 +918,7 @@ class _ComparisonCard extends StatelessWidget {
             child: Row(children: [
               Expanded(
                   child: _CompareSide(
-                      title: 'You', value: '${data.progress.round()}%')),
+                      title: 'You', value: '${data.accuracy.round()}%')),
               Container(
                   width: 46,
                   height: 46,
@@ -881,8 +929,10 @@ class _ComparisonCard extends StatelessWidget {
                   child: const Text('VS.',
                       style: TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w900))),
-              const Expanded(
-                  child: _CompareSide(title: 'Average', value: '58%')),
+              Expanded(
+                  child: _CompareSide(
+                      title: 'Average',
+                      value: '${(data.communityAccuracy ?? 0).round()}%')),
             ]),
           ),
           Container(
@@ -896,13 +946,23 @@ class _ComparisonCard extends StatelessWidget {
             child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Your Accuracy: ${data.accuracy.round()}%',
+                  Text('Answered: ${data.answered}',
                       style: TextStyle(
                           color: palette.text,
                           fontSize: 11,
                           fontWeight: FontWeight.w900)),
                   Container(width: 1, height: 18, color: palette.border),
-                  Text('Average Accuracy: 62%',
+                  Text(
+                      data.answered == 0
+                          ? 'Solve questions to compare'
+                          : () {
+                              final diff = (data.accuracy -
+                                      (data.communityAccuracy ?? 0))
+                                  .round();
+                              return diff >= 0
+                                  ? 'Above average +$diff%'
+                                  : 'Below average $diff%';
+                            }(),
                       style: TextStyle(
                           color: palette.muted,
                           fontSize: 11,
@@ -930,7 +990,7 @@ class _CompareSide extends StatelessWidget {
                 color: Colors.white,
                 fontSize: 27,
                 fontWeight: FontWeight.w900)),
-        const Text('Progress',
+        const Text('Accuracy',
             style: TextStyle(
                 color: Colors.white,
                 fontSize: 11,
@@ -980,13 +1040,17 @@ class _Achievements extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = [
       _Ach('Question Master', 'Answered ${data.answered} questions',
-          Icons.workspace_premium_outlined, AppColors.red),
+          Icons.workspace_premium_outlined, AppColors.red,
+          earned: data.answered >= 100),
       _Ach('Accuracy Pro', 'Achieved ${data.accuracy.round()}% accuracy',
-          Icons.check_circle_outline, Colors.blue),
+          Icons.check_circle_outline, Colors.blue,
+          earned: data.answered >= 20 && data.accuracy >= 70),
       _Ach('Study Streak', '${data.streak} days in a row',
-          Icons.star_border_rounded, AppColors.amber),
+          Icons.star_border_rounded, AppColors.amber,
+          earned: data.streak >= 3),
       _Ach('Halfway Hero', 'Reached ${data.progress.round()}% progress',
-          Icons.shield_outlined, palette.accent),
+          Icons.shield_outlined, palette.accent,
+          earned: data.progress >= 50),
     ];
     return GridView.builder(
       shrinkWrap: true,
@@ -997,7 +1061,9 @@ class _Achievements extends StatelessWidget {
           mainAxisSpacing: 10,
           crossAxisSpacing: 10,
           childAspectRatio: 2.35),
-      itemBuilder: (_, i) => Container(
+      itemBuilder: (_, i) => Opacity(
+        opacity: items[i].earned ? 1 : .5,
+        child: Container(
         padding: const EdgeInsets.all(11),
         decoration: _card(palette, radius: 15),
         child: Row(children: [
@@ -1029,6 +1095,7 @@ class _Achievements extends StatelessWidget {
                         fontWeight: FontWeight.w600)),
               ])),
         ]),
+        ),
       ),
     );
   }
@@ -1186,7 +1253,9 @@ class _Ach {
   final String subtitle;
   final IconData icon;
   final Color color;
-  const _Ach(this.title, this.subtitle, this.icon, this.color);
+  final bool earned;
+  const _Ach(this.title, this.subtitle, this.icon, this.color,
+      {this.earned = true});
 }
 
 class _AnalysisData {
@@ -1202,6 +1271,7 @@ class _AnalysisData {
   final List<_Source> sources;
   final List<_Day> daily;
   final List<_Mistake> mistakes;
+  final double? communityAccuracy;
 
   const _AnalysisData(
       {required this.subject,
@@ -1215,7 +1285,8 @@ class _AnalysisData {
       required this.topics,
       required this.sources,
       required this.daily,
-      required this.mistakes});
+      required this.mistakes,
+      this.communityAccuracy});
 
   factory _AnalysisData.fromProvider(AppProvider provider, String subject) {
     final questions =
@@ -1226,10 +1297,12 @@ class _AnalysisData {
         ? questions.length
         : (subjectMatches.isEmpty ? 0 : subjectMatches.first.totalQuestions);
     final ids = questions.map((q) => q.id.toString()).toSet();
+    // Only answers of the questions shown to this student (stage + university);
+    // before the questions are loaded, fall back to the subject name.
     final answerEntries = provider.userAnswers.entries.where((e) {
       final value = e.value;
-      return value is Map &&
-          (value['subject'] == subject || ids.contains(e.key));
+      if (value is! Map) return false;
+      return ids.isNotEmpty ? ids.contains(e.key) : value['subject'] == subject;
     }).toList();
     final answerMap = <String, Map>{
       for (final e in answerEntries) e.key: e.value as Map
@@ -1250,11 +1323,12 @@ class _AnalysisData {
       incorrect: incorrect,
       accuracy: accuracy,
       progress: progress.clamp(0, 100),
-      streak: _streak(answerMap),
+      streak: _streak(provider.userAnswers.values),
       topics: _topics(questions, answerMap),
       sources: _sources(questions, answerMap),
       daily: _daily(answerMap),
       mistakes: _mistakes(questions, answerMap),
+      communityAccuracy: provider.communityAvgAccuracy,
     );
   }
 
@@ -1262,12 +1336,16 @@ class _AnalysisData {
     final weak = topics.where((t) => t.answered > 0).toList()
       ..sort((a, b) => a.accuracy.compareTo(b.accuracy));
     return [
-      if (weak.isNotEmpty)
+      if (answered == 0)
+        'Start solving questions to get personalised recommendations.',
+      if (weak.isNotEmpty && weak.first.accuracy < 70)
         'Increase your accuracy in ${weak.first.name}. Focus on weak topics and review explanations.',
-      'Solve more questions daily. Keep the streak going.',
+      if (answered > 0 && streak < 3)
+        'Solve more questions daily. Keep the streak going.',
       if (mistakes.isNotEmpty)
         'Review ${mistakes.first.topic} mistakes. ${mistakes.first.count} incorrect answers need more practice.',
-      'Great work. Keep it up and protect your progress.',
+      if (answered > 0 && accuracy >= 70)
+        'Great work. Keep it up and protect your progress.',
     ];
   }
 
@@ -1299,17 +1377,20 @@ class _AnalysisData {
   }
 
   static List<_Day> _daily(Map<String, Map> answers) {
-    final map = <String, _MutableDay>{};
+    final map = <DateTime, _MutableDay>{};
     for (final a in answers.values) {
-      final parsed = DateTime.tryParse(a['answered_at']?.toString() ?? '');
+      final parsed =
+          DateTime.tryParse(a['answered_at']?.toString() ?? '')?.toLocal();
       if (parsed == null) continue;
-      final key = '${parsed.month}/${parsed.day}';
-      final item = map.putIfAbsent(key, () => _MutableDay(key));
+      final key = DateTime(parsed.year, parsed.month, parsed.day);
+      final item = map.putIfAbsent(
+          key, () => _MutableDay('${key.month}/${key.day}'));
       item.total++;
       if (a['is_correct'] == true) item.correct++;
     }
-    final list = map.values.map((d) => d.toDay()).toList();
-    return list.length > 7 ? list.sublist(list.length - 7) : list;
+    final keys = map.keys.toList()..sort();
+    final last = keys.length > 7 ? keys.sublist(keys.length - 7) : keys;
+    return [for (final k in last) map[k]!.toDay()];
   }
 
   static List<_Mistake> _mistakes(
@@ -1326,21 +1407,28 @@ class _AnalysisData {
     return list.take(5).toList();
   }
 
-  static int _streak(Map<String, Map> answers) {
-    final days = answers.values
-        .map((a) => DateTime.tryParse(a['answered_at']?.toString() ?? ''))
-        .whereType<DateTime>()
-        .map((d) => DateTime(d.year, d.month, d.day).millisecondsSinceEpoch)
-        .toSet();
-    if (days.isEmpty) return 0;
-    var streak = 0;
-    var day = DateTime.now();
-    while (days.contains(
-        DateTime(day.year, day.month, day.day).millisecondsSinceEpoch)) {
-      streak++;
-      day = day.subtract(const Duration(days: 1));
+  /// Consecutive days with at least one answer (all subjects). Today may still be
+  /// empty (the day is not over), but a fully missed day resets the streak to 0.
+  static int _streak(Iterable<dynamic> answers) {
+    final days = <int>{};
+    for (final a in answers) {
+      if (a is! Map) continue;
+      final d =
+          DateTime.tryParse(a['answered_at']?.toString() ?? '')?.toLocal();
+      if (d == null) continue;
+      days.add(DateTime(d.year, d.month, d.day).millisecondsSinceEpoch);
     }
-    return streak == 0 ? 1 : streak;
+    final now = DateTime.now();
+    var day = DateTime(now.year, now.month, now.day);
+    if (!days.contains(day.millisecondsSinceEpoch)) {
+      day = DateTime(day.year, day.month, day.day - 1);
+    }
+    var streak = 0;
+    while (days.contains(day.millisecondsSinceEpoch)) {
+      streak++;
+      day = DateTime(day.year, day.month, day.day - 1);
+    }
+    return streak;
   }
 
   static String _clean(String? value) {
@@ -1402,12 +1490,6 @@ class _Source {
   }
   double get progress => total == 0 ? 0 : answered / total * 100;
   double get accuracy => answered == 0 ? 0 : correct / answered * 100;
-  static List<_Source> sample() => const [
-        _Source(name: 'PLAB', total: 890, answered: 676, correct: 514),
-        _Source(name: 'Pretest', total: 520, answered: 369, correct: 262),
-        _Source(name: 'Ministry 2024', total: 365, answered: 248, correct: 169),
-        _Source(name: 'Ten Teachers', total: 200, answered: 130, correct: 85),
-      ];
 }
 
 class _Day {
@@ -1416,15 +1498,6 @@ class _Day {
   final int correct;
   const _Day(this.label, this.total, this.correct);
   double get accuracy => total == 0 ? 0 : correct / total * 100;
-  static List<_Day> sample() => const [
-        _Day('May 11', 48, 33),
-        _Day('May 12', 52, 39),
-        _Day('May 13', 86, 72),
-        _Day('May 14', 57, 42),
-        _Day('May 15', 55, 38),
-        _Day('May 16', 37, 25),
-        _Day('May 17', 52, 41),
-      ];
 }
 
 class _MutableDay {

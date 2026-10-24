@@ -8,6 +8,7 @@ import '../../../../core/widgets/app_loader.dart';
 import '../../../subjects/presentation/screens/subject_topics_screen.dart';
 import 'clinical_subject_screen.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../core/constants/universities.dart';
 
 class ClinicalCategory {
   final String title;
@@ -848,233 +849,17 @@ void showAddSubjectDialog(BuildContext context, AppProvider provider) {
                       _buildInputDecoration('', isDark: provider.isDarkTheme),
                   icon: const Icon(Icons.keyboard_arrow_down_rounded,
                       color: Color(0xFF6B4EFF)),
-                  items: [
-                    DropdownMenuItem(
-                        value: 'كلية طب بغداد',
-                        child: Text('كلية طب بغداد',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب المستنصرية',
-                        child: Text('كلية طب المستنصرية',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الكوفة',
-                        child: Text('كلية طب الكوفة',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب البصرة',
-                        child: Text('كلية طب البصرة',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب بابل',
-                        child: Text('كلية طب بابل',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب كربلاء',
-                        child: Text('كلية طب كربلاء',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب القادسية',
-                        child: Text('كلية طب القادسية',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ميسان',
-                        child: Text('كلية طب ميسان',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب واسط',
-                        child: Text('كلية طب واسط',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب جابر بن حيان',
-                        child: Text('كلية طب جابر بن حيان',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب صلاح الدين',
-                        child: Text('كلية طب صلاح الدين',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الموصل',
-                        child: Text('كلية طب الموصل',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب المثنى',
-                        child: Text('كلية طب المثنى',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب نينوى',
-                        child: Text('كلية طب نينوى',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب كركوك',
-                        child: Text('كلية طب كركوك',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الأنبار',
-                        child: Text('كلية طب الأنبار',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الكندي',
-                        child: Text('كلية طب الكندي',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب العميد',
-                        child: Text('كلية طب العميد',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب حمورابي',
-                        child: Text('كلية طب حمورابي',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ذي قار',
-                        child: Text('كلية طب ذي قار',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ديالى',
-                        child: Text('كلية طب ديالى',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ابن سينا',
-                        child: Text('كلية طب ابن سينا',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب النهرين',
-                        child: Text('كلية طب النهرين',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب تكريت',
-                        child: Text('كلية طب تكريت',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الجامعة العراقية',
-                        child: Text('كلية طب الجامعة العراقية',
-                            style: TextStyle(
-                                fontSize: 14,
-                                fontFamily: 'Cairo',
-                                color: provider.isDarkTheme
-                                    ? AppColors.text
-                                    : const Color(0xFF1E1E50)))),
-                  ],
+                  items: kUniversities
+                      .map((u) => DropdownMenuItem(
+                          value: u,
+                          child: Text(u,
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  fontFamily: 'Cairo',
+                                  color: provider.isDarkTheme
+                                      ? AppColors.text
+                                      : const Color(0xFF1E1E50)))))
+                      .toList(),
                   onChanged: (val) {
                     setModalState(() {
                       selectedUniversity = val;
@@ -1424,133 +1209,13 @@ void showEditSubjectDialog(
                   decoration: _buildInputDecoration(''),
                   icon: const Icon(Icons.keyboard_arrow_down_rounded,
                       color: Color(0xFF6B4EFF)),
-                  items: const [
-                    DropdownMenuItem(
-                        value: 'كلية طب بغداد',
-                        child: Text('كلية طب بغداد',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب المستنصرية',
-                        child: Text('كلية طب المستنصرية',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الكوفة',
-                        child: Text('كلية طب الكوفة',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب البصرة',
-                        child: Text('كلية طب البصرة',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب بابل',
-                        child: Text('كلية طب بابل',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب كربلاء',
-                        child: Text('كلية طب كربلاء',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب القادسية',
-                        child: Text('كلية طب القادسية',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ميسان',
-                        child: Text('كلية طب ميسان',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب واسط',
-                        child: Text('كلية طب واسط',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب جابر بن حيان',
-                        child: Text('كلية طب جابر بن حيان',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب صلاح الدين',
-                        child: Text('كلية طب صلاح الدين',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الموصل',
-                        child: Text('كلية طب الموصل',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب المثنى',
-                        child: Text('كلية طب المثنى',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب نينوى',
-                        child: Text('كلية طب نينوى',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب كركوك',
-                        child: Text('كلية طب كركوك',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الأنبار',
-                        child: Text('كلية طب الأنبار',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الكندي',
-                        child: Text('كلية طب الكندي',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب العميد',
-                        child: Text('كلية طب العميد',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب حمورابي',
-                        child: Text('كلية طب حمورابي',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ذي قار',
-                        child: Text('كلية طب ذي قار',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ديالى',
-                        child: Text('كلية طب ديالى',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب ابن سينا',
-                        child: Text('كلية طب ابن سينا',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب النهرين',
-                        child: Text('كلية طب النهرين',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب تكريت',
-                        child: Text('كلية طب تكريت',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                    DropdownMenuItem(
-                        value: 'كلية طب الجامعة العراقية',
-                        child: Text('كلية طب الجامعة العراقية',
-                            style:
-                                TextStyle(fontSize: 14, fontFamily: 'Cairo'))),
-                  ],
+                  items: kUniversities
+                      .map((u) => DropdownMenuItem(
+                          value: u,
+                          child: Text(u,
+                              style: const TextStyle(
+                                  fontSize: 14, fontFamily: 'Cairo'))))
+                      .toList(),
                   onChanged: (val) {
                     setModalState(() {
                       selectedUniversity = val;

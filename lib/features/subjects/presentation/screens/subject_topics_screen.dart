@@ -656,7 +656,16 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
             );
           },
           itemBuilder: (BuildContext context) {
-            return provider.subjects.map((subject) {
+            // Only the student's stage + university subjects (same filter as the subjects list);
+            // the open subject always stays in the menu.
+            final allowed =
+                provider.filteredSubjects.map((f) => f.name).toSet();
+            final menuSubjects = provider.subjects
+                .where((subject) =>
+                    subject.name == widget.subjectName ||
+                    allowed.contains(subject.name))
+                .toList();
+            return menuSubjects.map((subject) {
               final bool isCurrent = subject.name == widget.subjectName;
               return PopupMenuItem<String>(
                 value: subject.name,

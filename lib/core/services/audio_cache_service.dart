@@ -207,6 +207,26 @@ class AudioCacheService {
     }
   }
 
+  /// Cheap check (no decryption): true if the file for [url] is already stored on disk.
+  /// Local (non-http) paths count as downloaded.
+  Future<bool> isDownloaded(String url) async {
+    if (kIsWeb) return false;
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return false;
+    if (!(trimmed.startsWith('http://') || trimmed.startsWith('https://'))) {
+      return true;
+    }
+    final dir = await _cacheDirectory();
+    final encryptedFile = File(
+        '${dir.path}${Platform.pathSeparator}${_encryptedFileNameForUrl(trimmed)}');
+    if (await encryptedFile.exists() && await encryptedFile.length() > 0) {
+      return true;
+    }
+    final legacyFile = File(
+        '${dir.path}${Platform.pathSeparator}${_runtimeFileNameForUrl(trimmed)}');
+    return await legacyFile.exists() && await legacyFile.length() > 0;
+  }
+
   /// Returns true if the given [url] is already cached on disk.
   Future<bool> isCachedForUrl(String url) async {
     if (kIsWeb) return false;

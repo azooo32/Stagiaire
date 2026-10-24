@@ -9,6 +9,8 @@ import 'package:record/record.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
+import 'package:crypto/crypto.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/services/pdf_storage_service.dart';
 import '../../../../core/providers/app_provider.dart';
 import '../../../../core/utils/platform_file_helper.dart';
@@ -44,9 +46,17 @@ class _VoiceScreenState extends State<VoiceScreen> {
   Timer? _playbackTimer;
   AudioPlayer? _audioPlayer;
 
+  // Persistent downloads: audio (by versioned URL) and PDFs
+  final Set<String> _downloadedAudio = {};
+  final Set<String> _checkedAudio = {};
+  final Set<String> _downloadingAudio = {};
+  final Set<String> _downloadingPdfs = {};
+  String? _pdfDirPath;
+
   @override
   void initState() {
     super.initState();
+    _initPdfDir();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = Provider.of<AppProvider>(context, listen: false);
       provider.loadClinicalData(widget.subject);
@@ -64,6 +74,100 @@ class _VoiceScreenState extends State<VoiceScreen> {
     super.dispose();
   }
 
+  Future<void> _initPdfDir() async {
+    if (kIsWeb) return;
+    try {
+      final dir = await PdfStorageService.getSavedPdfsDirectory();
+      if (mounted) setState(() => _pdfDirPath = dir.path);
+    } catch (e) {
+      debugPrint('[VoiceScreen] pdf dir error: $e');
+    }
+  }
+
+  bool _isHttp(String url) =>
+      url.startsWith('http://') || url.startsWith('https://');
+
+  /// Local paths and already stored files count as downloaded.
+  bool _isAudioDownloaded(String url) =>
+      url.isNotEmpty && (!_isHttp(url) || _downloadedAudio.contains(url));
+
+  /// Looks up (once per URL) whether the audio is already stored on the device.
+  void _checkDownloadedAudio(List<ClinicalVoiceNote> notes) {
+    if (kIsWeb) return;
+    for (final note in notes) {
+      final url = _audioUrlForVoice(note);
+      if (url.isEmpty || !_isHttp(url) || !_checkedAudio.add(url)) continue;
+      AudioCacheService().isDownloaded(url).then((ok) {
+        if (ok && mounted) setState(() => _downloadedAudio.add(url));
+      });
+    }
+  }
+
+  /// Downloads the audio once into persistent storage. Returns true when it is on the device.
+  Future<bool> _ensureAudioDownloaded(String url, {String? voiceId}) async {
+    if (kIsWeb || _isAudioDownloaded(url)) return true;
+    if (url.isEmpty || _downloadingAudio.contains(url)) return false;
+    setState(() => _downloadingAudio.add(url));
+    String? path;
+    try {
+      path = await AudioCacheService()
+          .getOrDownload(url, timeout: const Duration(minutes: 3));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _downloadingAudio.remove(url);
+          if (path != null) _downloadedAudio.add(url);
+        });
+      }
+    }
+    if (path != null) {
+      await _replaceStoredUrl('voice_audio_url_$voiceId', voiceId, url, (old) {
+        return AudioCacheService().clearCacheForUrls([old]);
+      });
+    }
+    if (path == null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('تعذر تنزيل الصوت، تحقق من الاتصال وحاول مرة أخرى',
+                style: TextStyle(fontFamily: 'Cairo'))),
+      );
+    }
+    return path != null;
+  }
+
+  /// Remembers which link a voice note's local file came from; when the admin
+  /// changed the link, the old local file is deleted so it is never kept twice.
+  Future<void> _replaceStoredUrl(String prefKey, String? voiceId, String newUrl,
+      Future<void> Function(String oldUrl) deleteOld) async {
+    if (voiceId == null || voiceId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final old = prefs.getString(prefKey);
+      if (old != null && old.isNotEmpty && old != newUrl) {
+        await deleteOld(old);
+      }
+      await prefs.setString(prefKey, newUrl);
+    } catch (e) {
+      debugPrint('[VoiceScreen] replace stored url error: $e');
+    }
+  }
+
+  /// Stable local file for a PDF URL (a replaced PDF has a new URL, so it downloads again).
+  File? _pdfFileForUrl(String url) {
+    final dir = _pdfDirPath;
+    if (dir == null) return null;
+    final hash = sha256.convert(url.codeUnits).toString().substring(0, 24);
+    return File('$dir/dl_$hash.pdf');
+  }
+
+  bool _isPdfDownloaded(String? url) {
+    final trimmed = url?.trim() ?? '';
+    if (trimmed.isEmpty) return false;
+    if (!_isHttp(trimmed)) return true;
+    final file = _pdfFileForUrl(trimmed);
+    return file != null && file.existsSync() && file.lengthSync() > 0;
+  }
+
   List<ClinicalVoiceNote> _sectionRecordings(AppProvider provider) {
     final recordings =
         provider.getClinicalVoiceNotes(widget.subject).where((vn) {
@@ -75,18 +179,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
     return recordings;
   }
 
-  String _audioUrlForVoice(ClinicalVoiceNote item) {
-    final rawUrl = item.audioUrl?.trim() ?? '';
-    if (rawUrl.isEmpty ||
-        !(rawUrl.startsWith('http://') || rawUrl.startsWith('https://'))) {
-      return rawUrl;
-    }
-
-    final version = item.updatedAt?.trim();
-    if (version == null || version.isEmpty) return rawUrl;
-    final separator = rawUrl.contains('?') ? '&' : '?';
-    return '$rawUrl${separator}v=${Uri.encodeComponent(version)}';
-  }
+  /// The stored link is the cache key: a new link from the admin means a new download.
+  String _audioUrlForVoice(ClinicalVoiceNote item) =>
+      item.audioUrl?.trim() ?? '';
 
   // ignore: unused_element
   void _startPlaybackTimer() {
@@ -243,6 +338,15 @@ class _VoiceScreenState extends State<VoiceScreen> {
     }
 
     try {
+      // 0. Download once into persistent storage on the first tap
+      final voiceUrl = _audioUrlForVoice(item);
+      if (voiceUrl.isNotEmpty && !_isAudioDownloaded(voiceUrl)) {
+        if (!await _ensureAudioDownloaded(voiceUrl, voiceId: item.dbId)) {
+          return;
+        }
+        if (!mounted) return;
+      }
+
       // 1. Fast path: if the player is already initialized for this item, just seek and resume!
       if (_activeAudioIndex == index && _audioPlayer != null) {
         final position = _positionMap[index] ?? Duration.zero;
@@ -325,7 +429,12 @@ class _VoiceScreenState extends State<VoiceScreen> {
       }
 
       final isWebm = audioUrl.toLowerCase().contains('.webm');
-      if (kIsWeb || isWebm) {
+      final storedPath = (!kIsWeb && _isHttp(audioUrl))
+          ? await AudioCacheService().cachedPathForUrl(audioUrl)
+          : null;
+      if (storedPath != null) {
+        await _audioPlayer!.setSource(DeviceFileSource(storedPath));
+      } else if (kIsWeb || isWebm) {
         final bytes = await AudioCacheService().getOrDownloadBytes(audioUrl);
         if (bytes != null && bytes.isNotEmpty) {
           await _audioPlayer!.setSource(BytesSource(bytes));
@@ -375,6 +484,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
     final provider = Provider.of<AppProvider>(context);
     final recordings = _sectionRecordings(provider);
     final isTablet = MediaQuery.of(context).size.width > 600;
+    _checkDownloadedAudio(recordings);
 
     // Initialize state values dynamically
     for (int i = 0; i < recordings.length; i++) {
@@ -645,6 +755,12 @@ class _VoiceScreenState extends State<VoiceScreen> {
     final bool hasPdf = item.pdfUrl != null && item.pdfUrl!.isNotEmpty;
     final bool isUploading = item.isUploading;
     final isDark = provider.isDarkTheme;
+    final audioUrl = _audioUrlForVoice(item);
+    final bool isDownloading = _downloadingAudio.contains(audioUrl);
+    final bool isDownloaded = _isAudioDownloaded(audioUrl);
+    final bool pdfDownloaded = hasPdf && _isPdfDownloaded(item.pdfUrl);
+    final bool pdfDownloading =
+        hasPdf && _downloadingPdfs.contains(item.pdfUrl!.trim());
 
     final knownDuration = _knownDuration(index, item);
     final knownPosition = _positionMap[index] ??
@@ -689,7 +805,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
         children: [
           // ── LEFT: Play/Pause Circle ──
           GestureDetector(
-            onTap: isUploading
+            onTap: (isUploading || isDownloading)
                 ? null
                 : () => _toggleVoicePlayback(index, item, speedText, provider),
             child: Container(
@@ -723,7 +839,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 ],
               ),
               alignment: Alignment.center,
-              child: isUploading
+              child: (isUploading || isDownloading)
                   ? SizedBox(
                       width: isTablet ? 22 : 18,
                       height: isTablet ? 22 : 18,
@@ -735,7 +851,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   : Icon(
                       isPlaying
                           ? Icons.pause_rounded
-                          : Icons.play_arrow_rounded,
+                          : (isDownloaded
+                              ? Icons.play_arrow_rounded
+                              : Icons.download_rounded),
                       color: Colors.white,
                       size: isTablet ? 28 : 21,
                     ),
@@ -765,7 +883,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 const SizedBox(height: 1),
                 // Category only (no date)
                 Text(
-                  isUploading ? 'Uploading audio...' : item.category,
+                  isUploading
+                      ? 'Uploading audio...'
+                      : (isDownloading ? 'Downloading...' : item.category),
                   style: TextStyle(
                     color: brandColor.withValues(alpha: 0.7),
                     fontSize: isTablet ? 11 : 9,
@@ -860,7 +980,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                   // PDF badge
                   GestureDetector(
                     onTap: () async {
-                      await openPdf(item.pdfUrl);
+                      await openPdf(item.pdfUrl, voiceId: item.dbId);
                     },
                     child: Container(
                       padding: isTablet
@@ -885,8 +1005,17 @@ class _VoiceScreenState extends State<VoiceScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.description_outlined,
+                          pdfDownloading
+                              ? SizedBox(
+                                  width: isTablet ? 14 : 10,
+                                  height: isTablet ? 14 : 10,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 1.6, color: brandColor),
+                                )
+                              : Icon(
+                            hasPdf && !pdfDownloaded
+                                ? Icons.download_rounded
+                                : Icons.description_outlined,
                             color: hasPdf
                                 ? brandColor
                                 : (isDark
@@ -1161,7 +1290,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
     );
   }
 
-  Future<void> openPdf(String? path) async {
+  Future<void> openPdf(String? path, {String? voiceId}) async {
     if (path == null || path.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1214,29 +1343,44 @@ class _VoiceScreenState extends State<VoiceScreen> {
     try {
       if (trimmedPath.startsWith('http://') ||
           trimmedPath.startsWith('https://')) {
-        final uri = Uri.parse(trimmedPath);
-        final dir = await getTemporaryDirectory();
-        final rawName = trimmedPath.split('/').last.split('?').first;
-        final fileName = rawName.isEmpty ? 'attachment.pdf' : rawName;
-        final safeName = fileName.toLowerCase().endsWith('.pdf')
-            ? fileName
-            : '$fileName.pdf';
-        final localFile = File('${dir.path}/$safeName');
+        // Persistent copy: downloaded once, reused on every later open
+        if (_pdfDirPath == null) await _initPdfDir();
+        final localFile = _pdfFileForUrl(trimmedPath);
+        if (localFile == null) throw Exception('Storage not available');
 
-        // Download the file
-        final client = HttpClient();
-        final request = await client.getUrl(uri);
-        final response = await request.close();
-        if (response.statusCode == 200) {
-          final sink = localFile.openWrite();
-          await response.pipe(sink);
-          await sink.close();
-        } else {
-          client.close(force: true);
-          throw Exception(
-              'Failed to download PDF (Status Code: ${response.statusCode})');
+        if (!(await localFile.exists() && await localFile.length() > 0)) {
+          final uri = Uri.parse(trimmedPath);
+          final partFile = File('${localFile.path}.part');
+          final client = HttpClient();
+          if (mounted) setState(() => _downloadingPdfs.add(trimmedPath));
+          try {
+            final request = await client.getUrl(uri);
+            final response = await request.close();
+            if (response.statusCode != 200) {
+              throw Exception(
+                  'Failed to download PDF (Status Code: ${response.statusCode})');
+            }
+            final sink = partFile.openWrite();
+            await response.pipe(sink);
+            await partFile.rename(localFile.path);
+            await _replaceStoredUrl('voice_pdf_url_$voiceId', voiceId,
+                trimmedPath, (old) async {
+              final oldFile = _pdfFileForUrl(old);
+              if (oldFile != null && await oldFile.exists()) {
+                await oldFile.delete();
+              }
+            });
+          } catch (e) {
+            try {
+              if (await partFile.exists()) await partFile.delete();
+            } catch (_) {}
+            rethrow;
+          } finally {
+            client.close(force: true);
+            _downloadingPdfs.remove(trimmedPath);
+            if (mounted) setState(() {});
+          }
         }
-        client.close(force: true);
 
         // Dismiss loading dialog
         if (mounted) Navigator.pop(context);
