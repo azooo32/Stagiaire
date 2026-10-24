@@ -14,6 +14,7 @@ import '../../domain/entities/slide_workspace_models.dart';
 import 'slide_workspace_screen.dart';
 import 'pdf_workspace_screen.dart';
 import '../widgets/slide_editor_dialog.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 enum StationItemType { pdf, slideGroup }
 
@@ -567,9 +568,8 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
           _isDownloading[slide.id] = false;
           _localPdfPaths.remove(slide.id);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('فشل تنزيل ملف الـ PDF. يرجى المحاولة مرة أخرى.')),
-        );
+        showNetworkAwareError(
+            context, 'فشل تنزيل ملف الـ PDF. يرجى المحاولة مرة أخرى.');
       }
     }
   }
@@ -1540,12 +1540,8 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
     } catch (e) {
       debugPrint('Error re-downloading PDF (${pdfSlide.id}): $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('فشل إعادة تحميل الملف: $e', style: const TextStyle(fontFamily: 'Cairo')),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
+        showNetworkAwareError(
+            context, 'فشل إعادة تحميل الملف. يرجى المحاولة مرة أخرى.');
       }
     }
   }

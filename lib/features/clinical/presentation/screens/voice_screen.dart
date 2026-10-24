@@ -16,6 +16,8 @@ import '../../../../core/providers/app_provider.dart';
 import '../../../../core/utils/platform_file_helper.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/services/audio_cache_service.dart';
+import '../../../../core/utils/connectivity_helper.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 class VoiceScreen extends StatefulWidget {
   final String subject;
@@ -127,11 +129,11 @@ class _VoiceScreenState extends State<VoiceScreen> {
       });
     }
     if (path == null && showError && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('تعذر تنزيل الصوت، تحقق من الاتصال وحاول مرة أخرى',
-                style: TextStyle(fontFamily: 'Cairo'))),
-      );
+      if (!await hasInternetConnection()) {
+        if (mounted) showOfflineToast(context);
+      } else if (mounted) {
+        showAppToast(context, 'تعذر تنزيل الصوت، حاول مرة أخرى');
+      }
     }
     return path != null;
   }
@@ -477,12 +479,15 @@ class _VoiceScreenState extends State<VoiceScreen> {
     } catch (e) {
       if (mounted) setState(() => _isPlayingMap[index] = false);
       debugPrint('Error playing voice note: $e');
+      // Not downloaded yet + no internet: say so instead of showing the player's raw error.
+      final url = _audioUrlForVoice(item);
+      final offline = !_isAudioDownloaded(url) && !await hasInternetConnection();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('تعذر تشغيل الصوت: $e',
-                  style: const TextStyle(fontFamily: 'Cairo'))),
-        );
+        if (offline) {
+          showOfflineToast(context);
+        } else {
+          showAppToast(context, 'تعذر تشغيل الصوت، يرجى المحاولة مرة أخرى');
+        }
       }
     }
   }
@@ -1433,16 +1438,13 @@ class _VoiceScreenState extends State<VoiceScreen> {
         Navigator.of(context, rootNavigator: true).pop();
       }
       debugPrint('Error opening PDF: $e');
+      final offline = !await hasInternetConnection();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'عذراً، تعذّر فتح ملف الـ PDF: $e',
-              style: const TextStyle(fontFamily: 'Cairo'),
-            ),
-            backgroundColor: const Color(0xFFEF4444),
-          ),
-        );
+        if (offline) {
+          showOfflineToast(context);
+        } else {
+          showAppToast(context, 'تعذّر فتح ملف الـ PDF، يرجى المحاولة مرة أخرى');
+        }
       }
     }
   }

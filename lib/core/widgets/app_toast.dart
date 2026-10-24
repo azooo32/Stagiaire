@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/connectivity_helper.dart';
 
 /// Clean and convert technical error messages into user-friendly Arabic text.
 String parseErrorMessage(dynamic error) {
@@ -24,8 +25,18 @@ String parseErrorMessage(dynamic error) {
   if (str.contains('Rate limit exceeded') || str.contains('over_email_send_rate_limit')) {
     return 'تم تجاوز الحد المسموح من المحاولات، يرجى الانتظار قليلاً ثم المحاولة مرة أخرى';
   }
-  if (str.contains('SocketException') || str.contains('ClientException') || str.contains('Network')) {
+  if (str.contains('SocketException') ||
+      str.contains('ClientException') ||
+      str.contains('Network') ||
+      str.contains('Failed host lookup') ||
+      str.contains('HandshakeException') ||
+      str.contains('TimeoutException')) {
     return 'تعذر الاتصال بالشبكة، يرجى التحقق من اتصالك بالإنترنت';
+  }
+  if (str.contains('DarwinAudioError') ||
+      str.contains('Failed to set source') ||
+      str.contains('AVPlayerItem')) {
+    return 'تعذر تشغيل الصوت، يرجى المحاولة مرة أخرى';
   }
 
   // Extract message string from AuthException(...) pattern
@@ -46,9 +57,43 @@ String parseErrorMessage(dynamic error) {
   return cleaned.isNotEmpty ? cleaned : 'حدث خطأ غير متوقع، يرجى المحاولة مرة أخرى';
 }
 
+/// Student-facing failures: "no internet" banner when the device is offline,
+/// otherwise a red banner with [fallbackMessage] (never the raw exception text).
+Future<void> showNetworkAwareError(
+    BuildContext context, String fallbackMessage) async {
+  final online = await hasInternetConnection();
+  if (!context.mounted) return;
+  if (online) {
+    showAppToast(context, fallbackMessage);
+  } else {
+    showOfflineToast(context);
+  }
+}
+
+/// Friendly "no internet" banner (amber, wifi-off icon) shown at the bottom.
+void showOfflineToast(BuildContext context, {String? message}) {
+  showAppToast(
+    context,
+    message ?? 'لا يوجد اتصال بالإنترنت، تحقق من الشبكة ثم حاول مرة أخرى',
+    isError: false,
+    icon: Icons.wifi_off_rounded,
+    colors: const [Color(0xFFF59E0B), Color(0xFFD97706)],
+  );
+}
+
 /// Show a beautiful floating notification banner (Toast/SnackBar)
-void showAppToast(BuildContext context, String message, {bool isError = true}) {
+void showAppToast(
+  BuildContext context,
+  String message, {
+  bool isError = true,
+  IconData? icon,
+  List<Color>? colors,
+}) {
   final cleanedText = isError ? parseErrorMessage(message) : message;
+  final gradientColors = colors ??
+      (isError
+          ? const [Color(0xFFE53935), Color(0xFFC62828)]
+          : const [Color(0xFF2E7D32), Color(0xFF1B5E20)]);
 
   ScaffoldMessenger.of(context).clearSnackBars();
   ScaffoldMessenger.of(context).showSnackBar(
@@ -64,16 +109,11 @@ void showAppToast(BuildContext context, String message, {bool isError = true}) {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: isError
-                  ? const [Color(0xFFE53935), Color(0xFFC62828)]
-                  : const [Color(0xFF2E7D32), Color(0xFF1B5E20)],
-            ),
+            gradient: LinearGradient(colors: gradientColors),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: (isError ? const Color(0xFFE53935) : const Color(0xFF2E7D32))
-                    .withValues(alpha: 0.35),
+                color: gradientColors.first.withValues(alpha: 0.35),
                 blurRadius: 16,
                 offset: const Offset(0, 6),
               )
@@ -82,9 +122,10 @@ void showAppToast(BuildContext context, String message, {bool isError = true}) {
           child: Row(
             children: [
               Icon(
-                isError
-                    ? Icons.error_outline_rounded
-                    : Icons.check_circle_outline_rounded,
+                icon ??
+                    (isError
+                        ? Icons.error_outline_rounded
+                        : Icons.check_circle_outline_rounded),
                 color: Colors.white,
                 size: 24,
               ),

@@ -12,6 +12,7 @@ import '../../../practice/presentation/screens/question_viewer_screen.dart';
 import '../../../subjects/presentation/screens/subject_topics_screen.dart';
 import '../../../profile/presentation/screens/profile_screen.dart';
 import '../../../reports/presentation/widgets/admin_reports_card.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 
 class _HomePalette {
@@ -1221,8 +1222,8 @@ class HomeScreen extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error loading subject: $e')));
+        showNetworkAwareError(
+            context, 'تعذر تحميل المادة، يرجى المحاولة مرة أخرى');
       }
     }
   }

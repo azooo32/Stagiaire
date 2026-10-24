@@ -21,6 +21,7 @@ import '../../../../core/services/image_cache_service.dart';
 import '../../../../core/services/cache_service.dart';
 import '../widgets/audio_explanation_player.dart';
 import '../../../reports/presentation/widgets/submit_report_dialog.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 class CachedQuestionImage extends StatefulWidget {
   final String url;
@@ -770,13 +771,7 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('فشل حفظ الصورة: $e',
-              style: const TextStyle(fontFamily: 'Cairo')),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showAppToast(context, 'تعذر حفظ الصورة، يرجى المحاولة مرة أخرى');
     }
   }
 

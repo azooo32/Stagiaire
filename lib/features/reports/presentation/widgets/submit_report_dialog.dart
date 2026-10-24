@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/services/report_service.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 class SubmitReportDialog extends StatefulWidget {
   final int questionId;
@@ -151,12 +152,8 @@ class _SubmitReportDialogState extends State<SubmitReportDialog> {
                       }
                     } catch (e) {
                       if (mounted) {
-                        messenger.showSnackBar(
-                          SnackBar(
-                            content: Text('خطأ: $e', style: const TextStyle(fontFamily: 'Cairo')),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
+                        showNetworkAwareError(
+                            context, 'تعذر إرسال البلاغ، يرجى المحاولة مرة أخرى');
                       }
                     } finally {
                       if (mounted) setState(() => _isLoading = false);
