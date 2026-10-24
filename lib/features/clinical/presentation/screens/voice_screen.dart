@@ -97,21 +97,22 @@ class _VoiceScreenState extends State<VoiceScreen> {
     for (final note in notes) {
       final url = _audioUrlForVoice(note);
       if (url.isEmpty || !_isHttp(url) || !_checkedAudio.add(url)) continue;
-      AudioCacheService().isDownloaded(url).then((ok) {
+      AudioCacheService().isPlainDownloaded(url).then((ok) {
         if (ok && mounted) setState(() => _downloadedAudio.add(url));
       });
     }
   }
 
   /// Downloads the audio once into persistent storage. Returns true when it is on the device.
-  Future<bool> _ensureAudioDownloaded(String url, {String? voiceId}) async {
+  /// With [showError] false (background download while the audio already plays) failures are silent.
+  Future<bool> _ensureAudioDownloaded(String url,
+      {String? voiceId, bool showError = true}) async {
     if (kIsWeb || _isAudioDownloaded(url)) return true;
     if (url.isEmpty || _downloadingAudio.contains(url)) return false;
     setState(() => _downloadingAudio.add(url));
     String? path;
     try {
-      path = await AudioCacheService()
-          .getOrDownload(url, timeout: const Duration(minutes: 3));
+      path = await AudioCacheService().downloadPlain(url);
     } finally {
       if (mounted) {
         setState(() {
@@ -122,10 +123,10 @@ class _VoiceScreenState extends State<VoiceScreen> {
     }
     if (path != null) {
       await _replaceStoredUrl('voice_audio_url_$voiceId', voiceId, url, (old) {
-        return AudioCacheService().clearCacheForUrls([old]);
+        return AudioCacheService().deletePlain(old);
       });
     }
-    if (path == null && mounted) {
+    if (path == null && showError && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('تعذر تنزيل الصوت، تحقق من الاتصال وحاول مرة أخرى',
@@ -338,13 +339,20 @@ class _VoiceScreenState extends State<VoiceScreen> {
     }
 
     try {
-      // 0. Download once into persistent storage on the first tap
+      // 0. First tap: play right away from the link and download in the background;
+      //    next time it plays from the saved file. .webm cannot be streamed here,
+      //    so it is downloaded first.
       final voiceUrl = _audioUrlForVoice(item);
       if (voiceUrl.isNotEmpty && !_isAudioDownloaded(voiceUrl)) {
-        if (!await _ensureAudioDownloaded(voiceUrl, voiceId: item.dbId)) {
-          return;
+        if (voiceUrl.toLowerCase().contains('.webm')) {
+          if (!await _ensureAudioDownloaded(voiceUrl, voiceId: item.dbId)) {
+            return;
+          }
+          if (!mounted) return;
+        } else {
+          unawaited(_ensureAudioDownloaded(voiceUrl,
+              voiceId: item.dbId, showError: false));
         }
-        if (!mounted) return;
       }
 
       // 1. Fast path: if the player is already initialized for this item, just seek and resume!
@@ -430,9 +438,11 @@ class _VoiceScreenState extends State<VoiceScreen> {
 
       final isWebm = audioUrl.toLowerCase().contains('.webm');
       final storedPath = (!kIsWeb && _isHttp(audioUrl))
-          ? await AudioCacheService().cachedPathForUrl(audioUrl)
+          ? await AudioCacheService().plainPathForUrl(audioUrl)
           : null;
-      if (storedPath != null) {
+      if (storedPath != null && isWebm) {
+        await _audioPlayer!.setSource(BytesSource(await File(storedPath).readAsBytes()));
+      } else if (storedPath != null) {
         await _audioPlayer!.setSource(DeviceFileSource(storedPath));
       } else if (kIsWeb || isWebm) {
         final bytes = await AudioCacheService().getOrDownloadBytes(audioUrl);
@@ -757,6 +767,9 @@ class _VoiceScreenState extends State<VoiceScreen> {
     final isDark = provider.isDarkTheme;
     final audioUrl = _audioUrlForVoice(item);
     final bool isDownloading = _downloadingAudio.contains(audioUrl);
+    // Only .webm has to finish downloading before it can play; others play while downloading.
+    final bool blockOnDownload =
+        isDownloading && audioUrl.toLowerCase().contains('.webm');
     final bool isDownloaded = _isAudioDownloaded(audioUrl);
     final bool pdfDownloaded = hasPdf && _isPdfDownloaded(item.pdfUrl);
     final bool pdfDownloading =
@@ -805,7 +818,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
         children: [
           // ── LEFT: Play/Pause Circle ──
           GestureDetector(
-            onTap: (isUploading || isDownloading)
+            onTap: (isUploading || blockOnDownload)
                 ? null
                 : () => _toggleVoicePlayback(index, item, speedText, provider),
             child: Container(
@@ -839,7 +852,7 @@ class _VoiceScreenState extends State<VoiceScreen> {
                 ],
               ),
               alignment: Alignment.center,
-              child: (isUploading || isDownloading)
+              child: (isUploading || blockOnDownload)
                   ? SizedBox(
                       width: isTablet ? 22 : 18,
                       height: isTablet ? 22 : 18,

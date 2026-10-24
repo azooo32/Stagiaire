@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'secure_file_cache_service.dart';
@@ -205,6 +206,107 @@ class AudioCacheService {
     } finally {
       _activeDownloads.remove(trimmed);
     }
+  }
+
+  // ── Plain persistent store (large voice recordings) ─────────────────────────
+  // The encrypted cache loads the whole file into memory, encrypts it on the UI
+  // thread and decrypts it again to play it: with 30-60 MB recordings this froze
+  // the app and ran out of memory. Voice recordings are streamed straight to a
+  // file inside the private app folder instead (same as lecture recordings / PDFs).
+
+  final Map<String, Future<String?>> _plainDownloads = {};
+
+  Future<Directory> _plainDirectory() async {
+    final baseDir = await getApplicationSupportDirectory();
+    final dir = Directory('${baseDir.path}${Platform.pathSeparator}voice_audio');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  Future<File> _plainFile(String url) async {
+    final dir = await _plainDirectory();
+    final hash = sha256.convert(utf8.encode(url)).toString().substring(0, 32);
+    return File(
+        '${dir.path}${Platform.pathSeparator}$hash${_extensionForUrl(url)}');
+  }
+
+  /// Path of the downloaded recording, or null if it is not on the device yet.
+  Future<String?> plainPathForUrl(String url) async {
+    if (kIsWeb) return null;
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return null;
+    final file = await _plainFile(trimmed);
+    if (await file.exists() && await file.length() > 0) return file.path;
+    return null;
+  }
+
+  Future<bool> isPlainDownloaded(String url) async =>
+      await plainPathForUrl(url) != null;
+
+  /// Streams [url] to disk (no memory copy) and returns the local path, or null on failure.
+  /// Concurrent calls for the same URL share one download.
+  Future<String?> downloadPlain(String url,
+      {Duration idleTimeout = const Duration(seconds: 60)}) {
+    final trimmed = url.trim();
+    final running = _plainDownloads[trimmed];
+    if (running != null) return running;
+    final future = _downloadPlain(trimmed, idleTimeout)
+        .whenComplete(() => _plainDownloads.remove(trimmed));
+    _plainDownloads[trimmed] = future;
+    return future;
+  }
+
+  Future<String?> _downloadPlain(String url, Duration idleTimeout) async {
+    if (kIsWeb || url.isEmpty) return null;
+    final existing = await plainPathForUrl(url);
+    if (existing != null) return existing;
+
+    final target = await _plainFile(url);
+    final part = File('${target.path}.part');
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+    try {
+      final request =
+          await client.getUrl(Uri.parse(url)).timeout(idleTimeout);
+      final response = await request.close().timeout(idleTimeout);
+      if (response.statusCode != 200) return null;
+
+      final sink = part.openWrite();
+      try {
+        // timeout() here is per chunk: it fails only if the connection stalls.
+        await sink.addStream(response.timeout(idleTimeout));
+      } finally {
+        await sink.close();
+      }
+
+      final written = await part.length();
+      final expected = response.contentLength;
+      if (written == 0 || (expected > 0 && written != expected)) {
+        throw const FileSystemException('Incomplete download');
+      }
+      if (await target.exists()) await target.delete();
+      await part.rename(target.path);
+      return target.path;
+    } catch (e) {
+      debugPrint('[AudioCacheService] Error downloading voice $url: $e');
+      try {
+        if (await part.exists()) await part.delete();
+      } catch (_) {}
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Future<void> deletePlain(String url) async {
+    if (kIsWeb) return;
+    try {
+      final file = await _plainFile(url.trim());
+      if (await file.exists()) await file.delete();
+      final part = File('${file.path}.part');
+      if (await part.exists()) await part.delete();
+    } catch (_) {}
   }
 
   /// Cheap check (no decryption): true if the file for [url] is already stored on disk.
