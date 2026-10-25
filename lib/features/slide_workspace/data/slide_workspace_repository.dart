@@ -1352,19 +1352,28 @@ class SupabaseSlideWorkspaceRepository implements SlideWorkspaceRepository {
 
   @override
   Future<List<PdfLectureRecording>> getPdfLectureRecordings(String pdfId) async {
+    return await tryGetPdfLectureRecordings(pdfId) ?? const [];
+  }
+
+  /// Like [getPdfLectureRecordings] but returns null when the request FAILED
+  /// (offline, timeout...). An empty list then really means "no recordings on the server",
+  /// so callers must not delete local copies because of a failed request.
+  Future<List<PdfLectureRecording>?> tryGetPdfLectureRecordings(
+      String pdfId) async {
     try {
       final rows = await _supabase.client
           .from('pdf_lecture_recordings')
           .select('*')
           .eq('pdf_id', pdfId)
-          .order('created_at', ascending: true);
+          .order('created_at', ascending: true)
+          .timeout(const Duration(seconds: 15));
 
       return (rows as List)
           .map((row) => PdfLectureRecording.fromJson(Map<String, dynamic>.from(row)))
           .toList();
     } catch (e) {
       print('Error fetching PDF lecture recordings: $e');
-      return const [];
+      return null;
     }
   }
 

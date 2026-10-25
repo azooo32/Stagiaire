@@ -552,8 +552,14 @@ class AppProvider extends ChangeNotifier {
         print('Error reading cached clinical data: $e');
       }
     } else if (cachedData == null) {
-      _isClinicalLoading = true;
-      notifyListeners();
+      // Content of this subject already in memory: keep showing it while fetching
+      // (a spinner here made the page look empty for ~10 s when offline).
+      final alreadyLoaded = _clinicalSections.isNotEmpty &&
+          _clinicalSections.first.subjectId == subjectId;
+      if (!alreadyLoaded) {
+        _isClinicalLoading = true;
+        notifyListeners();
+      }
     }
 
     try {
@@ -753,6 +759,15 @@ class AppProvider extends ChangeNotifier {
     }
   }
 
+  /// Re-fetches the subject's data into the cache. Unlike [invalidateClinicalCache]
+  /// the old cache is kept when the request fails (e.g. the student went offline).
+  Future<void> refreshClinicalCacheSilently(String subject) async {
+    final subjectId = await _resolveClinicalSubjectId(subject);
+    if (subjectId == null) return;
+    await _refreshClinicalDataCache(
+        subject, subjectId, _getClinicalCacheKey(subjectId));
+  }
+
   Future<void> invalidateClinicalCache(String subject) async {
     final subjectId = await _resolveClinicalSubjectId(subject);
     if (subjectId == null) return;
@@ -790,13 +805,9 @@ class AppProvider extends ChangeNotifier {
   }
 
   /// تحديث فوري للبيانات (يُستدعى من Pull-to-Refresh في الشاشة).
-  Future<void> refreshClinicalData(String subjectName) async {
-    final subjectId = await _resolveClinicalSubjectId(subjectName);
-    if (subjectId != null) {
-      await _cache.invalidateCache(_getClinicalCacheKey(subjectId));
-    }
-    await loadClinicalData(subjectName);
-  }
+  /// The cache is replaced only when the fresh data arrives; offline it stays untouched.
+  Future<void> refreshClinicalData(String subjectName) =>
+      loadClinicalData(subjectName, forceRefresh: true);
 
   // Mutations
   Future<void> addClinicalVoiceNote(
@@ -2774,7 +2785,7 @@ class AppProvider extends ChangeNotifier {
       return;
     }
     if (previous.subject.isNotEmpty) {
-      await invalidateClinicalCache(previous.subject);
+      await refreshClinicalCacheSilently(previous.subject);
     }
   }
 

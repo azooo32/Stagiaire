@@ -940,8 +940,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     if (_cacheDirPath == null || _isSyncingRecordings) return;
     _isSyncingRecordings = true;
     try {
-      final remoteRecordings =
-          await mainRepository.getPdfLectureRecordings(widget.pdfSlide.id);
+      final fetched =
+          await mainRepository.tryGetPdfLectureRecordings(widget.pdfSlide.id);
+      // Request failed (offline / timeout): keep the recordings and the downloaded
+      // audio as they are. Only a successful empty answer means the admin deleted them.
+      if (fetched == null) return;
+      final remoteRecordings = fetched;
 
       final remoteIds = remoteRecordings.map((r) => r.id).toSet();
       final cacheDir = Directory(_lecturesDirPath ?? _cacheDirPath!);

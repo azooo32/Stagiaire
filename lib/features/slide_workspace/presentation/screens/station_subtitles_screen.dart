@@ -494,10 +494,13 @@ class _StationSubtitlesScreenState extends State<StationSubtitlesScreen> {
         // downloaded on the first tap inside the PDF workspace.
         try {
           final lectureRecordings =
-              await _repository.getPdfLectureRecordings(slide.id);
-          await File('${pdfCacheDir.path}/lecture_recordings.json')
-              .writeAsString(jsonEncode(
-                  lectureRecordings.map((r) => r.toJson()).toList()));
+              await _repository.tryGetPdfLectureRecordings(slide.id);
+          // Failed request: keep the list already saved instead of overwriting it with [].
+          if (lectureRecordings != null) {
+            await File('${pdfCacheDir.path}/lecture_recordings.json')
+                .writeAsString(jsonEncode(
+                    lectureRecordings.map((r) => r.toJson()).toList()));
+          }
         } catch (e) {
           debugPrint('Error caching PDF lecture recordings list: $e');
         }
