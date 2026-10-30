@@ -1718,111 +1718,146 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                       width: 1,
                                     ),
                                   ),
-                                  child: _isHighlightMode || _isEraserMode
-                                      ? _BrushSelectableText(
-                                          // Touch/pen drag picks whole words by
-                                          // character offset, so the saved
-                                          // highlight is a position range and
-                                          // never matches the same word
-                                          // elsewhere in the text.
-                                          text: q.text,
-                                          previewEnabled: _isHighlightMode,
-                                          onCommit: (start, end) {
-                                            final selected = TextFormatRange(
-                                                start: start,
-                                                end: end,
-                                                text: '');
-                                            if (_isHighlightMode) {
-                                              _saveNativeHighlightRange(
-                                                questionId: q.id,
-                                                text: q.text,
-                                                highlights: highlights,
-                                                selected: selected,
-                                              );
-                                            } else {
-                                              _eraseNativeHighlightRange(
-                                                questionId: q.id,
-                                                text: q.text,
-                                                highlights: highlights,
-                                                selected: selected,
-                                              );
-                                            }
-                                          },
-                                          builder: (previewTokens) =>
-                                              _buildRichTextWithHighlights(
-                                            q.text,
-                                            [
-                                              ...questionHighlights,
-                                              ...previewTokens,
-                                            ],
-                                            fontSize,
-                                            textColor: textColor,
-                                            textAlign: questionTextAlign,
-                                            textDirection:
-                                                questionTextDirection,
-                                            isSelectable: false,
-                                          ),
-                                          encodeRange: _encodeTouchRange,
-                                        )
-                                      : SelectionArea(
-                                          child: _buildRichTextWithHighlights(
-                                            q.text,
-                                            questionHighlights,
-                                            fontSize,
-                                            textColor: textColor,
-                                            textAlign: questionTextAlign,
-                                            textDirection:
-                                                questionTextDirection,
+                                  child: Builder(builder: (context) {
+                                    // Build question text widget
+                                    final textWidget = _isHighlightMode || _isEraserMode
+                                        ? _BrushSelectableText(
+                                            // Touch/pen drag picks whole words by
+                                            // character offset, so the saved
+                                            // highlight is a position range and
+                                            // never matches the same word
+                                            // elsewhere in the text.
+                                            text: q.text,
+                                            previewEnabled: _isHighlightMode,
+                                            onCommit: (start, end) {
+                                              final selected = TextFormatRange(
+                                                  start: start,
+                                                  end: end,
+                                                  text: '');
+                                              if (_isHighlightMode) {
+                                                _saveNativeHighlightRange(
+                                                  questionId: q.id,
+                                                  text: q.text,
+                                                  highlights: highlights,
+                                                  selected: selected,
+                                                );
+                                              } else {
+                                                _eraseNativeHighlightRange(
+                                                  questionId: q.id,
+                                                  text: q.text,
+                                                  highlights: highlights,
+                                                  selected: selected,
+                                                );
+                                              }
+                                            },
+                                            builder: (previewTokens) =>
+                                                _buildRichTextWithHighlights(
+                                              q.text,
+                                              [
+                                                ...questionHighlights,
+                                                ...previewTokens,
+                                              ],
+                                              fontSize,
+                                              textColor: textColor,
+                                              textAlign: questionTextAlign,
+                                              textDirection:
+                                                  questionTextDirection,
+                                              isSelectable: false,
+                                            ),
+                                            encodeRange: _encodeTouchRange,
+                                          )
+                                        : SelectionArea(
+                                            child: _buildRichTextWithHighlights(
+                                              q.text,
+                                              questionHighlights,
+                                              fontSize,
+                                              textColor: textColor,
+                                              textAlign: questionTextAlign,
+                                              textDirection:
+                                                  questionTextDirection,
+                                            ),
+                                          );
+
+                                    if (questionImages.isEmpty) {
+                                      return textWidget;
+                                    }
+
+                                    // Filter valid images
+                                    final validQImgs = questionImages
+                                        .where((img) => _extractQuestionImageUrl(img).isNotEmpty)
+                                        .toList();
+
+                                    if (validQImgs.isEmpty) return textWidget;
+
+                                    // Check first image position (use first image's show_right)
+                                    final showRight = (validQImgs.first['show_right'] as bool?) == true;
+
+                                    Widget buildQImage(Map<String, dynamic> img) {
+                                      final url = _extractQuestionImageUrl(img);
+                                      return GestureDetector(
+                                        onTap: () => _showEnlargedImageDialog(context, url),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(6),
+                                          child: CachedQuestionImage(
+                                            url: url,
+                                            fit: BoxFit.contain,
+                                            loading: const SizedBox(
+                                                height: 80,
+                                                child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                                            error: const Icon(Icons.broken_image_outlined),
                                           ),
                                         ),
+                                      );
+                                    }
+
+                                    if (showRight) {
+                                      // Two-column: text left, image(s) right
+                                      return IntrinsicHeight(
+                                        child: Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Expanded(child: textWidget),
+                                            const SizedBox(width: 10),
+                                            ConstrainedBox(
+                                              constraints: BoxConstraints(
+                                                maxWidth: MediaQuery.of(context).size.width * 0.38,
+                                                maxHeight: 260,
+                                              ),
+                                              child: Column(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: validQImgs
+                                                    .map((img) => Padding(
+                                                          padding: const EdgeInsets.only(bottom: 6),
+                                                          child: buildQImage(img),
+                                                        ))
+                                                    .toList(),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    } else {
+                                      // Below: text then image centered
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                                        children: [
+                                          textWidget,
+                                          const SizedBox(height: 10),
+                                          ...validQImgs.map((img) => Padding(
+                                                padding: const EdgeInsets.only(bottom: 6),
+                                                child: Center(
+                                                  child: ConstrainedBox(
+                                                    constraints: const BoxConstraints(maxHeight: 300),
+                                                    child: buildQImage(img),
+                                                  ),
+                                                ),
+                                              )),
+                                        ],
+                                      );
+                                    }
+                                  }),
                                 ),
                               ),
-
-                              // Question images (below question text)
-                              if (questionImages.isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                ...questionImages.map((img) {
-                                  final url = _extractQuestionImageUrl(img);
-                                  if (url.isEmpty) return const SizedBox.shrink();
-                                  final showRight = (img['show_right'] as bool?) == true;
-                                  final imageWidget = GestureDetector(
-                                    onTap: () => _showEnlargedImageDialog(context, url),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: CachedQuestionImage(
-                                        url: url,
-                                        fit: BoxFit.contain,
-                                        loading: const SizedBox(height: 80, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
-                                        error: const Icon(Icons.broken_image_outlined),
-                                      ),
-                                    ),
-                                  );
-                                  if (showRight) {
-                                    // already rendered the text above; show image to the right in a row
-                                    return Padding(
-                                      padding: const EdgeInsets.only(top: 6),
-                                      child: Align(
-                                        alignment: Alignment.centerRight,
-                                        child: ConstrainedBox(
-                                          constraints: BoxConstraints(
-                                            maxWidth: MediaQuery.of(context).size.width * 0.42,
-                                            maxHeight: 220,
-                                          ),
-                                          child: imageWidget,
-                                        ),
-                                      ),
-                                    );
-                                  } else {
-                                    return Padding(
-                                      padding: const EdgeInsets.only(top: 6),
-                                      child: ConstrainedBox(
-                                        constraints: const BoxConstraints(maxHeight: 300),
-                                        child: imageWidget,
-                                      ),
-                                    );
-                                  }
-                                }),
-                              ],
 
                               const SizedBox(height: 12),
 
