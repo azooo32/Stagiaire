@@ -654,7 +654,7 @@ class SupabaseService {
     try {
       final response = await client
           .from('question_image_relations')
-          .select('position, question_images(*)')
+          .select('position, is_question_image, show_right, question_images(*)')
           .eq('question_id', questionId)
           .order('position');
       final rows = List<Map<String, dynamic>>.from(response);

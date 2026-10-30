@@ -1171,6 +1171,14 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
     // Flutter still lays out embedded Arabic runs correctly via bidi text.
     const TextDirection questionTextDirection = TextDirection.ltr;
     final int totalOptions = q.options.length;
+
+    // Split images: question images vs explanation images
+    final questionImages = _images
+        .where((img) => (img['is_question_image'] as bool?) == true)
+        .toList();
+    final explanationImages = _images
+        .where((img) => (img['is_question_image'] as bool?) != true)
+        .toList();
     final List<String> highlights = provider.getQuestionHighlights(q.id);
     final revealedAudioHighlights = _revealedAudioHighlightsFor(q);
     final recordingAudioHighlights =
@@ -1769,6 +1777,53 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                         ),
                                 ),
                               ),
+
+                              // Question images (below question text)
+                              if (questionImages.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                ...questionImages.map((img) {
+                                  final url = _extractQuestionImageUrl(img);
+                                  if (url.isEmpty) return const SizedBox.shrink();
+                                  final showRight = (img['show_right'] as bool?) == true;
+                                  final imageWidget = GestureDetector(
+                                    onTap: () => _showEnlargedImageDialog(context, url),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: CachedQuestionImage(
+                                        url: url,
+                                        fit: BoxFit.contain,
+                                        loading: const SizedBox(height: 80, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                                        error: const Icon(Icons.broken_image_outlined),
+                                      ),
+                                    ),
+                                  );
+                                  if (showRight) {
+                                    // already rendered the text above; show image to the right in a row
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Align(
+                                        alignment: Alignment.centerRight,
+                                        child: ConstrainedBox(
+                                          constraints: BoxConstraints(
+                                            maxWidth: MediaQuery.of(context).size.width * 0.42,
+                                            maxHeight: 220,
+                                          ),
+                                          child: imageWidget,
+                                        ),
+                                      ),
+                                    );
+                                  } else {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: ConstrainedBox(
+                                        constraints: const BoxConstraints(maxHeight: 300),
+                                        child: imageWidget,
+                                      ),
+                                    );
+                                  }
+                                }),
+                              ],
+
                               const SizedBox(height: 12),
 
                               // Options List
@@ -2069,13 +2124,13 @@ class _QuestionViewerScreenState extends State<QuestionViewerScreen> {
                                         underlineRanges:
                                             q.explanationUnderlineRanges,
                                       ),
-                                      if (_images.any((img) =>
+                                      if (explanationImages.any((img) =>
                                           _extractQuestionImageUrl(img)
                                               .isNotEmpty)) ...[
                                         const SizedBox(height: 16),
                                         LayoutBuilder(
                                           builder: (context, constraints) {
-                                            final visibleImages = _images
+                                            final visibleImages = explanationImages
                                                 .where((img) =>
                                                     _extractQuestionImageUrl(
                                                             img)
@@ -3059,9 +3114,12 @@ class _EditQuestionDialogState extends State<_EditQuestionDialog> {
   bool _isRecordingPaused = false;
   Duration _recordDuration = Duration.zero;
 
-  // Question Images list
+  // Question Images list (explanation images)
   List<Map<String, dynamic>> _imagesList = [];
   bool _isLoadingImages = true;
+
+  // Question-text images (is_question_image = true)
+  List<Map<String, dynamic>> _questionImagesList = [];
 
   @override
   void initState() {
@@ -3103,7 +3161,12 @@ class _EditQuestionDialogState extends State<_EditQuestionDialog> {
       final imgs = await SupabaseService().getQuestionImages(widget.question.id);
       if (mounted) {
         setState(() {
-          _imagesList = imgs;
+          _questionImagesList = imgs
+              .where((img) => (img['is_question_image'] as bool?) == true)
+              .toList();
+          _imagesList = imgs
+              .where((img) => (img['is_question_image'] as bool?) != true)
+              .toList();
           _isLoadingImages = false;
         });
       }
@@ -3153,11 +3216,11 @@ class _EditQuestionDialogState extends State<_EditQuestionDialog> {
     });
   }
 
-  Future<void> _pickQuestionImageFromDevice() async {
+  Future<void> _pickQuestionImageFromDevice({bool isQuestionImage = false}) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
-        allowMultiple: true,
+        allowMultiple: !isQuestionImage,
         withData: true,
       );
       if (result == null || result.files.isEmpty) return;
@@ -3165,12 +3228,15 @@ class _EditQuestionDialogState extends State<_EditQuestionDialog> {
       for (final file in result.files) {
         final path = file.path;
         final bytes = file.bytes;
+        final targetList = isQuestionImage ? _questionImagesList : _imagesList;
         final imageKey = path?.isNotEmpty == true
             ? path!
-            : '${file.name}_${file.size}_${_imagesList.length}';
-        if (_hasEditorImage(imageKey)) continue;
-        _imagesList.add({
-          'position': _imagesList.length,
+            : '${file.name}_${file.size}_${targetList.length}';
+        if (!isQuestionImage && _hasEditorImage(imageKey)) continue;
+        targetList.add({
+          'position': targetList.length,
+          if (isQuestionImage) 'is_question_image': true,
+          if (isQuestionImage) 'show_right': false,
           'question_images': {
             'url': imageKey,
             'file_name': file.name,
@@ -3382,6 +3448,77 @@ class _EditQuestionDialogState extends State<_EditQuestionDialog> {
         'question_id': widget.question.id,
         'image_id': imageId,
         'position': i,
+        'is_question_image': (_imagesList[i]['is_question_image'] as bool?) ?? false,
+        'show_right': (_imagesList[i]['show_right'] as bool?) ?? false,
+      });
+    }
+
+    // Save question-text images
+    for (var i = 0; i < _questionImagesList.length; i++) {
+      final details = _imageDetails(_questionImagesList[i]);
+      var imageId = _editorImageId(_questionImagesList[i]);
+      var url = _editorImageUrl(_questionImagesList[i]);
+      final localPath = details['_local_path']?.toString();
+      final localBytes = details['_bytes'];
+      final fileNameForError = details['file_name']?.toString() ?? 'بدون اسم';
+      final fileSizeForError = details['file_size']?.toString() ?? 'غير معروف';
+
+      if (imageId == null) {
+        if (localPath != null && localPath.isNotEmpty) {
+          final uploadedUrl = await supabase.uploadFile(
+            'question-images', localPath, folder: 'questions');
+          if (uploadedUrl == null || uploadedUrl.isEmpty) {
+            throw Exception(
+                'فشل رفع صورة السؤال من المسار المحلي. الملف: $fileNameForError، الحجم: $fileSizeForError');
+          }
+          url = uploadedUrl;
+        } else if (localBytes is Uint8List) {
+          final uploadedUrl = await supabase.uploadFileBytes(
+            'question-images', localBytes,
+            details['file_name']?.toString() ?? 'question-image.png',
+            folder: 'questions',
+            contentType: details['mime_type']?.toString(),
+          );
+          if (uploadedUrl == null || uploadedUrl.isEmpty) {
+            throw Exception(
+                'فشل رفع صورة السؤال من بيانات المتصفح. الملف: $fileNameForError، الحجم: $fileSizeForError');
+          }
+          url = uploadedUrl;
+        }
+        if (url.isEmpty) continue;
+        final originalFilename =
+            details['file_name']?.toString() ?? url.split('/').last;
+        final inserted = await supabase.client
+            .from('question_images')
+            .insert({
+              'name': originalFilename,
+              'original_filename': originalFilename,
+              'file_path': _storagePathFromQuestionImageUrl(url),
+              'file_url': url,
+              'file_size': details['file_size'],
+              'mime_type': details['mime_type'],
+              'subject': widget.question.subject,
+              'title': widget.question.topic,
+              'subtitle': widget.question.subTopic,
+              'is_active': true,
+            })
+            .select('id, file_url')
+            .single();
+        imageId = inserted['id'] as int;
+        _questionImagesList[i] = {
+          'position': i,
+          'is_question_image': true,
+          'show_right': (_questionImagesList[i]['show_right'] as bool?) ?? false,
+          'question_images': Map<String, dynamic>.from(inserted),
+        };
+      }
+
+      await supabase.client.from('question_image_relations').insert({
+        'question_id': widget.question.id,
+        'image_id': imageId,
+        'position': _imagesList.length + i,
+        'is_question_image': true,
+        'show_right': (_questionImagesList[i]['show_right'] as bool?) ?? false,
       });
     }
   }
@@ -4318,6 +4455,156 @@ Suggested Correct Answer: "$correctText"
     );
   }
 
+  Widget _buildQuestionImagesSection(bool isDark, Color cardColor,
+      Color borderColor, Color textColor, Color labelColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'صور السؤال:',
+          style: TextStyle(
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+              color: labelColor),
+          textAlign: TextAlign.right,
+        ),
+        const SizedBox(height: 6),
+        ElevatedButton.icon(
+          onPressed: _isSaving
+              ? null
+              : () async {
+                  await _pickQuestionImageFromDevice(isQuestionImage: true);
+                },
+          icon: const Icon(Icons.upload, size: 14),
+          label: const Text('رفع صورة للسؤال',
+              style: TextStyle(fontFamily: 'Cairo', fontSize: 11)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor:
+                isDark ? const Color(0xFF2C2C3D) : const Color(0xFFF1F5F9),
+            foregroundColor:
+                isDark ? Colors.white : const Color(0xFF1E293B),
+            elevation: 0,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (_questionImagesList.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              color: cardColor,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: borderColor),
+            ),
+            alignment: Alignment.center,
+            child: Text('لا توجد صور للسؤال',
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    color: isDark ? Colors.white38 : Colors.grey,
+                    fontSize: 12)),
+          )
+        else
+          Column(
+            children: _questionImagesList.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final img = entry.value;
+              final url = _editorImageUrl(img);
+              final showRight = (img['show_right'] as bool?) ?? false;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: SizedBox(
+                        width: 70,
+                        height: 70,
+                        child: url.isEmpty
+                            ? const Icon(Icons.broken_image_outlined)
+                            : CachedQuestionImage(
+                                url: url,
+                                fit: BoxFit.contain,
+                                loading: const SizedBox.expand(),
+                                error: const Icon(Icons.broken_image_outlined),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text('موضع:',
+                                  style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 11,
+                                      color: textColor)),
+                              const SizedBox(width: 6),
+                              ChoiceChip(
+                                label: const Text('أسفل',
+                                    style: TextStyle(
+                                        fontFamily: 'Cairo', fontSize: 11)),
+                                selected: !showRight,
+                                onSelected: (_) => setState(() {
+                                  _questionImagesList[idx] = {
+                                    ..._questionImagesList[idx],
+                                    'show_right': false,
+                                  };
+                                }),
+                                selectedColor: const Color(0xFF4F46E5),
+                                labelStyle: TextStyle(
+                                    color: !showRight
+                                        ? Colors.white
+                                        : textColor),
+                              ),
+                              const SizedBox(width: 6),
+                              ChoiceChip(
+                                label: const Text('يمين',
+                                    style: TextStyle(
+                                        fontFamily: 'Cairo', fontSize: 11)),
+                                selected: showRight,
+                                onSelected: (_) => setState(() {
+                                  _questionImagesList[idx] = {
+                                    ..._questionImagesList[idx],
+                                    'show_right': true,
+                                  };
+                                }),
+                                selectedColor: const Color(0xFF4F46E5),
+                                labelStyle: TextStyle(
+                                    color: showRight
+                                        ? Colors.white
+                                        : textColor),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close,
+                          size: 16, color: Colors.redAccent),
+                      onPressed: () => setState(
+                          () => _questionImagesList.removeAt(idx)),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+      ],
+    );
+  }
+
   Widget _buildImagesUploadSection(bool isDark, Color cardColor,
       Color borderColor, Color textColor, Color labelColor) {
     return Column(
@@ -4557,6 +4844,9 @@ Suggested Correct Answer: "$correctText"
                           const SizedBox(height: 20),
                           const Divider(),
                           const SizedBox(height: 10),
+                          _buildQuestionImagesSection(isDark, cardColor,
+                              borderColor, textColor, labelColor),
+                          const SizedBox(height: 16),
                           _buildImagesUploadSection(isDark, cardColor,
                               borderColor, textColor, labelColor),
                           const SizedBox(height: 20),
