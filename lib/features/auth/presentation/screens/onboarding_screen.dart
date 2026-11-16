@@ -14,9 +14,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int _currentPage = 0;
 
   final List<String> _images = [
-    'assets/IMG_4669.PNG', // Screen 1: Image 69
-    'assets/IMG_4668.PNG', // Screen 2: Image 68
-    'assets/IMG_4670.PNG', // Screen 3: Image 70
+    'assets/IMG_4669.webp', // Screen 1: Image 69
+    'assets/IMG_4668.webp', // Screen 2: Image 68
+    'assets/IMG_4670.webp', // Screen 3: Image 70
   ];
 
   // Slides data matching the user's design image text

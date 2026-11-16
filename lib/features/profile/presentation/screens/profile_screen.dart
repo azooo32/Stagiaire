@@ -583,6 +583,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   }
                                 } else if (ctx.mounted) {
                                   setSheet(() => isSaving = false);
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    SnackBar(
+                                      content: const Text(
+                                        'لا يمكن تغيير الجامعة — تواصل مع الإدارة',
+                                        style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                                      ),
+                                      backgroundColor: Colors.red,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    ),
+                                  );
                                 }
                               },
                         style: ElevatedButton.styleFrom(
