@@ -55,15 +55,6 @@ class Subject {
     final u = (userUniv ?? '').trim().toLowerCase();
     final s = (userStage ?? '').trim().toLowerCase();
 
-    // Direct single exact match fast-path
-    if (stageQuestionCounts.containsKey('${userUniv?.trim()}|${userStage?.trim()}')) {
-      final exact = stageQuestionCounts['${userUniv?.trim()}|${userStage?.trim()}'];
-      // If there are no other multi-stage keys, return exact directly
-      if (!stageQuestionCounts.keys.any((k) => k.contains(',') || k.contains('،'))) {
-        return exact ?? totalQuestions;
-      }
-    }
-
     int matchedCount = 0;
     bool foundAnyMatch = false;
 
