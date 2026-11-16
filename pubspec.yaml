@@ -1,7 +1,7 @@
 name: flutter_app
 description: Stagiaire Quiz Bank Flutter Application
 publish_to: 'none'
-version: 1.0.2+75
+version: 1.0.3+76
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -45,17 +45,12 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/onboarding_bg.jpeg
-    - assets/home_header.png
-    - assets/home_study.png
-    - assets/IMG_4668.PNG
-    - assets/IMG_4669.PNG
-    - assets/IMG_4670.PNG
-    - assets/file_00000000985c71f481237896d57282a1.png
+    - assets/IMG_4668.webp
+    - assets/IMG_4669.webp
+    - assets/IMG_4670.webp
+    - assets/file_00000000985c71f481237896d57282a1.webp
     - assets/Picsart_26-07-13_19-40-06-144.png
-    - assets/IMG_٢٠٢٦٠٧١٣_١٨٣٠٣٤.png.jpg
     - assets/app_logo.png
-    - assets/launcher_logo_inverted.png
 
 flutter_native_splash:
   color: "#ffffff"
