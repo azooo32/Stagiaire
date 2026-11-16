@@ -449,6 +449,49 @@ class SlideWorkspaceController extends ChangeNotifier {
     } catch (_) {
       // A cold start can happen before the persistent cache is initialized.
     }
+    unawaited(_loadSavedToolWidths());
+  }
+
+  // ── Saved stroke widths ─────────────────────────────────────────────────────
+  // The width the student picks with -/+ is kept per tool on the device, so
+  // switching tools or opening another slide deck / PDF keeps it.
+  static const String _toolWidthKeyPrefix = 'workspace_tool_width_';
+  static const Set<WorkspaceTool> _toolsWithSavedWidth = {
+    WorkspaceTool.pen,
+    WorkspaceTool.highlighter,
+    WorkspaceTool.eraser,
+  };
+  static final Map<WorkspaceTool, double> _savedToolWidths = {};
+  static Future<void>? _toolWidthsLoad;
+  bool _disposed = false;
+
+  static double _defaultWidthFor(WorkspaceTool tool) => switch (tool) {
+        WorkspaceTool.highlighter => 12,
+        WorkspaceTool.eraser => 18,
+        _ => 2,
+      };
+
+  static double _widthFor(WorkspaceTool tool) =>
+      _savedToolWidths[tool] ?? _defaultWidthFor(tool);
+
+  Future<void> _loadSavedToolWidths() async {
+    _toolWidthsLoad ??= () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        for (final tool in _toolsWithSavedWidth) {
+          final saved = prefs.getDouble('$_toolWidthKeyPrefix${tool.name}');
+          if (saved != null) _savedToolWidths[tool] = saved;
+        }
+      } catch (_) {}
+    }();
+    await _toolWidthsLoad;
+    // A tool may have been picked before the saved widths finished loading.
+    if (_disposed || !_toolsWithSavedWidth.contains(selectedTool)) return;
+    final width = _widthFor(selectedTool);
+    if (width != strokeWidth) {
+      strokeWidth = width;
+      notifyListeners();
+    }
   }
 
   final SlideWorkspaceRepository _repository;
@@ -654,16 +697,21 @@ class SlideWorkspaceController extends ChangeNotifier {
   void selectTool(WorkspaceTool tool) {
     final nextTool = selectedTool == tool ? WorkspaceTool.pan : tool;
     selectedTool = nextTool;
-    strokeWidth = switch (nextTool) {
-      WorkspaceTool.highlighter => 12,
-      WorkspaceTool.eraser => 18,
-      _ => 2,
-    };
+    strokeWidth = _widthFor(nextTool);
     notifyListeners();
   }
 
   void setStrokeWidth(double value) {
     strokeWidth = value.clamp(1, 32).toDouble();
+    if (_toolsWithSavedWidth.contains(selectedTool)) {
+      final tool = selectedTool;
+      final width = strokeWidth;
+      _savedToolWidths[tool] = width;
+      unawaited(SharedPreferences.getInstance()
+          .then((prefs) =>
+              prefs.setDouble('$_toolWidthKeyPrefix${tool.name}', width))
+          .catchError((_) => false));
+    }
     notifyListeners();
   }
 
@@ -930,6 +978,11 @@ class SlideWorkspaceController extends ChangeNotifier {
             x: point.dx, y: point.dy, pressure: pressure <= 0 ? 1 : pressure),
       ],
     );
+  }
+
+  /// Drops the stroke in progress without saving it.
+  void cancelStroke() {
+    activeStroke.value = null;
   }
 
   Future<void> endStroke() async {
@@ -1593,6 +1646,7 @@ class SlideWorkspaceController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _flushPendingSaves();
     activeStroke.dispose();
     super.dispose();

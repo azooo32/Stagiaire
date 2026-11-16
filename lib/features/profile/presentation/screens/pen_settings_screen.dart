@@ -184,6 +184,18 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
               accentColor: accentColor,
             ),
 
+            // iPad only: finger drawing with one touch (turns on scroll lock)
+            if (_isIPad) ...[
+              const SizedBox(height: 16),
+              _buildFingerDrawingTile(
+                isDark: isDark,
+                tileBg: tileBg,
+                textColor: textColor,
+                mutedColor: mutedColor,
+                accentColor: accentColor,
+              ),
+            ],
+
             // Recalibrate tile — only when enabled & calibrated
             if (_service.isEnabled && _service.isCalibrated) ...[
               const SizedBox(height: 20),
@@ -384,6 +396,77 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
           ),
           child: Icon(
             isEnabled ? Icons.lock_outline_rounded : Icons.stay_current_portrait_rounded,
+            color: isEnabled ? accentColor : mutedColor,
+            size: 20,
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool get _isIPad =>
+      Theme.of(context).platform == TargetPlatform.iOS &&
+      MediaQuery.sizeOf(context).shortestSide >= 600;
+
+  Widget _buildFingerDrawingTile({
+    required bool isDark,
+    required Color tileBg,
+    required Color textColor,
+    required Color mutedColor,
+    required Color accentColor,
+  }) {
+    final isEnabled = _service.isFingerDrawingMode;
+    return Container(
+      decoration: BoxDecoration(
+        color: tileBg,
+        borderRadius: BorderRadius.circular(16),
+        border: isEnabled
+            ? Border.all(color: accentColor.withValues(alpha: 0.4), width: 1.5)
+            : null,
+      ),
+      child: SwitchListTile(
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        value: isEnabled,
+        onChanged: (val) async {
+          // Turning this on also turns on the scroll lock above.
+          await _service.setFingerDrawingMode(val);
+          if (mounted) setState(() {});
+        },
+        activeThumbColor: accentColor,
+        title: Text(
+          'الرسم باليد (آيباد)',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontWeight: FontWeight.bold,
+            fontSize: 14,
+            color: textColor,
+          ),
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 3),
+          child: Text(
+            isEnabled
+                ? 'مفعّل — ترسم بإصبع واحد مثل شاشات الموبايل. إذا لمست الشاشة إصبع ثانٍ أو كف اليد يُلغى الخط حتى لا تظهر شخابيط.'
+                : 'يتيح الرسم بالإصبع على الآيباد بإصبع واحد فقط، ويفعّل قفل التمرير أثناء الرسم تلقائياً.',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              height: 1.45,
+              color: mutedColor,
+            ),
+          ),
+        ),
+        secondary: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: isEnabled
+                ? accentColor.withValues(alpha: 0.15)
+                : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.touch_app_rounded,
             color: isEnabled ? accentColor : mutedColor,
             size: 20,
           ),

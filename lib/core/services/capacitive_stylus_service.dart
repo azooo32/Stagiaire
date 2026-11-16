@@ -173,11 +173,13 @@ class CapacitiveStylusService extends ChangeNotifier {
   static const String _keyProfile = 'capacitive_stylus_profile';
   static const String _keyTouchDrawingMode =
       'capacitive_stylus_touch_drawing_mode';
+  static const String _keyFingerDrawingMode = 'finger_drawing_mode';
 
   bool _enabled = false;
   bool _calibrated = false;
   StylusProfile? _profile;
   bool _touchDrawingMode = false;
+  bool _fingerDrawingMode = false;
   bool _loaded = false;
 
   // ── Public getters ──────────────────────────────────────────────────────────
@@ -187,11 +189,76 @@ class CapacitiveStylusService extends ChangeNotifier {
   bool get isReady => _enabled && _calibrated && _profile != null;
   bool get isTouchDrawingMode => _touchDrawingMode;
 
+  /// iPad finger drawing: one finger draws like on a phone, and a stroke is
+  /// dropped as soon as a second touch (another finger or the palm) lands.
+  bool get isFingerDrawingMode => _fingerDrawingMode;
+
+  /// Turning scroll lock off also turns finger drawing off, because finger
+  /// drawing depends on it.
   Future<void> setTouchDrawingMode(bool value) async {
     _touchDrawingMode = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyTouchDrawingMode, value);
+    if (!value && _fingerDrawingMode) {
+      _fingerDrawingMode = false;
+      await prefs.setBool(_keyFingerDrawingMode, false);
+      _syncTouchTracking();
+    }
     notifyListeners();
+  }
+
+  /// Turning finger drawing on also turns scroll lock on (phone-style
+  /// drawing: the page does not move while drawing).
+  Future<void> setFingerDrawingMode(bool value) async {
+    _fingerDrawingMode = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyFingerDrawingMode, value);
+    if (value && !_touchDrawingMode) {
+      _touchDrawingMode = true;
+      await prefs.setBool(_keyTouchDrawingMode, true);
+    }
+    _syncTouchTracking();
+    notifyListeners();
+  }
+
+  // ── Multi-touch tracking (finger drawing mode only) ─────────────────────────
+
+  /// Touch pointers currently down anywhere in the app.
+  final Set<int> _downTouchPointers = {};
+
+  /// Increases every time a second touch joins one already on the screen.
+  /// A page saves it when a stroke starts; if it changed by the next move or
+  /// lift, another touch landed during the stroke and the stroke is dropped.
+  int _multiTouchEpoch = 0;
+  bool _touchRouteAttached = false;
+
+  int get multiTouchEpoch => _multiTouchEpoch;
+
+  /// True when a touch other than [pointer] is down. Page listeners run
+  /// before the global route, so a new pointer is not in the set yet.
+  bool hasOtherTouches(int pointer) =>
+      _downTouchPointers.any((p) => p != pointer);
+
+  void _onGlobalPointer(PointerEvent event) {
+    if (event.kind != PointerDeviceKind.touch) return;
+    if (event is PointerDownEvent) {
+      _downTouchPointers.add(event.pointer);
+      if (_downTouchPointers.length > 1) _multiTouchEpoch++;
+    } else if (event is PointerUpEvent || event is PointerCancelEvent) {
+      _downTouchPointers.remove(event.pointer);
+    }
+  }
+
+  void _syncTouchTracking() {
+    if (_fingerDrawingMode && !_touchRouteAttached) {
+      GestureBinding.instance.pointerRouter.addGlobalRoute(_onGlobalPointer);
+      _touchRouteAttached = true;
+    } else if (!_fingerDrawingMode && _touchRouteAttached) {
+      GestureBinding.instance.pointerRouter
+          .removeGlobalRoute(_onGlobalPointer);
+      _touchRouteAttached = false;
+      _downTouchPointers.clear();
+    }
   }
 
   // ── Initialisation ──────────────────────────────────────────────────────────
@@ -204,6 +271,8 @@ class CapacitiveStylusService extends ChangeNotifier {
     _enabled = prefs.getBool(_keyEnabled) ?? false;
     _calibrated = prefs.getBool(_keyCalibrated) ?? false;
     _touchDrawingMode = prefs.getBool(_keyTouchDrawingMode) ?? false;
+    _fingerDrawingMode = prefs.getBool(_keyFingerDrawingMode) ?? false;
+    _syncTouchTracking();
     final profileJson = prefs.getString(_keyProfile);
     if (profileJson != null) {
       try {

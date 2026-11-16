@@ -4758,6 +4758,7 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
   final GlobalKey _canvasKey = GlobalKey();
   int? _activePointer;
   PointerDeviceKind? _activeKind;
+  int _touchEpochAtStart = 0; // finger drawing mode: see CapacitiveStylusService
 
   SlideWorkspaceController get controller => widget.controller;
 
@@ -4892,6 +4893,15 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
       return;
     }
 
+    // Finger drawing mode: only one touch may draw. A second finger or the
+    // palm drops the touch stroke instead of leaving a scribble.
+    if (event.kind == PointerDeviceKind.touch &&
+        capStylusService.isFingerDrawingMode &&
+        capStylusService.hasOtherTouches(event.pointer)) {
+      _cancelTouchStroke();
+      return;
+    }
+
     if (widget.index != controller.currentIndex) {
       controller.goToSlide(widget.index, clearHistory: false);
       final repo = controller.repository as _PdfSlideRepository;
@@ -4902,12 +4912,16 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
     if (controller.selectedTool == WorkspaceTool.laserDot) {
       final pt = _toSlidePoint(event.position);
       _activePointer = event.pointer;
+      _activeKind = event.kind;
+      _touchEpochAtStart = capStylusService.multiTouchEpoch;
       widget.onLaserDotMoved?.call(pt);
       return;
     }
     if (controller.selectedTool == WorkspaceTool.laserTrail) {
       final pt = _toSlidePoint(event.position);
       _activePointer = event.pointer;
+      _activeKind = event.kind;
+      _touchEpochAtStart = capStylusService.multiTouchEpoch;
       widget.onLaserTrailStarted?.call(pt);
       return;
     }
@@ -4921,7 +4935,12 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
             CapacitiveStylusService().classifyTouchAsStylus(event));
     if (_activePointer != null) {
       if (incomingIsStylus && !activeIsStylus) {
-        await controller.endStroke();
+        if (capStylusService.isFingerDrawingMode &&
+            _activeKind == PointerDeviceKind.touch) {
+          _cancelTouchStroke(); // palm under the pencil: drop it
+        } else {
+          await controller.endStroke();
+        }
       } else {
         return;
       }
@@ -4929,6 +4948,7 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
 
     _activePointer = event.pointer;
     _activeKind = event.kind;
+    _touchEpochAtStart = capStylusService.multiTouchEpoch;
     final audioTime = widget.isRecordingLecture ? widget.getAudioTimeMs?.call() : null;
     controller.startStroke(
       _toSlidePoint(event.position),
@@ -4940,6 +4960,10 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
 
   void _handlePointerMove(PointerMoveEvent event) {
     if (event.pointer != _activePointer) return;
+    if (_touchStrokeInterrupted) {
+      _cancelTouchStroke();
+      return;
+    }
     if (controller.selectedTool == WorkspaceTool.laserDot) {
       widget.onLaserDotMoved?.call(_toSlidePoint(event.position));
       return;
@@ -4953,6 +4977,10 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
 
   void _handlePointerUp(PointerEvent event) {
     if (event.pointer != _activePointer) return;
+    if (_touchStrokeInterrupted) {
+      _cancelTouchStroke();
+      return;
+    }
     _activePointer = null;
     _activeKind = null;
 
@@ -4978,6 +5006,29 @@ class _PdfDrawingOverlayState extends State<_PdfDrawingOverlay> {
       controller.selectedTool == WorkspaceTool.eraser ||
       controller.selectedTool == WorkspaceTool.laserDot ||
       controller.selectedTool == WorkspaceTool.laserTrail;
+
+  /// Finger drawing mode: another touch landed while this touch stroke was
+  /// in progress (possibly on another page).
+  bool get _touchStrokeInterrupted =>
+      _activeKind == PointerDeviceKind.touch &&
+      CapacitiveStylusService().isFingerDrawingMode &&
+      CapacitiveStylusService().multiTouchEpoch != _touchEpochAtStart;
+
+  /// Drops the current touch stroke (or laser) without saving it.
+  void _cancelTouchStroke() {
+    if (_activePointer == null || _activeKind != PointerDeviceKind.touch) {
+      return;
+    }
+    _activePointer = null;
+    _activeKind = null;
+    if (controller.selectedTool == WorkspaceTool.laserDot) {
+      widget.onLaserDotEnded?.call();
+    } else if (controller.selectedTool == WorkspaceTool.laserTrail) {
+      widget.onLaserTrailEnded?.call();
+    } else {
+      controller.cancelStroke();
+    }
+  }
 
   bool _isPrimaryMouseButton(PointerDownEvent event) =>
       event.kind != PointerDeviceKind.mouse ||

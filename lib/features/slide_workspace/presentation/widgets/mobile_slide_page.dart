@@ -48,6 +48,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
   final GlobalKey _canvasKey = GlobalKey();
   int? _activePointer;
   PointerDeviceKind? _activeKind;
+  int _touchEpochAtStart = 0; // finger drawing mode: see CapacitiveStylusService
   PointerDeviceKind? _lastPointerKind;
   /// Tracks the scroll offset of the in-slide SingleChildScrollView so the
   /// drawing-layer overlay can follow the content scroll.
@@ -331,6 +332,15 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
         !fingerDrawing) {
       return;
     }
+    // Finger drawing mode: only one touch may draw. A second finger or the
+    // palm drops the touch stroke instead of leaving a scribble.
+    if (event.kind == PointerDeviceKind.touch &&
+        capStylusService.isFingerDrawingMode &&
+        capStylusService.hasOtherTouches(event.pointer)) {
+      _cancelTouchStroke();
+      return;
+    }
+
     if (widget.index != controller.currentIndex) {
       controller.goToSlide(widget.index);
     }
@@ -342,7 +352,12 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
     final activeIsStylus = _isStylus(_activeKind);
     if (_activePointer != null) {
       if (incomingIsStylus && !activeIsStylus) {
-        await controller.endStroke();
+        if (capStylusService.isFingerDrawingMode &&
+            _activeKind == PointerDeviceKind.touch) {
+          _cancelTouchStroke(); // palm under the pencil: drop it
+        } else {
+          await controller.endStroke();
+        }
       } else {
         return;
       }
@@ -350,6 +365,7 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
 
     _activePointer = event.pointer;
     _activeKind = event.kind;
+    _touchEpochAtStart = capStylusService.multiTouchEpoch;
     controller.startStroke(
       slidePoint,
       event.kind,
@@ -359,14 +375,39 @@ class _MobileSlidePageState extends State<MobileSlidePage> {
 
   void _handlePointerMove(PointerMoveEvent event) {
     if (event.pointer != _activePointer) return;
+    if (_touchStrokeInterrupted) {
+      _cancelTouchStroke();
+      return;
+    }
     controller.appendStrokePoint(_toSlidePoint(event.position), event.pressure);
   }
 
   void _handlePointerUp(PointerEvent event) {
     if (event.pointer != _activePointer) return;
+    if (_touchStrokeInterrupted) {
+      _cancelTouchStroke();
+      return;
+    }
     _activePointer = null;
     _activeKind = null;
     unawaited(controller.endStroke());
+  }
+
+  /// Finger drawing mode: another touch landed while this touch stroke was
+  /// in progress (possibly on another page).
+  bool get _touchStrokeInterrupted =>
+      _activeKind == PointerDeviceKind.touch &&
+      CapacitiveStylusService().isFingerDrawingMode &&
+      CapacitiveStylusService().multiTouchEpoch != _touchEpochAtStart;
+
+  /// Drops the current touch stroke without saving it.
+  void _cancelTouchStroke() {
+    if (_activePointer == null || _activeKind != PointerDeviceKind.touch) {
+      return;
+    }
+    _activePointer = null;
+    _activeKind = null;
+    controller.cancelStroke();
   }
 
   bool get _canDraw =>
