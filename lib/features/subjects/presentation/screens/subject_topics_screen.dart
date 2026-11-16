@@ -283,8 +283,19 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
   void _showResetProgressDialog(
       Map<String, Map<String, List<Question>>> topicsGroup,
       AppProvider provider) {
-    final selectedTitles = <String>{};
-    bool resetAll = true;
+    // Nothing is selected when the sheet opens. The student picks the whole
+    // subject, whole titles, or opens a title (arrow) and picks sub-titles.
+    final selectedSubs = <String, Set<String>>{}; // title -> picked sub-titles
+    final expandedTitles = <String>{};
+    bool resetAll = false;
+
+    final sortedTitles = topicsGroup.keys.toList()
+      ..sort((a, b) => _compareTopics(a, b, provider.topicOrders));
+    final subsByTitle = <String, List<String>>{
+      for (final t in sortedTitles)
+        t: topicsGroup[t]!.keys.toList()
+          ..sort((a, b) => _compareSubTopics(t, a, b, provider.subTopicOrders)),
+    };
 
     final isDark = provider.isDarkTheme;
     showModalBottomSheet(
@@ -301,7 +312,12 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
         return StatefulBuilder(
           builder: (BuildContext context, StateSetter setModalState) {
             final bottomInset = MediaQuery.of(context).padding.bottom;
-            final canConfirm = resetAll || selectedTitles.isNotEmpty;
+            final canConfirm =
+                resetAll || selectedSubs.values.any((s) => s.isNotEmpty);
+            final mutedColor =
+                isDark ? AppColors.textMuted : const Color(0xFF94A3B8);
+            final normalColor =
+                isDark ? AppColors.text : const Color(0xFF1E293B);
             return SafeArea(
               top: false,
               child: Padding(
@@ -340,7 +356,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'اختر الكل أو أكثر من جابتر لإعادة تعيين تقدمه.',
+                        'اختر المادة كاملة، أو جابتر كامل، أو افتح الجابتر بالسهم واختر مواضيع محددة منه.',
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 12,
@@ -366,7 +382,7 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                 onChanged: (bool? val) {
                                   setModalState(() {
                                     resetAll = val ?? false;
-                                    if (resetAll) selectedTitles.clear();
+                                    if (resetAll) selectedSubs.clear();
                                   });
                                 },
                                 title: const Text(
@@ -384,51 +400,164 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                   color: isDark
                                       ? AppColors.border
                                       : const Color(0xFFE2E8F0)),
-                              ...(topicsGroup.keys.toList()
-                                    ..sort((a, b) => _compareTopics(
-                                        a, b, provider.topicOrders)))
-                                  .map((title) {
-                                final checked = selectedTitles.contains(title);
-                                return CheckboxListTile(
-                                  value: resetAll || checked,
-                                  enabled: !resetAll,
-                                  activeColor: const Color(0xFFA78BFA),
-                                  checkColor:
-                                      isDark ? AppColors.bg : Colors.white,
-                                  contentPadding: EdgeInsets.zero,
-                                  controlAffinity:
-                                      ListTileControlAffinity.leading,
-                                  onChanged: (bool? val) {
-                                    setModalState(() {
-                                      resetAll = false;
-                                      if (val == true) {
-                                        selectedTitles.add(title);
-                                      } else {
-                                        selectedTitles.remove(title);
-                                      }
-                                    });
-                                  },
-                                  title: Text(
-                                    title,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontFamily: 'Cairo',
-                                      fontSize: 12,
-                                      fontWeight: checked
-                                          ? FontWeight.w800
-                                          : FontWeight.w600,
-                                      color: resetAll
-                                          ? (isDark
-                                              ? AppColors.textMuted
-                                              : const Color(0xFF94A3B8))
-                                          : (isDark
-                                              ? AppColors.text
-                                              : const Color(0xFF1E293B)),
+                              ...sortedTitles.map((title) {
+                                final subs = subsByTitle[title]!;
+                                final picked =
+                                    selectedSubs[title] ?? const <String>{};
+                                final allPicked = resetAll ||
+                                    (picked.isNotEmpty &&
+                                        picked.length == subs.length);
+                                final somePicked =
+                                    !allPicked && picked.isNotEmpty;
+                                final expanded =
+                                    expandedTitles.contains(title);
+                                // A title whose questions have no sub-title
+                                // has nothing to open.
+                                final hasSubs = subs.length > 1 ||
+                                    subs.first != 'غير محدد';
+
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    InkWell(
+                                      borderRadius: BorderRadius.circular(8),
+                                      onTap: hasSubs
+                                          ? () => setModalState(() {
+                                                if (expanded) {
+                                                  expandedTitles.remove(title);
+                                                } else {
+                                                  expandedTitles.add(title);
+                                                }
+                                              })
+                                          : null,
+                                      child: Row(
+                                        children: [
+                                          Checkbox(
+                                            tristate: true,
+                                            value: allPicked
+                                                ? true
+                                                : (somePicked ? null : false),
+                                            activeColor:
+                                                const Color(0xFFA78BFA),
+                                            checkColor: isDark
+                                                ? AppColors.bg
+                                                : Colors.white,
+                                            onChanged: resetAll
+                                                ? null
+                                                : (_) => setModalState(() {
+                                                      if (allPicked) {
+                                                        selectedSubs
+                                                            .remove(title);
+                                                      } else {
+                                                        selectedSubs[title] =
+                                                            subs.toSet();
+                                                      }
+                                                    }),
+                                          ),
+                                          Expanded(
+                                            child: Text(
+                                              title,
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontFamily: 'Cairo',
+                                                fontSize: 12,
+                                                fontWeight:
+                                                    allPicked || somePicked
+                                                        ? FontWeight.w800
+                                                        : FontWeight.w600,
+                                                color: resetAll
+                                                    ? mutedColor
+                                                    : normalColor,
+                                              ),
+                                            ),
+                                          ),
+                                          if (hasSubs) ...[
+                                            Text(
+                                              somePicked
+                                                  ? '${picked.length}/${subs.length}'
+                                                  : '${subs.length}',
+                                              style: TextStyle(
+                                                fontFamily: 'Cairo',
+                                                fontSize: 11,
+                                                color: mutedColor,
+                                              ),
+                                            ),
+                                            AnimatedRotation(
+                                              turns: expanded ? 0.5 : 0,
+                                              duration: const Duration(
+                                                  milliseconds: 200),
+                                              child: Icon(
+                                                Icons
+                                                    .keyboard_arrow_down_rounded,
+                                                color: mutedColor,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
+                                    if (hasSubs && expanded)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsetsDirectional.only(
+                                                start: 28),
+                                        child: Column(
+                                          children: subs.map((sub) {
+                                            final checked = resetAll ||
+                                                picked.contains(sub);
+                                            return CheckboxListTile(
+                                              dense: true,
+                                              value: checked,
+                                              enabled: !resetAll,
+                                              activeColor:
+                                                  const Color(0xFFA78BFA),
+                                              checkColor: isDark
+                                                  ? AppColors.bg
+                                                  : Colors.white,
+                                              contentPadding: EdgeInsets.zero,
+                                              controlAffinity:
+                                                  ListTileControlAffinity
+                                                      .leading,
+                                              onChanged: (bool? val) {
+                                                setModalState(() {
+                                                  final set = selectedSubs
+                                                      .putIfAbsent(title,
+                                                          () => <String>{});
+                                                  if (val == true) {
+                                                    set.add(sub);
+                                                  } else {
+                                                    set.remove(sub);
+                                                  }
+                                                  if (set.isEmpty) {
+                                                    selectedSubs.remove(title);
+                                                  }
+                                                });
+                                              },
+                                              title: Text(
+                                                sub,
+                                                maxLines: 2,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: TextStyle(
+                                                  fontFamily: 'Cairo',
+                                                  fontSize: 11.5,
+                                                  fontWeight: checked
+                                                      ? FontWeight.w700
+                                                      : FontWeight.w500,
+                                                  color: resetAll
+                                                      ? mutedColor
+                                                      : normalColor,
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ),
+                                  ],
                                 );
-                              }).toList(),
+                              }),
                             ],
                           ),
                         ),
@@ -480,10 +609,22 @@ class _SubjectTopicsScreenState extends State<SubjectTopicsScreen> {
                                         await provider.resetProgress(
                                             topicName: '__ALL__');
                                       } else {
-                                        for (final title in selectedTitles) {
-                                          await provider.resetProgress(
-                                              topicName: title);
-                                        }
+                                        final fullTitles = <String>{};
+                                        final partial =
+                                            <String, Set<String>>{};
+                                        selectedSubs.forEach((title, subs) {
+                                          if (subs.length ==
+                                              subsByTitle[title]!.length) {
+                                            fullTitles.add(title);
+                                          } else if (subs.isNotEmpty) {
+                                            partial[title] = Set.of(subs);
+                                          }
+                                        });
+                                        await provider
+                                            .resetProgressForSelection(
+                                          fullTitles: fullTitles,
+                                          subTopicsByTitle: partial,
+                                        );
                                       }
 
                                       if (Navigator.canPop(this.context))

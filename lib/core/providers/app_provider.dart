@@ -2856,18 +2856,36 @@ class AppProvider extends ChangeNotifier {
   }
 
   // Reset user progress for the current subject, either for a specific topic or all
-  Future<void> resetProgress({String? topicName}) async {
+  Future<void> resetProgress({String? topicName}) {
+    if (topicName == null || topicName == '__ALL__') {
+      return _resetProgressWhere((_) => true);
+    }
+    return _resetProgressWhere((q) => q.topic == topicName);
+  }
+
+  /// Reset progress for whole titles and/or specific sub-titles in one pass
+  /// (one DB write and one subject reload, however many items are selected).
+  /// [fullTitles]: titles whose every question is reset.
+  /// [subTopicsByTitle]: title -> sub-titles to reset inside that title only.
+  Future<void> resetProgressForSelection({
+    Set<String> fullTitles = const {},
+    Map<String, Set<String>> subTopicsByTitle = const {},
+  }) {
+    return _resetProgressWhere((q) {
+      final title = q.topic ?? 'غير محدد';
+      if (fullTitles.contains(title)) return true;
+      final subs = subTopicsByTitle[title];
+      return subs != null && subs.contains(q.subTopic ?? 'غير محدد');
+    });
+  }
+
+  Future<void> _resetProgressWhere(bool Function(Question q) test) async {
     if (_selectedSubject == null) return;
     _isLoading = true;
     notifyListeners();
 
     try {
-      List<Question> targetQs;
-      if (topicName == null || topicName == '__ALL__') {
-        targetQs = _questions;
-      } else {
-        targetQs = _questions.where((q) => q.topic == topicName).toList();
-      }
+      final List<Question> targetQs = _questions.where(test).toList();
 
       for (var q in targetQs) {
         q.isSolved = false;
