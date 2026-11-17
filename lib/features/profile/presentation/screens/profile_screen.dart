@@ -855,7 +855,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       provider.isDarkTheme, isTablet,
                                     ),
                                   ),
-                                  if (provider.isAdminOrOwner) ...[
+                                  // University change: owner only (DB trigger enforces it too)
+                                  if (provider.isOwner) ...[
                                     const SizedBox(height: 12),
                                     _buildOptionTile(
                                       icon: Icons.school_outlined,

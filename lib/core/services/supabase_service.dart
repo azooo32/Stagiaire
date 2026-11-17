@@ -130,10 +130,29 @@ class SupabaseService {
     }
   }
 
-  /// University can only be changed by the owner via the dashboard.
-  /// This method is intentionally disabled — the DB trigger will reject any attempt.
+  /// Update the user's university in the 'users' table.
+  /// Only the owner sees this option in the app; the DB trigger rejects
+  /// anyone else, which lands in the catch below (returns false).
   Future<bool> updateUniversity(String newUniversity) async {
-    return false;
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      await client.from('users').update({
+        'university': newUniversity,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', user.id);
+      try {
+        await client.auth.updateUser(
+          UserAttributes(data: {'university': newUniversity}),
+        );
+      } catch (authErr) {
+        print('Warning updating auth metadata: $authErr');
+      }
+      return true;
+    } catch (e) {
+      print('Error updating university: $e');
+      return false;
+    }
   }
 
   // Sign Up with email, password and user metadata
