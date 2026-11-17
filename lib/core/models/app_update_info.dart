@@ -3,6 +3,9 @@ class AppUpdateInfo {
   final int versionCode;
   final String versionName;
   final String apkUrl;
+
+  /// App Store link (iOS). Empty when this release is not on the App Store.
+  final String iosUrl;
   final String releaseNotes;
   final bool isForced;
   final DateTime? createdAt;
@@ -12,6 +15,7 @@ class AppUpdateInfo {
     required this.versionCode,
     required this.versionName,
     required this.apkUrl,
+    this.iosUrl = '',
     required this.releaseNotes,
     required this.isForced,
     this.createdAt,
@@ -23,6 +27,7 @@ class AppUpdateInfo {
       versionCode: (map['version_code'] as num?)?.toInt() ?? 0,
       versionName: map['version_name']?.toString() ?? '',
       apkUrl: map['apk_url']?.toString() ?? '',
+      iosUrl: map['ios_url']?.toString().trim() ?? '',
       releaseNotes: map['release_notes']?.toString() ?? '',
       isForced: map['is_forced'] == true,
       createdAt: map['created_at'] != null

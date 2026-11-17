@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import '../models/app_update_info.dart';
@@ -65,7 +67,16 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
     );
   }
 
-  void _handleButtonClick() {
+  Future<void> _handleButtonClick() async {
+    // iOS: no download, the button opens the App Store page.
+    if (Platform.isIOS) {
+      setState(() => _errorMessage = null);
+      final opened = await AppUpdateService().openAppStore(widget.updateInfo);
+      if (!opened && mounted) {
+        setState(() => _errorMessage = 'تعذر فتح App Store، حاول مرة أخرى');
+      }
+      return;
+    }
     if (_isDownloaded && _localApkPath != null && _localApkPath!.isNotEmpty) {
       OpenFilex.open(_localApkPath!, type: 'application/vnd.android.package-archive');
     } else {
@@ -330,13 +341,17 @@ class _AppUpdateDialogState extends State<AppUpdateDialog> {
                                 color: Colors.white,
                               ),
                             )
+                          else if (Platform.isIOS)
+                            const Icon(Icons.open_in_new_rounded, size: 20)
                           else if (_isDownloaded)
                             const Icon(Icons.install_mobile_rounded, size: 20)
                           else
                             const Icon(Icons.download_rounded, size: 20),
                           const SizedBox(width: 8),
                           Text(
-                            _isDownloading
+                            Platform.isIOS
+                                ? 'التحديث من App Store'
+                                : _isDownloading
                                 ? 'جاري التحديث...'
                                 : (_isDownloaded
                                     ? 'تثبيت التحديث'

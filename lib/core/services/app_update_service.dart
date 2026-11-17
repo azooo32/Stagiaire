@@ -39,12 +39,17 @@ class AppUpdateService {
     }
   }
 
-  /// Check Supabase for the latest app update
+  /// Check Supabase for the latest app update for this platform:
+  /// iOS → newest row with an App Store link (ios_url),
+  /// Android → newest row with an APK / Google Play link (apk_url).
   Future<AppUpdateInfo?> fetchLatestUpdate() async {
     try {
+      final urlColumn = Platform.isIOS ? 'ios_url' : 'apk_url';
       final response = await _supabase
           .from('app_updates')
           .select()
+          .not(urlColumn, 'is', null)
+          .neq(urlColumn, '')
           .order('version_code', ascending: false)
           .limit(1)
           .maybeSingle();
@@ -69,7 +74,8 @@ class AppUpdateService {
     BuildContext context, {
     bool isManualCheck = false,
   }) async {
-    if (Platform.isIOS || Platform.isMacOS) {
+    // iOS goes through the normal check below (App Store link in ios_url).
+    if (Platform.isMacOS) {
       if (isManualCheck && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -153,6 +159,21 @@ class AppUpdateService {
       }
     } finally {
       _isChecking = false;
+    }
+  }
+
+  /// iOS: opens the release's App Store page. Returns false if it could not
+  /// be opened.
+  Future<bool> openAppStore(AppUpdateInfo info) async {
+    final uri = Uri.tryParse(info.iosUrl);
+    if (uri == null || !uri.hasScheme) return false;
+    try {
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Failed to open App Store link: $e');
+      }
+      return false;
     }
   }
 
