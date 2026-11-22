@@ -13,11 +13,13 @@ const Color _purple = Color(0xFF6B4EFF);
 const Color _ink = Color(0xFF16124A);
 const Color _muted = Color(0xFF67608A);
 
-/// Google: Android only for now.
-/// - Web (Telegram mini app): Google blocks sign-in inside embedded webviews.
-/// - iOS: would also need an iOS OAuth client + Info.plist URL scheme.
+/// Google: Android + iOS (iOS uses its own OAuth client and the Info.plist
+/// URL scheme; allowed on the App Store because Apple sign-in is offered too).
+/// Hidden on web (Telegram mini app): Google blocks embedded webviews.
 bool get isGoogleSignInAvailable =>
-    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS);
 
 /// Apple: iPhone/iPad only (native sheet). On Android it would need the web
 /// OAuth flow with a secret that expires every 6 months.

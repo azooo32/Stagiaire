@@ -159,7 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                           MiniSpinner(size: 34, color: _purple))
                                   : _PrimaryButton(
                                       label: 'Sign In', onTap: _handleSignIn),
-                              // Google on Android, Apple on iPhone — nothing on web.
+                              // Google on Android + iOS, Apple on iOS — nothing on web.
                               const SocialSignInSection(),
                               const SizedBox(height: 18),
                               Row(

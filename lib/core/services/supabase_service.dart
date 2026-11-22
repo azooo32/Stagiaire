@@ -246,6 +246,8 @@ class SupabaseService {
     final googleSignIn = GoogleSignIn.instance;
     if (!_googleInitialized) {
       await googleSignIn.initialize(
+        // iOS needs its own OAuth client; Android uses the SHA-1 registration.
+        clientId: Platform.isIOS ? GoogleAuthConfig.iosClientId : null,
         serverClientId: GoogleAuthConfig.webClientId,
       );
       _googleInitialized = true;

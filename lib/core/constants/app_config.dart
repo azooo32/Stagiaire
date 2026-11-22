@@ -10,4 +10,9 @@ class AppConfig {
 class GoogleAuthConfig {
   static const String webClientId =
       '183919287524-9fasfnf3g0ga9rpcg2leni2t987ved5h.apps.googleusercontent.com';
+
+  /// iOS OAuth client (bundle com.invetstecur.stagiaire). Its reversed form is
+  /// the URL scheme in ios/Runner/Info.plist — keep both in sync.
+  static const String iosClientId =
+      '183919287524-pgnt87iedp7tb1vrjq789av2d1tid6er.apps.googleusercontent.com';
 }

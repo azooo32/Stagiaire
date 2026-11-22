@@ -263,7 +263,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                   child: MiniSpinner(size: 34, color: _purple))
                               : _PrimaryButton(
                                   label: 'Sign Up', onTap: _handleSignUp),
-                          // Google on Android, Apple on iPhone — nothing on web.
+                          // Google on Android + iOS, Apple on iOS — nothing on web.
                           const SocialSignInSection(),
                           const SizedBox(height: 22),
                           Row(
