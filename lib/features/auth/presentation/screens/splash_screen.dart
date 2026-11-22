@@ -6,6 +6,7 @@ import '../../../../core/services/security_service.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../../main_navigation_shell.dart';
 import 'complete_profile_screen.dart';
+import 'developer_mode_block_screen.dart';
 import 'login_screen.dart';
 import 'onboarding_screen.dart';
 import 'security_block_screen.dart';
@@ -60,6 +61,14 @@ class _SplashScreenState extends State<SplashScreen>
     if (SecurityService.isDeviceRooted) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const SecurityBlockScreen()),
+      );
+      return;
+    }
+
+    // Developer options on (Android, release builds) → must be turned off.
+    if (SecurityService.shouldBlockDeveloperMode) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const DeveloperModeBlockScreen()),
       );
       return;
     }

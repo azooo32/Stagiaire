@@ -11,6 +11,14 @@ class SecurityService {
   static bool isDeviceRooted = false;
   static bool isDeviceCompromised = false;
 
+  /// Android "Developer options" switch is on. Always false on iOS (no API).
+  static bool isDeveloperModeEnabled = false;
+
+  /// The app refuses to run while Developer options are on — release/profile
+  /// builds only, so `flutter run` (which needs USB debugging) keeps working.
+  static bool get shouldBlockDeveloperMode =>
+      !kDebugMode && isDeveloperModeEnabled;
+
   // يضمن أن init() تُنفَّذ مرة واحدة فقط طوال عمر التطبيق
   static bool _initialized = false;
 
@@ -23,6 +31,7 @@ class SecurityService {
       if (res != null) {
         isDeviceRooted = res['isRooted'] == true;
         isDeviceCompromised = res['isCompromised'] == true;
+        isDeveloperModeEnabled = res['isDeveloperMode'] == true;
         return {
           'isRooted': isDeviceRooted,
           'isEmulator': res['isEmulator'] == true,
@@ -33,6 +42,29 @@ class SecurityService {
       debugPrint('Error checking device integrity: $e');
     }
     return {'isRooted': false, 'isEmulator': false, 'isCompromised': false};
+  }
+
+  /// Re-reads the Developer options switch (after the student returns from
+  /// Settings). Returns the new value; false on iOS / errors.
+  static Future<bool> recheckDeveloperMode() async {
+    try {
+      final enabled =
+          await _channel.invokeMethod<bool>('isDeveloperModeEnabled');
+      isDeveloperModeEnabled = enabled == true;
+    } catch (e) {
+      debugPrint('Error checking developer mode: $e');
+      isDeveloperModeEnabled = false;
+    }
+    return isDeveloperModeEnabled;
+  }
+
+  /// Opens Android Developer options (falls back to Settings).
+  static Future<void> openDeveloperSettings() async {
+    try {
+      await _channel.invokeMethod('openDeveloperSettings');
+    } catch (e) {
+      debugPrint('Error opening developer settings: $e');
+    }
   }
 
   /// يجب استدعاؤها مرة واحدة فقط من main.dart

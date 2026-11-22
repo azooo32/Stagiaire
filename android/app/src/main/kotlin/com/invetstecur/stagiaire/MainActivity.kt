@@ -1,7 +1,9 @@
 package com.invetstecur.stagiaire
 
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -31,13 +33,52 @@ class MainActivity: FlutterActivity() {
                     val integrity = mapOf(
                         "isRooted" to isRooted,
                         "isEmulator" to isEmulator,
-                        "isCompromised" to (isRooted || isEmulator)
+                        "isCompromised" to (isRooted || isEmulator),
+                        "isDeveloperMode" to isDeveloperModeEnabled()
                     )
                     result.success(integrity)
+                }
+                "isDeveloperModeEnabled" -> {
+                    result.success(isDeveloperModeEnabled())
+                }
+                "openDeveloperSettings" -> {
+                    result.success(openDeveloperSettings())
                 }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    /** "Developer options" switch (Settings > System > Developer options). */
+    private fun isDeveloperModeEnabled(): Boolean {
+        return try {
+            Settings.Global.getInt(
+                contentResolver,
+                Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
+                0
+            ) != 0
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** Opens Developer options so the student can turn the switch off;
+     *  falls back to the main Settings screen on phones that block it. */
+    private fun openDeveloperSettings(): Boolean {
+        val intents = listOf(
+            Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS),
+            Intent(Settings.ACTION_SETTINGS)
+        )
+        for (intent in intents) {
+            try {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                return true
+            } catch (_: Throwable) {
+                // try the next one
+            }
+        }
+        return false
     }
 
     private fun checkRoot(): Boolean {
