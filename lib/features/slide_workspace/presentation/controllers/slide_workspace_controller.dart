@@ -726,7 +726,7 @@ class SlideWorkspaceController extends ChangeNotifier {
   }
 
   void setZoom(double value) {
-    zoom = value.clamp(0.1, 5.0);
+    zoom = value.clamp(0.1, 12.0);
     notifyListeners();
   }
 

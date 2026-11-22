@@ -2,11 +2,16 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:pdfx/pdfx.dart';
+// pdfrx renders ONLY the visible area of a zoomed page (zoom tiles).
+// pdfx stays the source of page sizes + base page images, so the coordinate
+// system of saved notes, sounds and lecture recordings is unchanged.
+import 'package:pdfrx/pdfrx.dart' as pdfrx;
 import 'package:provider/provider.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
@@ -170,13 +175,28 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   // GlobalKeys for each page widget — used to track which page is visible
   final Map<int, GlobalKey> _pageKeys = {};
 
-  // ── Hi-Res Re-Render System ────────────────────────────────────────────────
-  /// In-RAM high-DPI cache for zoomed pages. Never written to disk.
-  /// Key: pageNumber (1-indexed). Value: hi-res JPEG bytes.
-  final Map<int, Uint8List> _hiResPageCache = {};
-  final Set<int> _renderingHiResPages = {};
-  /// Last zoom scale at which we triggered a hi-res render pass.
-  double _lastKnownScale = 1.0;
+  // ── Zoom Limits & Base Resolution ─────────────────────────────────────────
+  /// Maximum zoom the student can reach.
+  static const double _kMaxZoom = 12.0;
+  /// Longest side (pixels) of the base page image kept in RAM / on disk.
+  /// Zoomed-in sharpness comes from zoom tiles, not from this image.
+  static const double _kBasePageMaxPx = 2000.0;
+  /// Upper bound for one zoom tile (pixels). ~36 MB RGBA worst case.
+  static const double _kMaxTilePixels = 9000000;
+
+  // ── Zoom Tiles (pdfrx) ────────────────────────────────────────────────────
+  /// While zoomed, only the VISIBLE area of each visible page is rendered at
+  /// the exact screen resolution and drawn over the base image. Memory stays
+  /// ~screen-sized no matter how deep the zoom is.
+  pdfrx.PdfDocument? _tileDocument;
+  Future<pdfrx.PdfDocument?>? _tileDocumentFuture;
+  /// pageNumber (1-indexed) -> rendered tile (rect in PDF points).
+  final Map<int, _ZoomTile> _zoomTiles = {};
+  /// Keys of the per-page canvas whose local coordinates are PDF points.
+  final Map<int, GlobalKey> _pageCanvasKeys = {};
+  final GlobalKey _viewportKey = GlobalKey(debugLabel: 'pdf_viewport');
+  final List<pdfrx.PdfPageRenderCancellationToken> _tileCancelTokens = [];
+  int _tileGeneration = 0;
   Timer? _hiResDebounce;
   Timer? _pageLoadedBatchTimer;
   Timer? _idlePreRenderTimer;
@@ -318,14 +338,12 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     final matrix = _transformationController.value;
     final scale = matrix.getMaxScaleOnAxis();
     if ((controller.zoom - scale).abs() > 0.02) {
-      controller.setZoom(scale.clamp(0.5, 5.0));
+      controller.setZoom(scale.clamp(0.5, _kMaxZoom));
     }
 
-    // Trigger hi-res re-render when zoom changes meaningfully
-    if ((scale - _lastKnownScale).abs() > 0.25) {
-      _lastKnownScale = scale;
-      _scheduleHiResForVisiblePages(scale);
-    }
+    // Re-render sharp zoom tiles for the visible area once movement settles
+    // (zoom AND pan — the visible area changes in both cases).
+    _scheduleZoomTiles();
 
     if (_lastViewportHeight > 0 && _lastViewportWidth > 0) {
       final contentHeight = _contentHeight(_lastPageWidth);
@@ -407,7 +425,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
     for (final k in keysToRemove) {
       _pageCache.remove(k);
-      _hiResPageCache.remove(k);
+      _removeZoomTile(k);
     }
   }
 
@@ -562,8 +580,9 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
         }
       } catch (_) {}
 
-      // Ensure cache is upgraded to crisp high-res base (v2)
-      final cacheVersionFile = File('$_cacheDirPath/cache_version_v2.txt');
+      // Ensure cache matches the current base resolution (v3 = pixel-capped
+      // base; replaces the heavy 3.5x v2 images that caused out-of-memory crashes)
+      final cacheVersionFile = File('$_cacheDirPath/cache_version_v3.txt');
       if (!await cacheVersionFile.exists()) {
         try {
           if (await cacheDir.exists()) {
@@ -579,7 +598,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
               }
             }
           }
-          await cacheVersionFile.writeAsString('v2_hires');
+          await cacheVersionFile.writeAsString('v3_capped');
         } catch (e) {
           debugPrint('Error upgrading PDF cache to hi-res: $e');
         }
@@ -1162,9 +1181,13 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
 
       final page = await _pdfDocument!.getPage(pageNum);
       _pageSizes[pageNum] = Size(page.width, page.height);
+      // Base image capped by pixels (not a fixed multiplier) to keep RAM low on
+      // weak phones and on PDFs with large page sizes. Zoom sharpness comes
+      // from zoom tiles rendered over this image.
+      final baseScale = _basePxPerPt(Size(page.width, page.height));
       final img = await page.render(
-        width: page.width * 3.5,   // Crisp 3.5x base DPI for sharp text even without zooming
-        height: page.height * 3.5,
+        width: page.width * baseScale,
+        height: page.height * baseScale,
         format: PdfPageImageFormat.jpeg,
         backgroundColor: '#FFFFFF',
         quality: 96,
@@ -1251,66 +1274,217 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     }
   }
 
-  // ── Hi-Res Re-Render Helpers ───────────────────────────────────────────────
+  // ── Zoom Tiles (sharp rendering of the visible area only) ─────────────────
 
-  /// Re-renders [pageNum] at [scale]*2 DPI into [_hiResPageCache] (RAM only).
-  /// No-op when [scale] < 1.5 (base cache is sufficient at low zoom).
-  Future<void> _renderHiResPage(int pageNum, double scale) async {
-    if (_pdfDocument == null) return;
-    if (_renderingHiResPages.contains(pageNum)) return;
+  /// Pixels per PDF point used for the base page image.
+  /// Capped by [_kBasePageMaxPx] on the longest side (never above 3.5x).
+  double _basePxPerPt(Size pageSize) {
+    final longest = math.max(pageSize.width, pageSize.height);
+    if (longest <= 0) return 2.0;
+    return math.min(3.5, _kBasePageMaxPx / longest);
+  }
 
-    if (scale < 1.5) {
-      if (_hiResPageCache.containsKey(pageNum) && mounted) {
-        setState(() => _hiResPageCache.remove(pageNum));
+  /// Opens the PDF once with pdfrx (used for zoom tiles only).
+  /// Returns null if pdfrx is unavailable; the base image is then shown alone.
+  Future<pdfrx.PdfDocument?> _ensureTileDocument() {
+    return _tileDocumentFuture ??= () async {
+      try {
+        await pdfrx.pdfrxFlutterInitialize();
+        final doc = await pdfrx.PdfDocument.openFile(widget.localPdfPath);
+        if (!mounted) {
+          await doc.dispose();
+          return null;
+        }
+        _tileDocument = doc;
+        return doc;
+      } catch (e) {
+        debugPrint('Zoom tiles: pdfrx open error: $e');
+        return null;
       }
-      return;
+    }();
+  }
+
+  /// Debounced: re-renders tiles 250 ms after the last zoom / pan movement.
+  void _scheduleZoomTiles() {
+    _hiResDebounce?.cancel();
+    _hiResDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) _updateZoomTiles();
+    });
+  }
+
+  void _cancelTileRenders() {
+    for (final token in _tileCancelTokens) {
+      try {
+        token.cancel();
+      } catch (_) {}
+    }
+    _tileCancelTokens.clear();
+  }
+
+  /// Disposes a tile image after the current frame (it may still be painted).
+  void _disposeTileLater(_ZoomTile? tile) {
+    if (tile == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        tile.image.dispose();
+      } catch (_) {}
+    });
+  }
+
+  /// Removes the tile of [pageNum] (no setState — caller rebuilds if needed).
+  void _removeZoomTile(int pageNum) {
+    _disposeTileLater(_zoomTiles.remove(pageNum));
+  }
+
+  void _clearZoomTiles({bool rebuild = true}) {
+    if (_zoomTiles.isEmpty) return;
+    final old = _zoomTiles.values.toList();
+    _zoomTiles.clear();
+    for (final t in old) {
+      _disposeTileLater(t);
+    }
+    if (rebuild && mounted) setState(() {});
+  }
+
+  /// Renders, for every page currently on screen, ONLY the visible part at the
+  /// exact screen resolution. Pages are rendered one after another (never in
+  /// parallel) so peak memory stays about one screen worth of pixels.
+  Future<void> _updateZoomTiles() async {
+    final gen = ++_tileGeneration;
+    _cancelTileRenders();
+
+    if (!mounted || _isLoadingPdf || controller.slides.isEmpty) return;
+    final viewportBox =
+        _viewportKey.currentContext?.findRenderObject() as RenderBox?;
+    if (viewportBox == null || !viewportBox.hasSize) return;
+    final viewportRect =
+        viewportBox.localToGlobal(Offset.zero) & viewportBox.size;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+
+    // 1. Collect visible pages and the screen pixels-per-point for each.
+    final jobs = <({int pageNum, Rect rect, double pxPerPt, Size size})>[];
+    final first = math.max(1, _currentPageIndex - 1);
+    final last = math.min(controller.slides.length, _currentPageIndex + 3);
+    final keepPages = <int>{};
+    for (var pageNum = first; pageNum <= last; pageNum++) {
+      final pageBox = _pageCanvasKeys[pageNum]?.currentContext
+          ?.findRenderObject() as RenderBox?;
+      final pageSize = _pageSizes[pageNum];
+      if (pageBox == null || !pageBox.attached || pageSize == null) continue;
+
+      // Canvas local coordinates == PDF points.
+      final pageBounds = Offset.zero & pageSize;
+      final a = pageBox.globalToLocal(viewportRect.topLeft);
+      final b = pageBox.globalToLocal(viewportRect.bottomRight);
+      final visible = Rect.fromPoints(a, b).intersect(pageBounds);
+      if (visible.width <= 1 || visible.height <= 1) continue;
+
+      final p0 = pageBox.localToGlobal(Offset.zero);
+      final p1 = pageBox.localToGlobal(Offset(pageSize.width, 0));
+      final logicalPerPt = (p1.dx - p0.dx) / pageSize.width;
+      double pxPerPt = logicalPerPt * dpr;
+      if (!pxPerPt.isFinite || pxPerPt <= 0) continue;
+
+      // Base image is already sharp enough at this zoom → no tile needed.
+      if (pxPerPt <= _basePxPerPt(pageSize) * 1.1) continue;
+
+      // Small margin so short pans stay sharp before the next re-render.
+      final mx = visible.width * 0.10;
+      final my = visible.height * 0.10;
+      final rect = Rect.fromLTRB(
+        visible.left - mx,
+        visible.top - my,
+        visible.right + mx,
+        visible.bottom + my,
+      ).intersect(pageBounds);
+
+      // Safety cap on tile pixels (large tablets / huge pages).
+      final pixels = rect.width * rect.height * pxPerPt * pxPerPt;
+      if (pixels > _kMaxTilePixels) {
+        pxPerPt *= math.sqrt(_kMaxTilePixels / pixels);
+      }
+
+      keepPages.add(pageNum);
+      jobs.add((pageNum: pageNum, rect: rect, pxPerPt: pxPerPt, size: pageSize));
     }
 
-    // Render DPI = zoom * 2.5, clamped between 4.0x and 8.0x PDF points
-    final renderScale = (scale * 2.5).clamp(4.0, 8.0);
-    _renderingHiResPages.add(pageNum);
-    try {
-      final page = await _pdfDocument!.getPage(pageNum);
-      final img = await page.render(
-        width: page.width * renderScale,
-        height: page.height * renderScale,
-        format: PdfPageImageFormat.jpeg,
-        backgroundColor: '#FFFFFF',
-        quality: 98,
-      );
-      await page.close();
-      if (img != null && img.bytes.isNotEmpty && mounted) {
-        setState(() => _hiResPageCache[pageNum] = img.bytes);
+    // 2. Drop tiles that are no longer needed (zoomed out / scrolled away).
+    final stale = _zoomTiles.keys.where((p) => !keepPages.contains(p)).toList();
+    if (stale.isNotEmpty) {
+      for (final p in stale) {
+        _removeZoomTile(p);
       }
-    } catch (e) {
-      debugPrint('Hi-Res render error p$pageNum: $e');
-    } finally {
-      _renderingHiResPages.remove(pageNum);
+      if (mounted) setState(() {});
+    }
+    if (jobs.isEmpty) return;
+
+    final doc = await _ensureTileDocument();
+    if (doc == null || gen != _tileGeneration || !mounted) return;
+
+    // 3. Render jobs sequentially; abort as soon as a newer request starts.
+    for (final job in jobs) {
+      if (gen != _tileGeneration || !mounted) return;
+      if (job.pageNum > doc.pages.length) continue;
+      final page = doc.pages[job.pageNum - 1];
+      final token = page.createCancellationToken();
+      _tileCancelTokens.add(token);
+      try {
+        final s = job.pxPerPt;
+        final x = (job.rect.left * s).floor();
+        final y = (job.rect.top * s).floor();
+        final w = (job.rect.right * s).ceil() - x;
+        final h = (job.rect.bottom * s).ceil() - y;
+        if (w <= 0 || h <= 0) continue;
+
+        // fullWidth/fullHeight use the pdfx page size so the tile lines up
+        // exactly with the base image and with all overlays (notes, sounds).
+        final img = await page.render(
+          x: x,
+          y: y,
+          width: w,
+          height: h,
+          fullWidth: job.size.width * s,
+          fullHeight: job.size.height * s,
+          backgroundColor: 0xFFFFFFFF,
+          // Base images do not include PDF annotations either: embedded
+          // annotations are drawn by the app's own overlay layer.
+          annotationRenderingMode: pdfrx.PdfAnnotationRenderingMode.none,
+          cancellationToken: token,
+        );
+        if (img == null) continue;
+        ui.Image uiImage;
+        try {
+          uiImage = await img.createImage();
+        } finally {
+          img.dispose();
+        }
+        if (gen != _tileGeneration || !mounted) {
+          uiImage.dispose();
+          return;
+        }
+        // Exact rect covered by the rendered pixels (in PDF points).
+        final tileRect = Rect.fromLTWH(x / s, y / s, w / s, h / s);
+        final old = _zoomTiles[job.pageNum];
+        setState(() {
+          _zoomTiles[job.pageNum] = _ZoomTile(uiImage, tileRect);
+        });
+        _disposeTileLater(old);
+      } catch (e) {
+        debugPrint('Zoom tile render error p${job.pageNum}: $e');
+      } finally {
+        _tileCancelTokens.remove(token);
+      }
     }
   }
 
-  /// Debounced scheduler: waits 300 ms after the last zoom event, then
-  /// re-renders the current page ±1 at the appropriate DPI.
-  /// Frees the hi-res cache automatically when zoom drops below 1.5.
-  void _scheduleHiResForVisiblePages(double scale) {
-    _hiResDebounce?.cancel();
-    _hiResDebounce = Timer(const Duration(milliseconds: 300), () {
-      if (!mounted) return;
-      if (scale < 1.5) {
-        if (_hiResPageCache.isNotEmpty) {
-          setState(() => _hiResPageCache.clear());
-        }
-        return;
-      }
-      final visible = [
-        _currentPageIndex,
-        _currentPageIndex - 1,
-        _currentPageIndex + 1,
-      ].where((i) => i >= 0 && i < controller.slides.length).toList();
-      for (final i in visible) {
-        _renderHiResPage(i + 1, scale);
-      }
-    });
+  @override
+  void didHaveMemoryPressure() {
+    // Android/iOS is about to run out of memory: free everything rebuildable.
+    _cancelTileRenders();
+    _tileGeneration++;
+    _clearZoomTiles(rebuild: false);
+    PaintingBinding.instance.imageCache.clear();
+    if (mounted) setState(() {});
   }
 
   // ── Lazy On-Demand Text Extraction ────────────────────────────────────────
@@ -1387,7 +1561,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
     _transformationController.removeListener(_onTransformationChanged);
     _transformationController.dispose();
     _flingAnimationController.dispose();
-    _hiResDebounce?.cancel();         // Cancel any pending hi-res render
+    _hiResDebounce?.cancel();         // Cancel any pending zoom tile render
+    _tileGeneration++;                // Invalidate in-flight tile renders
+    _cancelTileRenders();
+    for (final tile in _zoomTiles.values) {
+      try {
+        tile.image.dispose();
+      } catch (_) {}
+    }
+    _zoomTiles.clear();
+    _tileDocument?.dispose();
     _pageLoadedBatchTimer?.cancel();  // Cancel batched page loaded timer
     _idlePreRenderTimer?.cancel();    // Cancel idle pre-render timer
     _idleTextExtractTimer?.cancel();  // Cancel idle text extraction timer
@@ -1442,7 +1625,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
   }
 
   void _setZoom(double value) {
-    final clamped = value.clamp(0.5, 5.0);
+    final clamped = value.clamp(0.5, _kMaxZoom);
     controller.setZoom(clamped);
     _transformationController.value = Matrix4.diagonal3Values(clamped, clamped, 1.0);
   }
@@ -4318,6 +4501,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                     }
                                   },
                                   child: InteractiveViewer(
+                                    key: _viewportKey,
                                     transformationController:
                                         _transformationController,
                                     panEnabled: false,
@@ -4326,7 +4510,7 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
                                             _activeStylusPointers.isNotEmpty),
                                     boundaryMargin: EdgeInsets.zero,
                                     minScale: 0.5,
-                                    maxScale: 5.0,
+                                    maxScale: _kMaxZoom,
                                     alignment: Alignment.topLeft,
                                     constrained: false,
                                     onInteractionStart: (details) {
@@ -4579,19 +4763,34 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       child: FittedBox(
         fit: BoxFit.contain,
         child: SizedBox(
+          key: _pageCanvasKeys.putIfAbsent(
+              pageNum, () => GlobalKey(debugLabel: 'pdf_canvas_$pageNum')),
           width: pdfW,
           height: pdfH,
           child: Stack(
             children: [
-              // 1. The rendered PDF page image (hi-res preferred, falls back to base)
+              // 1. The rendered PDF page image (base resolution)
               Positioned.fill(
                 child: Image.memory(
-                  _hiResPageCache[pageNum] ?? cachedBytes,
+                  cachedBytes,
                   fit: BoxFit.fill,
                   gaplessPlayback: true,
                   filterQuality: FilterQuality.high,
                 ),
               ),
+
+              // 1a. Sharp zoom tile: only the visible area, at screen resolution
+              if (_zoomTiles[pageNum] != null)
+                Positioned.fromRect(
+                  rect: _zoomTiles[pageNum]!.rect,
+                  child: IgnorePointer(
+                    child: RawImage(
+                      image: _zoomTiles[pageNum]!.image,
+                      fit: BoxFit.fill,
+                      filterQuality: FilterQuality.medium,
+                    ),
+                  ),
+                ),
 
               // 1b. Transparent text-selection overlay (PAN mode only — hidden
               //     when any drawing tool is active so strokes are not blocked)
@@ -4715,6 +4914,16 @@ class _PdfWorkspaceScreenState extends State<PdfWorkspaceScreen>
       ),
     );
   }
+}
+
+/// A sharp render of the visible part of one page while zoomed.
+class _ZoomTile {
+  _ZoomTile(this.image, this.rect);
+
+  final ui.Image image;
+
+  /// Area of the page covered by [image], in PDF points.
+  final Rect rect;
 }
 
 class _PdfDrawingOverlay extends StatefulWidget {

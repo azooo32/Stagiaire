@@ -19,7 +19,7 @@ void main() async {
 
   // Set larger image cache limits to keep loaded slide images in RAM/VRAM
   // and prevent reloading/flickering when navigating between screens.
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 300 * 1024 * 1024; // 300 MB
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 150 * 1024 * 1024; // 150 MB (300 MB caused out-of-memory crashes on weak phones)
   PaintingBinding.instance.imageCache.maximumSize = 150; // 150 images
 
   // Initialize Core Services
