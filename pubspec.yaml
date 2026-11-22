@@ -35,6 +35,9 @@ dependencies:
   pdfx: ^2.9.2
   share_plus: ^12.0.2
   syncfusion_flutter_pdf: ^34.2.3
+  pdfrx: ^2.4.8
+  google_sign_in: ^7.2.0
+  sign_in_with_apple: ^8.2.0
 
 dev_dependencies:
   flutter_test:

@@ -1,7 +1,12 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../constants/api_keys.dart';
+import '../constants/app_config.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
@@ -70,6 +75,13 @@ class SupabaseService {
 
   Future<void> signOut() async {
     await client.auth.signOut();
+    // Forget the chosen Google account so the next Google login shows the
+    // account picker (students sharing a phone / switching accounts).
+    if (_googleInitialized) {
+      try {
+        await GoogleSignIn.instance.signOut();
+      } catch (_) {}
+    }
   }
 
   Future<void> deleteAccount() async {
@@ -222,6 +234,209 @@ class SupabaseService {
       email: email,
       password: password,
     );
+  }
+
+  bool _googleInitialized = false;
+
+  /// Sign In with Google (Android). Returns null when the user closes the
+  /// Google account picker. If an account with the same verified email already
+  /// exists (old email/password account), Supabase links Google to THAT
+  /// account, so the student keeps progress and subscription.
+  Future<AuthResponse?> signInWithGoogle() async {
+    final googleSignIn = GoogleSignIn.instance;
+    if (!_googleInitialized) {
+      await googleSignIn.initialize(
+        serverClientId: GoogleAuthConfig.webClientId,
+      );
+      _googleInitialized = true;
+    }
+
+    final GoogleSignInAccount account;
+    try {
+      account = await googleSignIn.authenticate();
+    } on GoogleSignInException catch (e) {
+      if (e.code == GoogleSignInExceptionCode.canceled ||
+          e.code == GoogleSignInExceptionCode.interrupted) {
+        return null;
+      }
+      rethrow;
+    }
+
+    final idToken = account.authentication.idToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw const AuthException('Google did not return an ID token');
+    }
+
+    // Access token is optional; fetch it only if available without extra UI.
+    String? accessToken;
+    try {
+      final authorization = await account.authorizationClient
+          .authorizationForScopes(const ['email', 'profile']);
+      accessToken = authorization?.accessToken;
+    } catch (_) {}
+
+    return client.auth.signInWithIdToken(
+      provider: OAuthProvider.google,
+      idToken: idToken,
+      accessToken: accessToken,
+    );
+  }
+
+  /// Sign In with Apple (iOS, native sheet). Returns null when the user
+  /// closes the Apple sheet. Same-email accounts link like Google; if the
+  /// student hides the email (privaterelay.appleid.com) it is a new account.
+  Future<AuthResponse?> signInWithApple() async {
+    // Supabase checks the token against the raw nonce; Apple gets its hash.
+    final rawNonce = client.auth.generateRawNonce();
+    final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+
+    final AuthorizationCredentialAppleID credential;
+    try {
+      credential = await SignInWithApple.getAppleIDCredential(
+        scopes: const [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+        nonce: hashedNonce,
+      );
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) return null;
+      rethrow;
+    }
+
+    final idToken = credential.identityToken;
+    if (idToken == null || idToken.isEmpty) {
+      throw const AuthException('Apple did not return an ID token');
+    }
+
+    final response = await client.auth.signInWithIdToken(
+      provider: OAuthProvider.apple,
+      idToken: idToken,
+      nonce: rawNonce,
+    );
+
+    // Apple sends the name ONLY on the very first sign-in and it is not in
+    // the token → keep it in metadata so the profile step can prefill it.
+    final fullName = [credential.givenName, credential.familyName]
+        .where((part) => part != null && part.trim().isNotEmpty)
+        .map((part) => part!.trim())
+        .join(' ');
+    if (fullName.isNotEmpty) {
+      try {
+        await client.auth
+            .updateUser(UserAttributes(data: {'full_name': fullName}));
+      } catch (e) {
+        print('Warning saving Apple name: $e');
+      }
+    }
+    return response;
+  }
+
+  /// Name, stage and university are mandatory before the app opens.
+  /// true  = the 'users' row has all three.
+  /// false = no row, or one of them is empty (new Google accounts — a DB
+  ///         trigger may create the row without stage/university — and old
+  ///         accounts that skipped the step in earlier versions).
+  /// null  = could not check (offline / timeout) → caller lets the user in
+  ///         and the check runs again on the next launch.
+  Future<bool?> isProfileComplete() async {
+    final user = currentUser;
+    if (user == null) return false;
+    try {
+      final row = await client
+          .from('users')
+          .select('name, stage, university')
+          .eq('id', user.id)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 8));
+      if (row == null) return false;
+      bool filled(dynamic v) => v != null && v.toString().trim().isNotEmpty;
+      return filled(row['name']) &&
+          filled(row['stage']) &&
+          filled(row['university']);
+    } catch (e) {
+      print('Error checking profile completeness: $e');
+      return null;
+    }
+  }
+
+  /// Saves the mandatory profile fields for the signed-in user.
+  /// Existing row → updates ONLY name/stage, and university ONLY if it is
+  /// still empty — a student can fill a missing university but never change
+  /// one (changing it is owner-only). Role, status, email, progress and
+  /// subscription stay untouched.
+  /// Missing row → creates it like the email sign-up does.
+  /// Throws on failure so the screen can show an error.
+  Future<void> saveRequiredProfile({
+    required String name,
+    required String stage,
+    required String university,
+  }) async {
+    final user = currentUser;
+    if (user == null) throw const AuthException('Not signed in');
+    final now = DateTime.now().toIso8601String();
+
+    final existing = await client
+        .from('users')
+        .select('id, university')
+        .eq('id', user.id)
+        .maybeSingle();
+    final savedUniversity = existing?['university']?.toString().trim() ?? '';
+    if (existing == null) {
+      await client.from('users').insert({
+        'id': user.id,
+        'email': user.email ?? '',
+        'name': name,
+        'university': university,
+        'stage': stage,
+        'role': 'student',
+        'status': 'inactive',
+        'created_at': now,
+        'updated_at': now,
+      });
+    } else {
+      await client.from('users').update({
+        'name': name,
+        'stage': stage,
+        if (savedUniversity.isEmpty) 'university': university,
+        'updated_at': now,
+      }).eq('id', user.id);
+    }
+    final finalUniversity =
+        savedUniversity.isNotEmpty ? savedUniversity : university;
+
+    // Progress row: create only if missing — never reset existing answers.
+    try {
+      final progress = await client
+          .from('user_progress')
+          .select('user_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+      if (progress == null) {
+        await client.from('user_progress').insert({
+          'user_id': user.id,
+          'answers': {},
+          'favorites': [],
+          'total_questions_answered': 0,
+          'total_correct_answers': 0,
+          'total_incorrect_answers': 0,
+          'last_activity': now,
+        });
+      }
+    } catch (e) {
+      print('Warning initializing user_progress: $e');
+    }
+
+    // Same metadata keys as the email sign-up (used as fallbacks in the app).
+    try {
+      await client.auth.updateUser(UserAttributes(data: {
+        'full_name': name,
+        'stage': stage,
+        'university': finalUniversity,
+      }));
+    } catch (e) {
+      print('Warning updating auth metadata: $e');
+    }
   }
 
   // Verify OTP confirmation code

@@ -4,6 +4,8 @@ import '../../../../core/services/supabase_service.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../../main_navigation_shell.dart';
 import '../../../../core/widgets/app_toast.dart';
+import '../widgets/social_sign_in_section.dart';
+import 'complete_profile_screen.dart';
 import 'forgot_password_screen.dart';
 import 'signup_screen.dart';
 
@@ -46,8 +48,15 @@ class _LoginScreenState extends State<LoginScreen> {
       final response = await SupabaseService().signIn(email, password);
       if (!mounted) return;
       if (response.user != null) {
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (_) => const MainNavigationShell()));
+        // Mandatory name/stage/university (old accounts may have skipped it).
+        final complete = await SupabaseService().isProfileComplete();
+        if (!mounted) return;
+        Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+                builder: (_) => complete == false
+                    ? const CompleteProfileScreen()
+                    : const MainNavigationShell()));
       } else {
         _showError('فشل تسجيل الدخول، يرجى التحقق من بياناتك');
       }
@@ -150,6 +159,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                           MiniSpinner(size: 34, color: _purple))
                                   : _PrimaryButton(
                                       label: 'Sign In', onTap: _handleSignIn),
+                              // Google on Android, Apple on iPhone — nothing on web.
+                              const SocialSignInSection(),
                               const SizedBox(height: 18),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.center,

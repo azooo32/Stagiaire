@@ -5,6 +5,7 @@ import '../../../../core/services/supabase_service.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../../../main_navigation_shell.dart';
+import 'complete_profile_screen.dart';
 
 class VerifyScreen extends StatefulWidget {
   final String email;
@@ -95,11 +96,18 @@ class _VerifyScreenState extends State<VerifyScreen>
           university: widget.university,
           stage: widget.stage,
         );
+        // createUserRecord swallows errors → confirm the mandatory fields
+        // were saved; otherwise finish them on the profile step.
+        final complete = await SupabaseService().isProfileComplete();
+        if (!mounted) return;
         // Navigate to the main application shell
         Navigator.of(context).popUntil((route) => route.isFirst);
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const MainNavigationShell()),
+          MaterialPageRoute(
+              builder: (_) => complete == false
+                  ? const CompleteProfileScreen()
+                  : const MainNavigationShell()),
         );
       } else {
         _showError('رمز التحقق غير صحيح، يرجى المحاولة مرة أخرى');

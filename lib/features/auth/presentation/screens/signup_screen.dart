@@ -6,6 +6,7 @@ import '../../../../core/widgets/app_toast.dart';
 import 'login_screen.dart';
 import 'verify_screen.dart';
 import '../../../../core/constants/universities.dart';
+import '../widgets/social_sign_in_section.dart';
 
 const Color _purple = Color(0xFF6B4EFF);
 const Color _purpleDark = Color(0xFF5635D8);
@@ -30,19 +31,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _loading = false;
   String? _selectedStage;
   String? _selectedUniversity;
-
-  final List<String> _stages = const [
-    'المرحلة الأولى',
-    'المرحلة الثانية',
-    'المرحلة الثالثة',
-    'المرحلة الرابعة',
-    'المرحلة الخامسة',
-    'المرحلة السادسة',
-    'طالب امتياز',
-    'طبيب مقيم',
-    'طبيب أخصائي',
-    'طبيب استشاري'
-  ];
 
   @override
   void dispose() {
@@ -185,7 +173,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                     const SizedBox(height: 8),
                                     _DropdownField(
                                       value: _selectedStage,
-                                      items: _stages,
+                                      items: kStages,
                                       hint: 'المرحلة *',
                                       onChanged: (v) =>
                                           setState(() => _selectedStage = v),
@@ -275,6 +263,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                   child: MiniSpinner(size: 34, color: _purple))
                               : _PrimaryButton(
                                   label: 'Sign Up', onTap: _handleSignUp),
+                          // Google on Android, Apple on iPhone — nothing on web.
+                          const SocialSignInSection(),
                           const SizedBox(height: 22),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -446,32 +436,47 @@ class _DropdownField extends StatelessWidget {
       required this.onChanged});
 
   @override
-  Widget build(BuildContext context) => Container(
-        height: 54,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        decoration: BoxDecoration(
-            color: _fieldBg, borderRadius: BorderRadius.circular(15)),
-        child: DropdownButtonHideUnderline(
-          child: DropdownButton<String>(
-            value: value,
-            isExpanded: true,
-            hint: Text(hint,
-                style: const TextStyle(
-                    color: _muted, fontSize: 12, fontFamily: 'Cairo')),
-            style: const TextStyle(
-                color: _ink,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                fontFamily: 'Cairo'),
-            items: items
-                .map((item) => DropdownMenuItem<String>(
-                    value: item,
-                    child: Text(item, overflow: TextOverflow.ellipsis)))
-                .toList(),
-            onChanged: onChanged,
-          ),
+  Widget build(BuildContext context) {
+    // The popup list follows the app theme (dark in dark mode) but the field
+    // itself is always light → white items on a dark popup, ink on a light one;
+    // the chosen value inside the field stays ink.
+    final popupIsDark = Theme.of(context).canvasColor.computeLuminance() < 0.5;
+    const fieldText = TextStyle(
+        color: _ink,
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        fontFamily: 'Cairo');
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+          color: _fieldBg, borderRadius: BorderRadius.circular(15)),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          isExpanded: true,
+          iconEnabledColor: _muted,
+          hint: Text(hint,
+              style: const TextStyle(
+                  color: _muted, fontSize: 12, fontFamily: 'Cairo')),
+          style: fieldText.copyWith(
+              color: popupIsDark ? Colors.white : _ink),
+          selectedItemBuilder: (_) => items
+              .map((item) => Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(item,
+                      overflow: TextOverflow.ellipsis, style: fieldText)))
+              .toList(),
+          items: items
+              .map((item) => DropdownMenuItem<String>(
+                  value: item,
+                  child: Text(item, overflow: TextOverflow.ellipsis)))
+              .toList(),
+          onChanged: onChanged,
         ),
-      );
+      ),
+    );
+  }
 }
 
 class _PrimaryButton extends StatelessWidget {

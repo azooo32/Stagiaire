@@ -30,3 +30,18 @@ const List<String> kUniversities = [
   'كلية طب هولير (أربيل)',
   'كلية طب دهوك',
 ];
+
+/// Study stages offered at sign-up (email and Google). Stored as free text in
+/// the DB and used to filter content, so keep the spelling exactly as is.
+const List<String> kStages = [
+  'المرحلة الأولى',
+  'المرحلة الثانية',
+  'المرحلة الثالثة',
+  'المرحلة الرابعة',
+  'المرحلة الخامسة',
+  'المرحلة السادسة',
+  'طالب امتياز',
+  'طبيب مقيم',
+  'طبيب أخصائي',
+  'طبيب استشاري',
+];

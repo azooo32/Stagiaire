@@ -5,6 +5,7 @@ import '../../../../core/services/supabase_service.dart';
 import '../../../../core/services/security_service.dart';
 import '../../../../core/widgets/app_loader.dart';
 import '../../../../main_navigation_shell.dart';
+import 'complete_profile_screen.dart';
 import 'login_screen.dart';
 import 'onboarding_screen.dart';
 import 'security_block_screen.dart';
@@ -69,9 +70,16 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     if (supabase.isAuthenticated) {
+      // Name/stage/university are mandatory: any account missing one of them
+      // (new Google sign-up, or an old account that skipped it) must finish
+      // the profile first. Offline check (null) goes straight in as before.
+      final needsProfile = await supabase.isProfileComplete() == false;
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const MainNavigationShell(),
+          pageBuilder: (_, __, ___) => needsProfile
+              ? const CompleteProfileScreen()
+              : const MainNavigationShell(),
           transitionsBuilder: (_, animation, __, child) => FadeTransition(
             opacity: animation,
             child: child,
