@@ -84,9 +84,11 @@ class _LoginScreenState extends State<LoginScreen> {
             physics: const BouncingScrollPhysics(),
             child: Column(
               children: [
-                SizedBox(
-                  height: 650,
-                  child: Stack(
+                // The card is a normal (padded) child, not Positioned inside a
+                // fixed-height box: anything painted outside a Stack's size
+                // cannot be tapped, so the social buttons and "Sign Up" below
+                // the old 650 px limit only reacted in some spots.
+                Stack(
                     clipBehavior: Clip.none,
                     children: [
                       _PurpleHeader(
@@ -95,10 +97,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         subtitle: "Hi! Welcome back, you've been missed",
                         onBack: () => Navigator.of(context).maybePop(),
                       ),
-                      Positioned(
-                        left: 22,
-                        right: 22,
-                        top: 220,
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(22, 220, 22, 0),
                         child: _AuthCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -195,7 +195,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
-                ),
                 const SizedBox(height: 36),
               ],
             ),
