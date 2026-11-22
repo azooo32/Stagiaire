@@ -184,8 +184,9 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
               accentColor: accentColor,
             ),
 
-            // iPad only: finger drawing with one touch (turns on scroll lock)
-            if (_isIPad) ...[
+            // Tablets only (iPad / Android): finger drawing with one touch
+            // (turns on scroll lock)
+            if (_isTablet) ...[
               const SizedBox(height: 16),
               _buildFingerDrawingTile(
                 isDark: isDark,
@@ -404,9 +405,13 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
     );
   }
 
-  bool get _isIPad =>
-      Theme.of(context).platform == TargetPlatform.iOS &&
-      MediaQuery.sizeOf(context).shortestSide >= 600;
+  /// iPad or Android tablet (phones already draw with the finger).
+  bool get _isTablet {
+    final platform = Theme.of(context).platform;
+    return (platform == TargetPlatform.iOS ||
+            platform == TargetPlatform.android) &&
+        MediaQuery.sizeOf(context).shortestSide >= 600;
+  }
 
   Widget _buildFingerDrawingTile({
     required bool isDark,
@@ -435,7 +440,7 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
         },
         activeThumbColor: accentColor,
         title: Text(
-          'الرسم باليد (آيباد)',
+          'الرسم باليد (آيباد / تابلت)',
           style: TextStyle(
             fontFamily: 'Cairo',
             fontWeight: FontWeight.bold,
@@ -448,7 +453,7 @@ class _PenSettingsScreenState extends State<PenSettingsScreen> {
           child: Text(
             isEnabled
                 ? 'مفعّل — ترسم بإصبع واحد مثل شاشات الموبايل. إذا لمست الشاشة إصبع ثانٍ أو كف اليد يُلغى الخط حتى لا تظهر شخابيط.'
-                : 'يتيح الرسم بالإصبع على الآيباد بإصبع واحد فقط، ويفعّل قفل التمرير أثناء الرسم تلقائياً.',
+                : 'يتيح الرسم بالإصبع على الآيباد والتابلت بإصبع واحد فقط، ويفعّل قفل التمرير أثناء الرسم تلقائياً.',
             style: TextStyle(
               fontFamily: 'Cairo',
               fontSize: 12,

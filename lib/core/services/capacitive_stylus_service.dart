@@ -189,7 +189,8 @@ class CapacitiveStylusService extends ChangeNotifier {
   bool get isReady => _enabled && _calibrated && _profile != null;
   bool get isTouchDrawingMode => _touchDrawingMode;
 
-  /// iPad finger drawing: one finger draws like on a phone, and a stroke is
+  /// Tablet finger drawing (iPad / Android tablet): one finger draws like on
+  /// a phone, and a stroke is
   /// dropped as soon as a second touch (another finger or the palm) lands.
   bool get isFingerDrawingMode => _fingerDrawingMode;
 
